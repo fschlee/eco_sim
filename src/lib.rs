@@ -15,6 +15,7 @@ pub struct EntityManager {
     full_to: usize,
     deleted: u32,
 }
+
 impl EntityManager{
     pub fn destroy(& mut self, entity: Entity) -> Result<(), &str> {
         debug_assert!(entity.id < self.generations.len() as u32);
@@ -52,10 +53,12 @@ impl EntityManager{
         Entity { id: len as u32, gen}
     }
 }
+
 pub struct EntityIter<'a> {
     em: &'a EntityManager,
     idx: usize,
 }
+
 impl<'a> Iterator for EntityIter<'a> {
     type Item = Entity;
     fn next(&mut self)-> Option<Self::Item> {
@@ -68,6 +71,7 @@ impl<'a> Iterator for EntityIter<'a> {
         None
     }
 }
+
 impl<'a> IntoIterator for & 'a EntityManager {
     type Item = Entity;
     type IntoIter = EntityIter<'a>;
@@ -81,6 +85,7 @@ pub struct Storage<T> {
     content: Vec<Option<T>>,
     generations: Vec<i32>
 }
+
 impl<T> Storage<T> {
     pub fn get(&self, entity: &Entity) -> Option<&T> {
         let Entity{id, gen} = entity;
@@ -134,6 +139,7 @@ impl<T> Default for Storage<T> {
         Self::new()
     }
 }
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 enum EntityType{
     Rock,
@@ -165,6 +171,7 @@ pub enum Action{
 }
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 struct Hunger(f32);
+
 #[derive(Clone, Debug)]
 struct MentalState {
     hunger: Hunger,
@@ -177,22 +184,24 @@ impl MentalState {
 }
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
-struct Health(f32);
+pub struct Health(f32);
+
 impl Health{
     pub fn suffer(&mut self, attack: Attack){
         self.0 -= attack.0
     }
 }
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
-struct Attack(f32);
+pub struct Attack(f32);
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
-struct Satiation(f32);
+pub struct Satiation(f32);
+
 #[derive(Clone, Debug)]
 pub struct PhysicalState {
-    health: Health,
-    attack: Option<Attack>,
-    satiation: Hunger,
+    pub health: Health,
+    pub attack: Option<Attack>,
+    pub satiation: Satiation,
 }
 
 
@@ -204,6 +213,7 @@ pub struct Position {
     x: u32,
     y: u32,
 }
+
 impl Position {
     pub fn neighbours(&self, other: &Position)-> bool {
         self != other
@@ -211,6 +221,7 @@ impl Position {
             && ((self.y as i64) - (other.y as i64)).abs() <= 1
     }
 }
+
 #[derive(Clone, Debug, Default)]
 pub struct World {
     cells : [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT],
@@ -218,6 +229,7 @@ pub struct World {
     physical_states: Storage<PhysicalState>,
     positions: Storage<Position>,
 }
+
 impl World {
     pub fn new() -> Self {
         Self{ cells: Default::default(), entity_types: Storage::new(), physical_states: Storage::new(), positions: Storage::new() }
@@ -234,8 +246,23 @@ impl World {
                         Err("invalid move")
                     }
                 },
-                Action::Eat(entity) => {
-                    Ok(())
+                Action::Eat(target) => {
+                    if self.positions.get(&target) == Some(own_pos) {
+                        let own_type = self.entity_types.get(entity)
+                            .ok_or("unknown eater entity")?;
+                        let target_type = self.entity_types.get(&target)
+                            .ok_or("unknown food entity")?;
+                        if own_type.can_eat(target_type) {
+                            self.eat_unchecked(entity, &target);
+                            Ok(())
+                        }
+                        else {
+                            Err("entity can't eat that")
+                        }
+                    }
+                    else {
+                        Err("can only eat things in the same tile")
+                    }
                 }
             }
         } else {
@@ -285,6 +312,9 @@ impl World {
         }
         self.entities_at_mut(new_position).push(entity.clone());
     }
+    fn eat_unchecked(&mut self, eater: &Entity, eaten: &Entity){
+        self.physical_states.get_mut(eater).map(|ps| ps.satiation.0 += 5.0);
+    }
     pub fn get_view(&self, x_range: Range<usize>, y_range: Range<usize>) -> impl Iterator< Item = (usize, usize, ViewData)> + '_{
         self.cells[y_range.clone()].iter().zip(y_range.clone())
             .flat_map(move |(v, y)| v[x_range.clone()].iter().zip(x_range.clone())
@@ -297,6 +327,7 @@ impl World {
         }))
     }
 }
+
 pub type ViewData = Option<Vec<EntityType>>;
 type Observation<'a> = &'a World;
 
@@ -305,6 +336,7 @@ struct AgentSystem {
     agents: Vec<Entity>,
     mental_states: Storage<MentalState>
 }
+
 impl AgentSystem {
     pub fn advance(& mut self, world: & mut World){
         for entity in &self.agents {
@@ -321,6 +353,7 @@ impl AgentSystem {
         }
     }
 }
+
 #[derive(Clone, Debug, Default)]
 pub struct SimState {
     world: World,
