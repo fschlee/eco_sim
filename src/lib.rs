@@ -1,7 +1,8 @@
 use arr_macro::arr;
 use log::error;
 use std::ops::Range;
-use rand::{Rng, XorShiftRng, SeedableRng};
+use rand::{Rng, SeedableRng};
+use rand_xorshift::XorShiftRng;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct Entity {
@@ -180,19 +181,87 @@ pub enum Action {
     Move(Position),
     Eat(Entity),
 }
-#[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
+#[derive(PartialOrd, PartialEq, Copy, Clone, Debug, Default)]
 struct Hunger(f32);
 
 #[derive(Clone, Debug)]
 struct MentalState {
+    id: Entity,
     hunger: Hunger,
+    current_action: Option<Action>,
 }
+const HUNGER_THRESHOLD : Hunger = Hunger(1.0);
+
+const HUNGER_INCREMENT : f32 = 0.01;
 impl MentalState {
+    pub fn new(entity: Entity) -> Self {
+        Self{
+            id: entity,
+            hunger: Hunger::default(),
+            current_action: None,
+        }
+    }
     pub fn decide(
         &mut self,
+        own_type: EntityType,
         physical_state: &PhysicalState,
+        own_position: Position,
         observation: Observation,
     ) -> Option<Action> {
+        self.hunger.0 += HUNGER_INCREMENT;
+        // println!("decide");
+        match self.current_action {
+            Some(Action::Eat(food)) => {
+                if self.hunger.0 <= 0.0 {
+                    self.current_action = None;
+                }
+            },
+            Some(Action::Move(goal)) => {
+                if own_position == goal {
+                    self.current_action = None;
+                }
+            },
+            None => {
+                if self.hunger > HUNGER_THRESHOLD {
+                    println!("hungry");
+                    match observation.find_closest(own_position, |e, w| {
+                        match w.entity_types.get(e) {
+                            Some(other_type) => own_type.can_eat(other_type),
+                            None => false
+                        }
+                    }).next() {
+                        Some((entity, position)) => {
+                            if position == own_position {
+                                println!("at food source {:?}", position);
+                                self.current_action = Some(Action::Eat(entity));
+                            }
+                            else {
+                                println!("moving towards food source {:?}", position);
+                                if own_position.is_neighbour(&position) {
+                                    self.current_action = Some(Action::Move(position));
+                                }
+                                else{
+                                    if let Some(step) = self.path(own_position, position, &observation){
+                                        self.current_action = Some(Action::Move(step));
+                                    }
+
+                                }
+                            }
+                        }
+                        None => println!("no food"),
+                    }
+                }
+            }
+        }
+        self.current_action
+    }
+    pub fn path(&self, current: Position, goal: Position, observation: &Observation) -> Option<Position> {
+        let d = current.distance(&goal);
+        for n in current.neighbours(){
+            if current.distance(&n) < d && observation.can_pass(&self.id, n) {
+                return Some(n);
+            }
+        }
         None
     }
 }
@@ -228,10 +297,26 @@ pub struct Position {
 }
 
 impl Position {
-    pub fn neighbours(&self, other: &Position) -> bool {
+    pub fn is_neighbour(&self, other: &Position) -> bool {
         self != other
             && ((self.x as i64) - (other.x as i64)).abs() <= 1
             && ((self.y as i64) - (other.y as i64)).abs() <= 1
+    }
+    pub fn neighbours(&self) -> impl IntoIterator<Item=Position> {
+        let mut neighbours = vec![
+            Position{ x: self.x + 1, y: self.y },
+            Position{ x: self.x, y: self.y + 1 },
+            ];
+        if self.x > 0 {
+            neighbours.push(Position{x: self.x -1, y: self.y});
+        }
+        if self.y > 0 {
+            neighbours.push(Position{x: self.x, y: self.y -1});
+        }
+        neighbours
+    }
+    pub fn distance(&self, other: & Position) -> u32 {
+        ((self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()) as u32
     }
 }
 
@@ -244,13 +329,14 @@ pub struct World {
 }
 
 impl World {
-    pub fn new(mut rng: impl Rng, entity_manager: &mut EntityManager) -> Self {
+    pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<Entity>) {
         let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = Default::default();
         let mut entity_types = Storage::new();
         let mut physical_states =  Storage::new();
         let mut positions = Storage::new();
         let mut inserter = |entity_type, count, opt_phys_state : Option<PhysicalState>| {
             let mut c = 0;
+            let mut inserted = Vec::new();
             while c < count {
                 let x = rng.gen_range(0, MAP_WIDTH);
                 let y = rng.gen_range(0, MAP_HEIGHT);
@@ -263,25 +349,36 @@ impl World {
                     }
                     cells[y][x] = Some(vec![entity]);
                     c+= 1;
+                    inserted.push(entity);
                 }
             }
+            inserted
         };
         inserter(EntityType::Tree, MAP_WIDTH * MAP_HEIGHT / 8, None);
         inserter(EntityType::Rock, MAP_WIDTH * MAP_HEIGHT / 16, None);
         inserter(EntityType::Grass, MAP_WIDTH * MAP_HEIGHT / 4, None);
-        inserter(EntityType::Rabbit, 1, None);
-        Self {
-            cells,
-            entity_types,
-            physical_states,
-            positions,
-        }
+        let agents = inserter(EntityType::Rabbit, 1, Some(
+            PhysicalState{
+                health: Health(100.0),
+                attack: None,
+                satiation: Satiation(10.0)
+            }));
+
+        (
+            Self {
+                cells,
+                entity_types,
+                physical_states,
+                positions,
+            },
+            agents
+        )
     }
     pub fn act(&mut self, entity: &Entity, action: Action) -> Result<(), &str> {
         if let Some(own_pos) = self.positions.get(entity) {
             match action {
                 Action::Move(pos) => {
-                    if own_pos.neighbours(&pos) && self.can_pass(entity, pos) {
+                    if own_pos.is_neighbour(&pos) && self.can_pass(entity, pos) {
                         self.move_unchecked(entity, pos);
                         Ok(())
                     } else {
@@ -388,6 +485,81 @@ impl World {
                     })
             })
     }
+    pub fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &Self) -> bool + 'a) -> impl Iterator<Item=(Entity, Position)> + 'a {
+        EntityWalker::new(self, starting_point).filter(move |(e, p)| predicate(e, self))
+    }
+}
+struct EntityWalker<'a> {
+    world: &'a World,
+    center: Position,
+    current_pos: Position,
+    current: &'a [Entity],
+    radius: i32,
+    delta: i32,
+    subindex: usize,
+}
+impl<'a> EntityWalker<'a> {
+    pub fn new(world: &'a World, center: Position) -> Self {
+        let current = world.entities_at(center);
+        Self{
+            world,
+            center,
+            current_pos: center.clone(),
+            current,
+            radius: 0,
+            delta: 0,
+            subindex: 0,
+        }
+    }
+}
+impl<'a> Iterator for EntityWalker<'a> {
+    type Item = (Entity, Position);
+    fn next(& mut self) -> Option<Self::Item> {
+        if self.subindex < self.current.len() {
+            let item = self.current[self.subindex].clone();
+            self.subindex += 1;
+            return Some((item, self.current_pos));
+        }
+        if self.current_pos.x > self.center.x {
+            let x = self.center.x as i32 + self.delta - self.radius;
+            if x >= 0 {
+                self.current_pos = Position{x: x as u32, y : self.current_pos.y};
+                self.current = self.world.entities_at(self.current_pos);
+                self.subindex = 0;
+                return self.next();
+            }
+
+        }
+        if self.current_pos.y > self.center.y {
+            let x = self.center.x as i32 + self.radius - self.delta;
+            let y = self.center.y as i32 - self.delta;
+            if x >= 0 && y >= 0 {
+                self.current_pos = Position{x: x as u32, y: y as u32 };
+                self.current = self.world.entities_at(self.current_pos);
+                self.subindex = 0;
+                return self.next();
+            }
+
+        }
+        if self.delta < self.radius {
+            self.delta += 1;
+            self.current_pos = Position { x: (self.center.x as i32 + self.radius - self.delta) as u32, y: self.center.y + self.delta as u32 };
+            let Position{x, y} = self.current_pos;
+            self.current = self.world.entities_at(self.current_pos);
+            self.subindex = 0;
+            return self.next();
+        }
+        let v = self.center.x + self.center.y;
+        if (self.radius as u32) < v || (self.radius as u32) < (MAP_WIDTH + MAP_HEIGHT) as u32 - v {
+            self.radius += 1;
+            self.delta = 0;
+            self.current_pos = Position{ x : self.center.x + self.radius as u32, y: self.center.y };
+            self.current = self.world.entities_at(self.current_pos);
+            self.subindex = 0;
+            return self.next();
+        }
+        None
+    }
 }
 
 pub type ViewData = Option<Vec<EntityType>>;
@@ -405,9 +577,11 @@ impl AgentSystem {
             let opt_action = match (
                 self.mental_states.get_mut(entity),
                 world.get_physical_state(entity),
+                world.entity_types.get(entity),
+                world.positions.get(entity),
             ) {
-                (Some(mental_state), Some(physical_state)) => {
-                    mental_state.decide(physical_state, world.observe_as(entity))
+                (Some(mental_state), Some(physical_state), Some(et), Some(position)) => {
+                    mental_state.decide(*et, physical_state, *position, world.observe_as(entity))
                 }
                 _ => None,
             };
@@ -416,6 +590,13 @@ impl AgentSystem {
                 world.act(entity, action);
             }
         }
+    }
+    pub fn init(agents: Vec<Entity>, world: &World) -> Self {
+        let mut mental_states = Storage::new();
+        for agent in &agents {
+            mental_states.insert(agent, MentalState::new(agent.clone()));
+        }
+        Self{ agents, mental_states}
     }
 }
 
@@ -440,12 +621,13 @@ impl SimState {
     pub fn new(time_step: f32) -> Self {
         let mut entity_manager = EntityManager::default();
         let rng = XorShiftRng::from_seed([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-        let world = World::new(rng, &mut entity_manager);
+        let (world, agents) = World::init(rng, &mut entity_manager);
+        let agent_system = AgentSystem::init(agents, &world);
 
         Self {
             time_acc: 0.0,
             sim_step: time_step,
-            agent_system: AgentSystem::default(),
+            agent_system,
             world,
             entity_manager,
         }
