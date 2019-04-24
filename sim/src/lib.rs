@@ -1,4 +1,3 @@
-use arr_macro::arr;
 use log::error;
 use std::ops::Range;
 use rand::{Rng, SeedableRng};
@@ -250,6 +249,9 @@ impl MentalState {
                         }
                         None => println!("no food"),
                     }
+                }
+                else {
+                    println!("not hungry yet");
                 }
             }
         }

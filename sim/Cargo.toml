@@ -1,0 +1,11 @@
+[package]
+name = "eco_sim"
+version = "0.1.0"
+authors = ["Feisal Schlee <fschlee@techfak.uni-bielefeld.de>"]
+edition = "2018"
+
+[dependencies]
+"log" = "^0.4"
+"arr_macro" = "^0.1"
+"rand" = ""
+"rand_xorshift" = ""
