@@ -1,0 +1,31 @@
+[package]
+name = "eco_sim_gui"
+version = "0.1.0"
+authors = ["Feisal Schlee <fschlee@techfak.uni-bielefeld.de>"]
+edition = "2018"
+
+[dependencies]
+"eco_sim" = { path="../sim" }
+"winit" = "^0.18.*"
+
+"nalgebra" = "^0.17.*"
+"gfx-hal" = { git = "https://github.com/gfx-rs/gfx" }
+"gfx-backend-vulkan" = { git = "https://github.com/gfx-rs/gfx" }
+"gfx-backend-dx11" = { git = "https://github.com/gfx-rs/gfx" }
+"gfx-backend-dx12" = { git = "https://github.com/gfx-rs/gfx" }
+"gfx-backend-gl" = { git = "https://github.com/gfx-rs/gfx" }
+"log" = "^0.4"
+"env_logger" = "^0.5"
+"failure" = "^0.1"
+"itertools" = "^0.8"
+"lazy_static" = "^1"
+"glium" = "*"
+"arrayvec" = "*"
+"image" = "*"
+"shaderc" = "0.3"
+"conrod_core"  = "^0.63"
+"conrod_winit" = "^0.63"
+
+[[bin]]
+name = "eco_sim"
+path = "src/main.rs"
