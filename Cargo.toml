@@ -3,8 +3,10 @@
 
 members = [
     "sim",
+    "gui",
 ]
 
 default-members = [
     "sim",
+    "gui",
 ]
