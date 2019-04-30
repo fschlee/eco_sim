@@ -144,7 +144,6 @@ impl GameState {
     pub fn get_view(
         &self,
     ) -> impl Iterator<Item = (usize, usize, eco_sim::ViewData)> + '_ {
-
         self.eco_sim.get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT)
     }
 }

@@ -98,7 +98,9 @@ impl<'a> UIState<'a> {
         let hidpi_factor = window.get_hidpi_factor();
         let dim = [size.width, size.height];
         let mut conrod = cc::UiBuilder::new(dim).theme(theme()).build();
-        conrod.fonts.insert_from_file("./gui/resources/fonts/NotoSans/NotoSans-Regular.ttf").unwrap();
+        let bytes: &[u8] = include_bytes!("../resources/fonts/NotoSans/NotoSans-Regular.ttf");
+        let font = cc::text::Font::from_bytes(bytes).unwrap();
+        conrod.fonts.insert(font);
         let ids = WidgetIds::new(conrod.widget_id_generator());
         {
             let mut ui = conrod.set_widgets();
