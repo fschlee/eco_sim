@@ -57,10 +57,27 @@ use crate::renderer::memory::descriptors::DescriptorPoolManager;
 type Back<IS : InstSurface> = <IS::Instance as Instance>::Backend;
 type Dev<B: Backend> = <B as Backend>::Device;
 
+const CLEAR_COLOR : [ClearValue; 1] =  [ClearValue::Color(ClearColor::Uint([0x2E, 0x34, 0x36, 0]))];
 
+#[cfg(feature = "reload_shaders")]
 const UI_SHADERS : [ShaderSpec; 2] = [
-    ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/ui.vert"},
-    ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/ui.frag"},
+        ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/ui.vert", source: None},
+        ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/ui.frag", source: None},
+    ];
+#[cfg(not(feature = "reload_shaders"))]
+const UI_SHADERS : [ShaderSpec; 2] = [
+    ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/ui.vert", source: Some(include_str!("../resources/ui.vert")) },
+    ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/ui.frag", source: Some(include_str!("../resources/ui.frag"))},
+];
+#[cfg(feature = "reload_shaders")]
+const SHADERS_2D : [ShaderSpec; 2] = [
+    ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/2d.vert", source: None},
+    ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/2d.frag", source: None},
+];
+#[cfg(not(feature = "reload_shaders"))]
+const SHADERS_2D : [ShaderSpec; 2] = [
+    ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/2d.vert", source: Some(include_str!("../resources/2d.vert")) },
+    ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/2d.frag", source: Some(include_str!("../resources/2d.frag"))},
 ];
 
 pub struct Renderer<'a, IS : InstSurface> {
@@ -120,8 +137,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
         };
         let texture_manager = ResourceManager::new(device.clone(), adapter.clone(), transfer_pool).expect("failed to create texture manager");
         let ui_pipeline = ui_pipeline::UiPipeline::create(device.clone(), hal_state.render_area, hal_state.render_pass.deref(), vert_art, frag_art, &texture_manager.descriptor_set_layouts).expect("failed to create pipeline");
-        let mut art_2d = complile_shaders(&[
-            ShaderSpec{kind: shaderc::ShaderKind::Vertex,  source_path: "resources/2d.vert" }, ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/2d.frag" }]).expect("couldn't compile shader");
+        let mut art_2d = complile_shaders(&SHADERS_2D).expect("couldn't compile shader");
         let frag_2d = art_2d.remove(1);
         let vert_2d = art_2d.remove(0);
         let pipeline_2d = pipeline_2d::Pipeline2D::create(device.clone(), hal_state.render_area, hal_state.render_pass.deref(), vert_2d, frag_2d, &texture_manager.descriptor_set_layouts).expect("failed to create pipeline");
@@ -192,11 +208,12 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
         let  draw_queue = & mut self.queue_group.queues[0];
         self.hal_state.with_inline_encoder( draw_queue, |enc| {
             {
-                pipeline.execute(enc, mm, vbuffs, render_area, cmds)
-            }
-            {
                 pipeline_2d.execute(enc, mm, sim_vtx_buff, sim_idx_buff, render_area, &render_data.commands);
             }
+            {
+                pipeline.execute(enc, mm, vbuffs, render_area, cmds)
+            }
+
 
 
         })  // */ */
@@ -212,23 +229,29 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             Err("unexpected number of compilation artifacts")
         }
     }
+
     fn reload_shaders(&mut self) -> Result<(), &str> {
-        println!("reloading shaders");
+        #[cfg(feature = "reload_shaders")]
         {
-            let  draw_queue = & mut self.queue_group.queues[0];
-            self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
-            self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
-            self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
+            println!("reloading shaders");
+            {
+                let  draw_queue = & mut self.queue_group.queues[0];
+                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
+                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
+                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
+            }
+
+            let (vert_art, frag_art) = Self::compile_ui_shaders()?;
+            self.ui_pipeline = ui_pipeline::UiPipeline::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_art, frag_art, &self.texture_manager.descriptor_set_layouts)?;
+            let mut art_2d = complile_shaders(&SHADERS_2D).expect("couldn't compile shader");
+            let frag_2d = art_2d.remove(1);
+            let vert_2d = art_2d.remove(0);
+            self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(),vert_2d, frag_2d, &self.texture_manager.descriptor_set_layouts)?;
         }
-
-        let (vert_art, frag_art) = Self::compile_ui_shaders()?;
-        self.ui_pipeline = ui_pipeline::UiPipeline::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_art, frag_art, &self.texture_manager.descriptor_set_layouts)?;
-        let mut art_2d = complile_shaders(&[
-            ShaderSpec{kind: shaderc::ShaderKind::Vertex,  source_path: "./resources/2d.vert" }, ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "./resources/2d.frag" }]).expect("couldn't compile shader");
-        let frag_2d = art_2d.remove(1);
-        let vert_2d = art_2d.remove(0);
-        self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(),vert_2d, frag_2d, &self.texture_manager.descriptor_set_layouts)?;
-
+        #[cfg(not(feature= "reload_shaders"))]
+        {
+            println!("not using feature reload_shaders");
+        }
         Ok(())
     }
     fn restart(& mut self)-> Result<(), &str> {
@@ -644,15 +667,13 @@ impl<B: Backend> HalState<B> {
         // RECORD COMMANDS
         unsafe {
             let buffer = &mut self.command_buffers[i_usize];
-            const QUAD_CLEAR: [ClearValue; 1] =
-                [ClearValue::Color(ClearColor::Float([1.0, 1.0, 1.0, 0.0]))];
             buffer.begin(false);
             {
                 let mut encoder = buffer.begin_render_pass_inline(
                     &self.render_pass,
                     &self.framebuffers[i_usize],
                     self.render_area,
-                    QUAD_CLEAR.iter(),
+                    CLEAR_COLOR.iter(),
                 );
 
                 {
@@ -811,21 +832,34 @@ impl Drop for HalState{
 struct ShaderSpec {
     pub kind: shaderc::ShaderKind,
     pub source_path: & 'static str,
+    pub source: Option<& 'static str>,
 }
 fn complile_shaders(shaders: &[ShaderSpec]) -> Result<Vec<shaderc::CompilationArtifact>, &str>{
     let mut compiler = shaderc::Compiler::new().unwrap();
     let mut res = Vec::with_capacity(shaders.len());
-    for ShaderSpec{ kind, source_path } in shaders {
-        let path = "./gui/".to_owned() + *source_path;
-        let source = std::fs::read_to_string(path).map_err(|_| "shader source not found")?;
+    for ShaderSpec{ kind, source_path, source } in shaders {
         let file = std::path::Path::new(source_path).file_name().unwrap().to_str().unwrap();
-        let artifact = compiler.compile_into_spirv(
-            &source,
-            *kind,
-            file,
-            "main",
-            None,
-        ).map_err(|_| "couldn't compile shader")?;
+        let artifact = match source {
+            None => {
+                let source = std::fs::read_to_string(source_path).map_err(|_| "shader source not found")?;
+                compiler.compile_into_spirv(
+                    &source,
+                    *kind,
+                    file,
+                    "main",
+                    None,
+                ).map_err(|_| "couldn't compile shader")?
+            }
+            Some(source) => {
+                compiler.compile_into_spirv(
+                    *source,
+                    *kind,
+                    file,
+                    "main",
+                    None,
+                ).map_err(|_| "couldn't compile shader")?
+            }
+        };
         res.push(artifact);
     }
     Ok(res)

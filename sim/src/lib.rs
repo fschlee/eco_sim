@@ -181,13 +181,13 @@ pub enum Action {
     Eat(Entity),
 }
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug, Default)]
-struct Hunger(f32);
+pub struct Hunger(f32);
 
-#[derive(Clone, Debug)]
-struct MentalState {
-    id: Entity,
-    hunger: Hunger,
-    current_action: Option<Action>,
+#[derive(Clone, Copy, Debug)]
+pub struct MentalState {
+    pub id: Entity,
+    pub hunger: Hunger,
+    pub current_action: Option<Action>,
 }
 const HUNGER_THRESHOLD : Hunger = Hunger(1.0);
 
@@ -294,8 +294,8 @@ pub const MAP_WIDTH: usize = 10;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct Position {
-    x: u32,
-    y: u32,
+    pub x: u32,
+    pub y: u32,
 }
 
 impl Position {
@@ -640,5 +640,14 @@ impl SimState {
         y: Range<usize>,
     ) -> impl Iterator<Item = (usize, usize, ViewData)> + '_ {
         self.world.get_view(x, y)
+    }
+    pub fn entities_at(&self, position: Position) -> &[Entity] {
+        self.world.entities_at(position)
+    }
+    pub fn update_mental_state(& mut self, mental_state: MentalState) {
+        self.agent_system.mental_states.insert(&mental_state.id.clone(), mental_state);
+    }
+    pub fn get_mental_state(&self, entity :&Entity) -> Option<&MentalState> {
+        self.agent_system.mental_states.get(entity)
     }
 }

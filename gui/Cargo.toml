@@ -4,6 +4,11 @@ version = "0.1.0"
 authors = ["Feisal Schlee <fschlee@techfak.uni-bielefeld.de>"]
 edition = "2018"
 
+[features]
+default = ["vulkan"]
+reload_shaders = []
+vulkan = []
+
 [dependencies]
 "eco_sim" = { path="../sim" }
 "winit" = "^0.18.*"

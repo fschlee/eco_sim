@@ -52,7 +52,7 @@ pub fn theme() -> conrod_core::Theme {
         padding: Padding::none(),
         x_position: Position::Relative(Relative::Align(Align::Start), None),
         y_position: Position::Relative(Relative::Direction(Direction::Backwards, 20.0), None),
-        background_color: conrod_core::color::DARK_CHARCOAL,
+        background_color: conrod_core::color::TRANSPARENT,
         shape_color: conrod_core::color::LIGHT_CHARCOAL,
         border_color: conrod_core::color::BLACK,
         border_width: 0.0,
@@ -79,6 +79,7 @@ static CAMERA_STEP : f32 = 0.05;
 pub struct UIState<'a> {
     window: &'a winit::Window,
     mouse_pos : LogicalPosition,
+    edit_ent : Option<eco_sim::Entity>,
     hidpi_factor: f64,
     pub conrod: cc::Ui,
     pub ids: WidgetIds,
@@ -86,11 +87,13 @@ pub struct UIState<'a> {
     prev: Instant,
     paused: bool,
 }
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Action {
     Pause,
     Unpause,
     Reset(bool),
+    UpdateMentalState(eco_sim::MentalState),
+    Hover(LogicalPosition),
 }
 impl<'a> UIState<'a> {
     pub fn new<'b: 'a>(window: &'b winit::Window) -> UIState<'a>{
@@ -106,7 +109,7 @@ impl<'a> UIState<'a> {
             let mut ui = conrod.set_widgets();
             widgets(&mut ui, &ids);
         }
-        Self{mouse_pos : LogicalPosition{x: 0.0, y:0.0}, hidpi_factor, size, conrod, ids, prev : Instant::now(), window, paused: true }
+        Self{mouse_pos : LogicalPosition{x: 0.0, y:0.0}, hidpi_factor, size, conrod, ids, prev : Instant::now(), window, paused: true, edit_ent: None }
     }
     pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
         let mut should_close = false;
@@ -121,10 +124,14 @@ impl<'a> UIState<'a> {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::CloseRequested => should_close = true,
                     WindowEvent::Resized(logical_size) => ui_updates.push(UIUpdate::Resized { size : logical_size}),
-                    WindowEvent::CursorMoved { position, .. } => self.mouse_pos = position,
+                    WindowEvent::CursorMoved { position, .. } => {
+                        self.mouse_pos = position;
+                        actions.push(Action::Hover(position));
+                    },
                     WindowEvent::MouseInput {button : MouseButton::Right, state: ElementState::Pressed, .. } =>
                         {
-                            ui_updates.push(UIUpdate::ToolTip{ pos : self.mouse_pos, txt : "foo".to_string()})
+                            self.edit_ent = game_state.get_editable_entity(self.mouse_pos);
+                            ui_updates.push(UIUpdate::ToolTip{ pos : self.mouse_pos, txt : "foo".to_string()});
                         }
                     WindowEvent::KeyboardInput { input : KeyboardInput{ virtual_keycode : Some(key), modifiers, state: ElementState::Released, .. }, .. } =>
                         {

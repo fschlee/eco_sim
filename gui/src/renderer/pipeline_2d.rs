@@ -123,7 +123,7 @@ impl<B: Backend> Pipeline2D<B> {
             blend_color: None,
             depth_bounds: None,
         };
-        let push_constants = vec![(ShaderStageFlags::VERTEX, 0..4)];
+        let push_constants = vec![(ShaderStageFlags::VERTEX, 0..5)];
         let layout = unsafe {
             device
                 .create_pipeline_layout(descriptor_set_layouts, push_constants)
@@ -191,7 +191,7 @@ impl<B: Backend> Pipeline2D<B> {
 
             let device = self.device.deref();
             for cmd in cmds.iter() {
-                encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &[(render_area.w as f32).to_bits(), (render_area.h as f32).to_bits(), cmd.x_offset.to_bits(), cmd.y_offset.to_bits()]);
+                encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &[(render_area.w as f32).to_bits(), (render_area.h as f32).to_bits(), cmd.x_offset.to_bits(), cmd.y_offset.to_bits(), cmd.highlight as u32]);
                 let scissor = render_area;
                 encoder.set_scissors(0, Some(scissor));
                 encoder.draw_indexed(cmd.range.clone(), 0, 0..1);
