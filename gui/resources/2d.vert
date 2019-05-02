@@ -25,7 +25,8 @@ void main()
 {
     float width = push.width; //1024.0;
     float height = push.height;
-    gl_Position = vec4((push.x_offset + 48.0 * position.x - 0.25 * width) * 1.7 *  height, (48.0 * position.y + push.y_offset - 0.25 * height) * 1.7 * width, 0.0, 0.5 *  width * height);
+    float margin = 80.0;
+    gl_Position = vec4((margin + push.x_offset + 80.0 * position.x - 0.5 * width) / width, (margin + 80.0 * position.y + push.y_offset - 0.5 * height) / height, 0.0, 0.5 );
     if (push.highlighted != 0)
     {
         frag_color = vec4(high(color.r) ,high(color.g), high(color.b), color.a);

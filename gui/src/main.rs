@@ -13,13 +13,13 @@ mod renderer;
 pub mod ui;
 pub mod simulation;
 
-const MAX_RENDER_FAILS : u32 = 20;
+const MAX_RENDER_FAILS : u32 = 100;
 
 fn main() {
     env_logger::init();
     let mut event_loop = EventsLoop::new();
     let window = WindowBuilder::new()
-        .with_dimensions(LogicalSize { width: 1024.0, height: 1024.0 })
+        .with_dimensions(LogicalSize { width: 1280.0, height: 1024.0 })
         .with_title("Eco sim")
         .build(&event_loop)
         .unwrap();

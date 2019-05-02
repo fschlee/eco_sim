@@ -181,7 +181,11 @@ pub enum Action {
     Eat(Entity),
 }
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug, Default)]
-pub struct Hunger(f32);
+pub struct Hunger(pub f32);
+
+const HUNGER_THRESHOLD : Hunger = Hunger(1.0);
+
+const HUNGER_INCREMENT : f32 = 0.0001;
 
 #[derive(Clone, Copy, Debug)]
 pub struct MentalState {
@@ -189,9 +193,7 @@ pub struct MentalState {
     pub hunger: Hunger,
     pub current_action: Option<Action>,
 }
-const HUNGER_THRESHOLD : Hunger = Hunger(1.0);
 
-const HUNGER_INCREMENT : f32 = 0.01;
 impl MentalState {
     pub fn new(entity: Entity) -> Self {
         Self{
@@ -207,8 +209,8 @@ impl MentalState {
         own_position: Position,
         observation: Observation,
     ) -> Option<Action> {
-        self.hunger.0 += HUNGER_INCREMENT;
-        // println!("decide");
+
+        self.hunger.0 += (20.0 -  physical_state.satiation.0) * HUNGER_INCREMENT;
         match self.current_action {
             Some(Action::Eat(food)) => {
                 if self.hunger.0 <= 0.0 {
@@ -222,7 +224,6 @@ impl MentalState {
             },
             None => {
                 if self.hunger > HUNGER_THRESHOLD {
-                    println!("hungry");
                     match observation.find_closest(own_position, |e, w| {
                         match w.entity_types.get(e) {
                             Some(other_type) => own_type.can_eat(other_type),
@@ -231,11 +232,9 @@ impl MentalState {
                     }).next() {
                         Some((entity, position)) => {
                             if position == own_position {
-                                println!("at food source {:?}", position);
                                 self.current_action = Some(Action::Eat(entity));
                             }
                             else {
-                                println!("moving towards food source {:?}", position);
                                 if own_position.is_neighbour(&position) {
                                     self.current_action = Some(Action::Move(position));
                                 }
@@ -249,9 +248,6 @@ impl MentalState {
                         }
                         None => println!("no food"),
                     }
-                }
-                else {
-                    println!("not hungry yet");
                 }
             }
         }
@@ -649,5 +645,8 @@ impl SimState {
     }
     pub fn get_mental_state(&self, entity :&Entity) -> Option<&MentalState> {
         self.agent_system.mental_states.get(entity)
+    }
+    pub fn get_type(& self, entity: & Entity) -> Option<EntityType> {
+        self.world.entity_types.get(entity).copied()
     }
 }

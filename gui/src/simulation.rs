@@ -1,6 +1,6 @@
 use crate::ui::Action;
 
-use eco_sim::{SimState, EntityType, Storage, Entity};
+use eco_sim::{SimState, EntityType, Storage, Entity, MentalState};
 use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
@@ -34,6 +34,7 @@ pub struct GameState{
     highlighted: Option<(usize, usize)>,
     cell_width: f32,
     cell_height: f32,
+    margin: f32,
 
 }
 
@@ -43,7 +44,7 @@ impl GameState {
     pub fn new() -> GameState{
         let eco_sim = SimState::new(SIM_STEP);
         println!("init");
-        GameState{eco_sim, cache: Storage::new(), paused: true, highlighted: None, cell_width : 48.0, cell_height: 48.0 }
+        GameState{eco_sim, cache: Storage::new(), paused: true, highlighted: None, cell_width : 80.0, cell_height: 80.0, margin: 80.0 }
     }
     pub fn update(&mut self, actions: Vec<Action>, time_step: f32) {
         for a in &actions {
@@ -61,7 +62,15 @@ impl GameState {
                     let (x, y) = self.logical_position_to_coords(*pos);
                     self.highlighted = Some((x, y))
                 }
-
+                Action::Move(entity, pos) => {
+                    if let Some(ms) = self.eco_sim.get_mental_state(entity) {
+                        let (x, y) = self.logical_position_to_coords(*pos);
+                        let sim_pos = eco_sim::Position { x: x as u32, y: y as u32 };
+                        let mut new_ms = ms.clone();
+                        new_ms.current_action = Some(eco_sim::Action::Move(sim_pos));
+                        self.eco_sim.update_mental_state(new_ms);
+                    }
+                }
             }
         }
         if !self.paused {
@@ -163,12 +172,22 @@ impl GameState {
         self.eco_sim.entities_at(sim_pos).iter().find(|e| { self.eco_sim.get_mental_state(*e).is_some()}).copied()
 
     }
-    fn logical_position_to_coords(&self, mut position: LogicalPosition) -> (usize, usize) {
-        position.x -= 512.0 - 256.0 * 1.7;
-        position.y -= 512.0 - 256.0 * 1.7;
-        let x = (position.x as f32 / (1.7 * self.cell_width)).floor() as usize;
-        let y = (position.y as f32 / (1.7 * self.cell_height)).floor() as usize;
+    pub fn get_mental_state(&self, entity: &Entity) -> Option<&MentalState> {
+        self.eco_sim.get_mental_state(entity)
+    }
+    pub fn get_type(& self, entity: & Entity) -> Option<EntityType> {
+        self.eco_sim.get_type(entity)
+    }
+    fn logical_position_to_coords(&self, position: LogicalPosition) -> (usize, usize) {
+        let x = ((position.x as f32 - self.margin) / self.cell_width).floor() as usize;
+        let y = ((position.y as f32 - self.margin) / self.cell_height).floor() as usize;
         (x, y)
+    }
+    pub fn is_within(& self, position: LogicalPosition) -> bool {
+        position.x as f32 >= self.margin
+            && position.y as f32 >= self.margin
+            && position.x as f32 <= self.margin + self.cell_width * eco_sim::MAP_WIDTH as f32
+            && position.y as f32 <= self.margin + self.cell_height * eco_sim::MAP_HEIGHT as f32
     }
 }
 
