@@ -7,18 +7,19 @@ edition = "2018"
 [features]
 default = ["vulkan"]
 reload_shaders = []
-vulkan = []
-
+vulkan = ["gfx-backend-vulkan"]
+dx11 = ["gfx-backend-dx11"]
+dx12 = ["gfx-backend-dx12"]
+gl = ["gfx-backend-gl"]
 [dependencies]
 "eco_sim" = { path="../sim" }
 "winit" = "^0.18.*"
-
+"gfx-backend-vulkan" = { git = "https://github.com/gfx-rs/gfx", optional = true }
+"gfx-backend-dx11" = { git = "https://github.com/gfx-rs/gfx", optional = true }
+"gfx-backend-dx12" = { git = "https://github.com/gfx-rs/gfx", optional = true }
+"gfx-backend-gl" = { git = "https://github.com/gfx-rs/gfx", optional = true }
 "nalgebra" = "^0.17.*"
 "gfx-hal" = { git = "https://github.com/gfx-rs/gfx" }
-"gfx-backend-vulkan" = { git = "https://github.com/gfx-rs/gfx" }
-"gfx-backend-dx11" = { git = "https://github.com/gfx-rs/gfx" }
-"gfx-backend-dx12" = { git = "https://github.com/gfx-rs/gfx" }
-"gfx-backend-gl" = { git = "https://github.com/gfx-rs/gfx" }
 "log" = "^0.4"
 "env_logger" = "^0.5"
 "failure" = "^0.1"

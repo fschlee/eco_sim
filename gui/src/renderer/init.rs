@@ -12,7 +12,7 @@ pub trait InstSurface {
     fn get_instance<'a>(&'a self) -> & 'a Self::Instance;
     fn create(name: & str, version: u32, window: &Window) -> Self;
 }
-
+#[cfg(feature = "vulkan")]
 impl InstSurface for (gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend as Backend>::Surface)  {
     type Instance = gfx_backend_vulkan::Instance;
     fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
@@ -32,7 +32,7 @@ impl InstSurface for (gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend
         (inst, surf)
     }
 }
-
+#[cfg(feature = "gl")]
 impl InstSurface for gfx_backend_gl::Surface  {
     type Instance = gfx_backend_gl::Surface;
     fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
@@ -57,7 +57,7 @@ impl InstSurface for gfx_backend_gl::Surface  {
         surf
     }
 }
-
+#[cfg(feature = "dx11")]
 impl InstSurface for (gfx_backend_dx11::Instance, gfx_backend_dx11::Surface)  {
     type Instance = gfx_backend_dx11::Instance;
     fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
@@ -77,7 +77,7 @@ impl InstSurface for (gfx_backend_dx11::Instance, gfx_backend_dx11::Surface)  {
         (inst, surf)
     }
 }
-
+#[cfg(feature = "dx12")]
 impl InstSurface for (gfx_backend_dx12::Instance, <<gfx_backend_dx12::Instance as Instance>::Backend as Backend>::Surface)  {
     type Instance = gfx_backend_dx12::Instance;
     fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {

@@ -39,10 +39,14 @@ renderer::init::list_adapters::<gfx_backend_gl::Instance>();*/
 fn game_loop(window: Window, mut event_loop: EventsLoop){
     let mut ui_state = ui::UIState::new(&window);
     let mut game_state = simulation::GameState::new();
-    // let mut renderer = renderer::Renderer::<(gfx_backend_gl::Surface)>::new(&window);
+#[cfg(feature = "gl")]
+    let mut renderer = renderer::Renderer::<(gfx_backend_gl::Surface)>::new(&window);
+#[cfg(feature = "vulkan")]
     let mut renderer = renderer::Renderer::<(gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend as gfx_hal::Backend>::Surface)>::new(&window);
-    // let mut renderer = renderer::Renderer::<(gfx_backend_dx12::Instance, <<gfx_backend_dx12::Instance as gfx_hal::Instance>::Backend as gfx_hal::Backend>::Surface)>::new(&window);
-    // let mut renderer = renderer::Renderer::<(gfx_backend_dx11::Instance, gfx_backend_dx11::Surface)>::new(&window);
+#[cfg(feature = "dx12")]
+    let mut renderer = renderer::Renderer::<(gfx_backend_dx12::Instance, <<gfx_backend_dx12::Instance as gfx_hal::Instance>::Backend as gfx_hal::Backend>::Surface)>::new(&window);
+#[cfg(feature = "dx11")]
+    let mut renderer = renderer::Renderer::<(gfx_backend_dx11::Instance, gfx_backend_dx11::Surface)>::new(&window);
     let mut quit = false;
     let mut fail_counter = 0;
     let mut instant = Instant::now();

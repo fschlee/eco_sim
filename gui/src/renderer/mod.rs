@@ -50,7 +50,6 @@ use self::memory::{BufferBundle, ResourceManager, TextureSpec, Texture, Id};
 use init::InstSurface;
 use gfx_hal::command::{CommandBufferInheritanceInfo, SecondaryCommandBuffer, SubpassCommandBuffer};
 use gfx_hal::query::Type::PipelineStatistics;
-use gfx_backend_dx11::Framebuffer;
 use crate::renderer::memory::descriptors::DescriptorPoolManager;
 
 
@@ -66,8 +65,8 @@ const UI_SHADERS : [ShaderSpec; 2] = [
     ];
 #[cfg(not(feature = "reload_shaders"))]
 const UI_SHADERS : [ShaderSpec; 2] = [
-    ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/ui.vert", source: Some(include_str!("../resources/ui.vert")) },
-    ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/ui.frag", source: Some(include_str!("../resources/ui.frag"))},
+    ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/ui.vert", source: Some(include_str!("../../resources/ui.vert")) },
+    ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/ui.frag", source: Some(include_str!("../../resources/ui.frag"))},
 ];
 #[cfg(feature = "reload_shaders")]
 const SHADERS_2D : [ShaderSpec; 2] = [
@@ -76,8 +75,8 @@ const SHADERS_2D : [ShaderSpec; 2] = [
 ];
 #[cfg(not(feature = "reload_shaders"))]
 const SHADERS_2D : [ShaderSpec; 2] = [
-    ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/2d.vert", source: Some(include_str!("../resources/2d.vert")) },
-    ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/2d.frag", source: Some(include_str!("../resources/2d.frag"))},
+    ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/2d.vert", source: Some(include_str!("../../resources/2d.vert")) },
+    ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/2d.frag", source: Some(include_str!("../../resources/2d.frag"))},
 ];
 
 pub struct Renderer<'a, IS : InstSurface> {
