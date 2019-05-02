@@ -87,6 +87,8 @@ pub enum Action {
     UpdateMentalState(eco_sim::MentalState),
     Hover(LogicalPosition),
     Move(eco_sim::Entity, LogicalPosition),
+    HighlightVisibility(eco_sim::Entity),
+    ClearHighlight,
 }
 static CAMERA_STEP : f32 = 0.05;
 
@@ -135,6 +137,10 @@ impl<'a> UIState<'a> {
                     WindowEvent::MouseInput {button : MouseButton::Right, state: ElementState::Pressed, .. } =>
                         {
                             self.edit_ent = game_state.get_editable_entity(self.mouse_pos);
+                            match self.edit_ent {
+                                Some(ent) => actions.push(Action::HighlightVisibility(ent)),
+                                None => actions.push(Action::ClearHighlight),
+                            }
                             ui_updates.push(UIUpdate::ToolTip{ pos : self.mouse_pos, txt : "foo".to_string()});
                         }
                     WindowEvent::MouseInput {button : MouseButton::Left, state: ElementState::Pressed, .. } =>
@@ -196,7 +202,16 @@ impl<'a> UIState<'a> {
                     cc::widget::Text::new(&act_text).font_size(16)
                         .down_from(self.ids.hunger_dialer, 60.0)
                         .align_middle_x_of(self.ids.edit_canvas).set(self.ids.action_text, ui);
-
+                    for sight in cc::widget::number_dialer::NumberDialer::new(ms.sight_radius as f32, 0.0, 20.0, 0)
+                        .down_from(self.ids.action_text, 60.0)
+                        .align_middle_x_of(self.ids.edit_canvas)
+                        .w_h(160.0, 40.0)
+                        .label("Sight")
+                        .set(self.ids.number_dialer, ui) {
+                        let mut new_ms = ms.clone();
+                        new_ms.sight_radius = sight as u32;
+                        actions.push(Action::UpdateMentalState(new_ms));
+                    }
 
                 }
             }

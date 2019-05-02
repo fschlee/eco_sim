@@ -192,6 +192,7 @@ pub struct MentalState {
     pub id: Entity,
     pub hunger: Hunger,
     pub current_action: Option<Action>,
+    pub sight_radius: u32,
 }
 
 impl MentalState {
@@ -200,6 +201,7 @@ impl MentalState {
             id: entity,
             hunger: Hunger::default(),
             current_action: None,
+            sight_radius: 5,
         }
     }
     pub fn decide(
@@ -207,7 +209,7 @@ impl MentalState {
         own_type: EntityType,
         physical_state: &PhysicalState,
         own_position: Position,
-        observation: Observation,
+        observation: impl Observation,
     ) -> Option<Action> {
 
         self.hunger.0 += (20.0 -  physical_state.satiation.0) * HUNGER_INCREMENT;
@@ -239,7 +241,7 @@ impl MentalState {
                                     self.current_action = Some(Action::Move(position));
                                 }
                                 else{
-                                    if let Some(step) = self.path(own_position, position, &observation){
+                                    if let Some(step) = self.path(own_position, position, observation.clone()){
                                         self.current_action = Some(Action::Move(step));
                                     }
 
@@ -253,10 +255,10 @@ impl MentalState {
         }
         self.current_action
     }
-    pub fn path(&self, current: Position, goal: Position, observation: &Observation) -> Option<Position> {
+    pub fn path(&self, current: Position, goal: Position, observation: impl Observation) -> Option<Position> {
         let d = current.distance(&goal);
         for n in current.neighbours(){
-            if current.distance(&n) < d && observation.can_pass(&self.id, n) {
+            if current.distance(&n) < d && Some(true) == observation.known_can_pass(&self.id, n) {
                 return Some(n);
             }
         }
@@ -412,14 +414,7 @@ impl World {
             Err("Entity with unknown position acting")
         }
     }
-    pub fn observe_as(&self, entity: &Entity) -> Observation {
-        self
-    }
-    pub fn get_physical_state(&self, entity: &Entity) -> Option<&PhysicalState> {
-        self.physical_states.get(entity)
-    }
-    pub fn advance(&mut self) {}
-    pub fn can_pass(&self, entity: &Entity, position: Position) -> bool {
+    fn can_pass(&self, entity: &Entity, position: Position) -> bool {
         if let Some(mover) = self.entity_types.get(entity) {
             return self
                 .entities_at(position)
@@ -431,6 +426,22 @@ impl World {
         }
         false
     }
+    pub fn observe_as(&self, entity: &Entity) -> impl Observation + '_ {
+        let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
+        self.observe_in_radius(entity, radius)
+    }
+    pub fn observe_in_radius(&self, entity: &Entity, radius: u32) -> impl Observation +'_ {
+        let pos = match self.positions.get(entity) {
+            Some(pos) => pos.clone(),
+            None => Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 },
+        };
+        RadiusObservation::new(radius, pos, self)
+
+    }
+    pub fn get_physical_state(&self, entity: &Entity) -> Option<&PhysicalState> {
+        self.physical_states.get(entity)
+    }
+    pub fn advance(&mut self) {}
     pub fn entities_at(&self, position: Position) -> &[Entity] {
         let x = position.x as usize;
         let y = position.y as usize;
@@ -483,29 +494,60 @@ impl World {
                     })
             })
     }
-    pub fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &Self) -> bool + 'a) -> impl Iterator<Item=(Entity, Position)> + 'a {
-        EntityWalker::new(self, starting_point).filter(move |(e, p)| predicate(e, self))
+
+}
+
+pub trait Observation: Clone {
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<Iterator<Item=(Entity, Position)> + 'a>;
+    fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool>;
+
+}
+impl<'b> Observation for & 'b World {
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, Self) -> bool + 'a) -> Box<Iterator<Item=(Entity, Position)> + 'a> {
+        Box::new(EntityWalker::new(self, starting_point, std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32).filter(move |(e, p)| predicate(e, self)))
+    }
+    fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool> {
+        Some(self.can_pass(entity, position))
+    }
+}
+#[derive(Clone, Debug)]
+pub struct RadiusObservation<'a> {
+    radius: u32,
+    center: Position,
+    world: & 'a World,
+}
+impl<'a> RadiusObservation<'a> {
+    pub fn new(radius: u32, center: Position, world: & 'a World) -> Self {
+        Self{ radius, center, world}
+    }
+}
+impl<'b> Observation for RadiusObservation<'b> {
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<Iterator<Item=(Entity, Position)> + 'a> {
+        Box::new(EntityWalker::new(self.world, starting_point, self.radius).filter(
+            move |(e, p)| self.center.distance(p) <= self.radius &&  predicate(e, self.world)))
+    }
+    fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool> {
+        if self.center.distance(&position) > self.radius {
+            return None;
+        }
+        Some(self.world.can_pass(entity, position))
     }
 }
 struct EntityWalker<'a> {
+    position_walker: PositionWalker,
     world: &'a World,
-    center: Position,
-    current_pos: Position,
     current: &'a [Entity],
-    radius: i32,
-    delta: i32,
+    current_pos: Position,
     subindex: usize,
 }
 impl<'a> EntityWalker<'a> {
-    pub fn new(world: &'a World, center: Position) -> Self {
-        let current = world.entities_at(center);
+    pub fn new(world: &'a World, center: Position, max_radius: u32) -> Self {
+        let position_walker = PositionWalker::new(center, max_radius);
         Self{
+            position_walker,
             world,
-            center,
+            current: world.entities_at(center),
             current_pos: center.clone(),
-            current,
-            radius: 0,
-            delta: 0,
             subindex: 0,
         }
     }
@@ -518,41 +560,9 @@ impl<'a> Iterator for EntityWalker<'a> {
             self.subindex += 1;
             return Some((item, self.current_pos));
         }
-        if self.current_pos.x > self.center.x {
-            let x = self.center.x as i32 + self.delta - self.radius;
-            if x >= 0 {
-                self.current_pos = Position{x: x as u32, y : self.current_pos.y};
-                self.current = self.world.entities_at(self.current_pos);
-                self.subindex = 0;
-                return self.next();
-            }
-
-        }
-        if self.current_pos.y > self.center.y {
-            let x = self.center.x as i32 + self.radius - self.delta;
-            let y = self.center.y as i32 - self.delta;
-            if x >= 0 && y >= 0 {
-                self.current_pos = Position{x: x as u32, y: y as u32 };
-                self.current = self.world.entities_at(self.current_pos);
-                self.subindex = 0;
-                return self.next();
-            }
-
-        }
-        if self.delta < self.radius {
-            self.delta += 1;
-            self.current_pos = Position { x: (self.center.x as i32 + self.radius - self.delta) as u32, y: self.center.y + self.delta as u32 };
-            let Position{x, y} = self.current_pos;
-            self.current = self.world.entities_at(self.current_pos);
-            self.subindex = 0;
-            return self.next();
-        }
-        let v = self.center.x + self.center.y;
-        if (self.radius as u32) < v || (self.radius as u32) < (MAP_WIDTH + MAP_HEIGHT) as u32 - v {
-            self.radius += 1;
-            self.delta = 0;
-            self.current_pos = Position{ x : self.center.x + self.radius as u32, y: self.center.y };
-            self.current = self.world.entities_at(self.current_pos);
+        if let Some(pos) = self.position_walker.next() {
+            self.current = self.world.entities_at(pos);
+            self.current_pos = pos;
             self.subindex = 0;
             return self.next();
         }
@@ -560,8 +570,78 @@ impl<'a> Iterator for EntityWalker<'a> {
     }
 }
 
+struct PositionWalker {
+    center: Position,
+    current_pos: Option<Position>,
+    radius: u32,
+    max_radius: u32,
+    delta: u32,
+}
+impl PositionWalker {
+    pub fn new(center: Position, max_radius: u32) -> Self {
+        Self{
+            center,
+            current_pos: Some(center.clone()),
+            radius: 0,
+            max_radius,
+            delta: 0,
+        }
+    }
+    pub fn empty() -> Self {
+        Self{
+            center: Position{x:0, y: 0},
+            current_pos: None,
+            radius: 1,
+            max_radius: 0,
+            delta: 0,
+        }
+    }
+    pub fn get_current(&self) -> Option<Position> {
+        self.current_pos
+    }
+}
+impl Iterator for PositionWalker {
+    type Item = Position;
+    fn next(& mut self) -> Option<Self::Item> {
+        if let Some(current) = self.current_pos {
+
+            if current.x > self.center.x {
+                let x = self.center.x as i32 + self.delta as i32 - self.radius as i32;
+                if x >= 0 {
+                    self.current_pos = Some(Position{x: x as u32, y : current.y});
+                    return Some(current);
+                }
+
+            }
+            if current.y > self.center.y {
+                let x = self.center.x as i32 + self.radius as i32 - self.delta as i32;
+                let y = self.center.y as i32 - self.delta as i32;
+                if x >= 0 && y >= 0 {
+                    self.current_pos = Some(Position{x: x as u32, y: y as u32 });
+                    return Some(current);
+                }
+
+            }
+            if self.delta < self.radius {
+                self.delta += 1;
+                self.current_pos = Some(Position { x: self.center.x + self.radius - self.delta, y: self.center.y + self.delta });
+                return Some(current);
+            }
+            let v = self.center.x + self.center.y;
+            if self.radius < self.max_radius && (self.radius < v || self.radius < (MAP_WIDTH + MAP_HEIGHT) as u32 - v) {
+                self.radius += 1;
+                self.delta = 0;
+                self.current_pos = Some(Position{ x : self.center.x + self.radius, y: self.center.y });
+                return Some(current);
+            }
+        }
+        None
+    }
+}
+
 pub type ViewData = Option<Vec<EntityType>>;
-type Observation<'a> = &'a World;
+
+
 
 #[derive(Clone, Debug, Default)]
 struct AgentSystem {
@@ -579,7 +659,7 @@ impl AgentSystem {
                 world.positions.get(entity),
             ) {
                 (Some(mental_state), Some(physical_state), Some(et), Some(position)) => {
-                    mental_state.decide(*et, physical_state, *position, world.observe_as(entity))
+                    mental_state.decide(*et, physical_state, *position, world.observe_in_radius(entity, mental_state.sight_radius))
                 }
                 _ => None,
             };
@@ -648,5 +728,17 @@ impl SimState {
     }
     pub fn get_type(& self, entity: & Entity) -> Option<EntityType> {
         self.world.entity_types.get(entity).copied()
+    }
+    pub fn get_visibility(& self, entity: &Entity) -> impl Iterator<Item=Position> {
+        let pos = self.world.positions.get(entity);
+        let ms = self.agent_system.mental_states.get(entity);
+        match (pos, ms) {
+            (Some(pos), Some(ms)) => {
+                let radius = ms.sight_radius;
+                PositionWalker::new(*pos, radius)
+            }
+            _ => PositionWalker::empty()
+        }
+
     }
 }

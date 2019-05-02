@@ -4,6 +4,7 @@ use eco_sim::{SimState, EntityType, Storage, Entity, MentalState};
 use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
+use std::collections::HashSet;
 
 pub struct RenderData{
     pub vertices: Vec<UiVertex>,
@@ -31,7 +32,8 @@ pub struct GameState{
     eco_sim: eco_sim::SimState,
     cache: Storage<Command>,
     paused: bool,
-    highlighted: Option<(usize, usize)>,
+    highlighted: HashSet<(usize, usize)>,
+    highlight_visible: Option<Entity>,
     cell_width: f32,
     cell_height: f32,
     margin: f32,
@@ -44,7 +46,16 @@ impl GameState {
     pub fn new() -> GameState{
         let eco_sim = SimState::new(SIM_STEP);
         println!("init");
-        GameState{eco_sim, cache: Storage::new(), paused: true, highlighted: None, cell_width : 80.0, cell_height: 80.0, margin: 80.0 }
+        GameState{
+            eco_sim,
+            cache: Storage::new(),
+            paused: true,
+            highlighted: HashSet::new(),
+            highlight_visible: None,
+            cell_width : 80.0,
+            cell_height: 80.0,
+            margin: 80.0,
+        }
     }
     pub fn update(&mut self, actions: Vec<Action>, time_step: f32) {
         for a in &actions {
@@ -59,8 +70,11 @@ impl GameState {
                     self.eco_sim.update_mental_state(*mental_state);
                 }
                 Action::Hover(pos) => {
-                    let (x, y) = self.logical_position_to_coords(*pos);
-                    self.highlighted = Some((x, y))
+                    let coords= self.logical_position_to_coords(*pos);
+                    if self.highlight_visible.is_none() {
+                        self.highlighted.clear();
+                    }
+                    self.highlighted.insert(coords);
                 }
                 Action::Move(entity, pos) => {
                     if let Some(ms) = self.eco_sim.get_mental_state(entity) {
@@ -71,6 +85,8 @@ impl GameState {
                         self.eco_sim.update_mental_state(new_ms);
                     }
                 }
+                Action::ClearHighlight => self.highlight_visible = None,
+                Action::HighlightVisibility(ent) => self.highlight_visible = Some(*ent),
             }
         }
         if !self.paused {
@@ -143,10 +159,16 @@ impl GameState {
                 Rock => 60..66,
             }
         }
+        if let Some(ent) = self.highlight_visible {
+            self.highlighted.clear();
+            for eco_sim::Position{x, y} in  self.eco_sim.get_visibility(&ent) {
+                self.highlighted.insert((x as usize, y as usize));
+            }
+        }
         for (i, j, dat) in self.eco_sim.get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT){
             let x_offset = self.cell_width * i as f32;
             let y_offset = self.cell_height * j as f32;
-            commands.push(Command{range: 0..6, x_offset, y_offset, highlight: self.highlighted == Some((i, j)) });
+            commands.push(Command{range: 0..6, x_offset, y_offset, highlight: self.highlighted.contains(&(i, j)) });
             if let Some(ents) = dat {
                 for ent in ents {
                     commands.push(Command{range: lookup(ent), x_offset, y_offset, highlight: false});
