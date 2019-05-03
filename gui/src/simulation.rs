@@ -57,28 +57,28 @@ impl GameState {
             margin: 80.0,
         }
     }
-    pub fn update(&mut self, actions: Vec<Action>, time_step: f32) {
-        for a in &actions {
+    pub fn update(&mut self, mut actions: Vec<Action>, time_step: f32) {
+        for a in actions.drain(..) {
             match a {
                 Action::Pause => self.paused = true,
                 Action::Unpause => self.paused = false,
                 Action::Reset(pause_state) => {
-                    self.paused = *pause_state;
+                    self.paused = pause_state;
                     self.eco_sim = SimState::new(SIM_STEP);
                 },
                 Action::UpdateMentalState(mental_state) => {
-                    self.eco_sim.update_mental_state(*mental_state);
+                    self.eco_sim.update_mental_state(mental_state);
                 }
                 Action::Hover(pos) => {
-                    let coords= self.logical_position_to_coords(*pos);
+                    let coords= self.logical_position_to_coords(pos);
                     if self.highlight_visible.is_none() {
                         self.highlighted.clear();
                     }
                     self.highlighted.insert(coords);
                 }
                 Action::Move(entity, pos) => {
-                    if let Some(ms) = self.eco_sim.get_mental_state(entity) {
-                        let (x, y) = self.logical_position_to_coords(*pos);
+                    if let Some(ms) = self.eco_sim.get_mental_state(&entity) {
+                        let (x, y) = self.logical_position_to_coords(pos);
                         let sim_pos = eco_sim::Position { x: x as u32, y: y as u32 };
                         let mut new_ms = ms.clone();
                         new_ms.current_action = Some(eco_sim::Action::Move(sim_pos));
@@ -86,7 +86,7 @@ impl GameState {
                     }
                 }
                 Action::ClearHighlight => self.highlight_visible = None,
-                Action::HighlightVisibility(ent) => self.highlight_visible = Some(*ent),
+                Action::HighlightVisibility(ent) => self.highlight_visible = Some(ent),
             }
         }
         if !self.paused {
@@ -155,7 +155,9 @@ impl GameState {
             match et {
                 Tree=> 6..30,
                 Grass => 30..36,
+                Clover => 30..36,
                 Rabbit=> 36..60,
+                Deer=> 36..60,
                 Rock => 60..66,
             }
         }

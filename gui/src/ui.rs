@@ -79,7 +79,7 @@ pub enum UIUpdate {
     Refresh,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Action {
     Pause,
     Unpause,
