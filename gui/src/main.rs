@@ -39,13 +39,15 @@ renderer::init::list_adapters::<gfx_backend_gl::Instance>();*/
 fn game_loop(window: Window, mut event_loop: EventsLoop){
     let mut ui_state = ui::UIState::new(&window);
     let mut game_state = simulation::GameState::new();
-#[cfg(feature = "gl")]
+#[cfg(macos)]
+    let mut renderer = renderer::Renderer::<(gfx_backend_metal::Instance, <<gfx_backend_metal::Instance as gfx_hal::Instance>::Backend as gfx_hal::Backend>::Surface)>::new(&window);
+#[cfg(all(feature = "gl", not(macos)))]
     let mut renderer = renderer::Renderer::<(gfx_backend_gl::Surface)>::new(&window);
-#[cfg(feature = "vulkan")]
+#[cfg(all(feature = "vulkan", not(macos)))]
     let mut renderer = renderer::Renderer::<(gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend as gfx_hal::Backend>::Surface)>::new(&window);
-#[cfg(feature = "dx12")]
+#[cfg(all(feature = "dx12", not(macos)))]
     let mut renderer = renderer::Renderer::<(gfx_backend_dx12::Instance, <<gfx_backend_dx12::Instance as gfx_hal::Instance>::Backend as gfx_hal::Backend>::Surface)>::new(&window);
-#[cfg(feature = "dx11")]
+#[cfg(all(feature = "dx11", not(macos)))]
     let mut renderer = renderer::Renderer::<(gfx_backend_dx11::Instance, gfx_backend_dx11::Surface)>::new(&window);
     let mut quit = false;
     let mut fail_counter = 0;

@@ -97,6 +97,26 @@ impl InstSurface for (gfx_backend_dx12::Instance, <<gfx_backend_dx12::Instance a
         (inst, surf)
     }
 }
+#[cfg(macos)]
+impl InstSurface for (gfx_backend_metal::Instance, <<gfx_backend_metal::Instance as Instance>::Backend as Backend>::Surface)  {
+    type Instance = gfx_backend_metal::Instance;
+    fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
+        &self.1
+    }
+
+    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self::Instance as Instance>::Backend as Backend>::Surface {
+        & mut self.1
+    }
+
+    fn get_instance<'a>(&'a self) -> &'a Self::Instance {
+        &self.0
+    }
+    fn create(name: &str, version: u32, window: &Window) -> Self {
+        let inst = gfx_backend_metal::Instance::create(name, version);
+        let surf = inst.create_surface(window);
+        (inst, surf)
+    }
+}
 
 pub fn init_device<IS: InstSurface>(window: &Window) -> Result<(IS, Adapter<<IS::Instance as Instance>::Backend>, <<IS::Instance as Instance>::Backend as Backend>::Device, QueueGroup<<IS::Instance as Instance>::Backend, Graphics>), &'static str> {
     let inst_surface = IS::create(WINDOW_NAME, 1, window);

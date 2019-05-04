@@ -313,17 +313,20 @@ impl MentalState {
         let world_expectation = &World::from_observation(observation);
         let direct_reward = | action, hunger | {
             match action {
-                Action::Move(_) => 0.0,
+                Action::Move(_) => {
+                    return 0.1;
+                },
                 Action::Eat(food) => {
                     if let Some(food_type) = world_expectation.get_type(&food) {
-                        if self.hunger > HUNGER_THRESHOLD {
+                        if hunger > HUNGER_THRESHOLD {
                             if let Some((_, pref)) = self.food_preferences.iter().find(|(et, pref)| et == &food_type) {
-                                return 0.2 + pref
+                                return 0.2 + pref;
                             }
                         }
                     }
-                    return 0.0
+                    return 0.0;
                 }
+
             }
         };
         const TIME_DEPTH : usize = 10;
@@ -346,34 +349,36 @@ impl MentalState {
                     updated_action = Some(Action::Eat(*food));
                 }
             }
-            if depth < TIME_DEPTH - 1 {
-                for neighbor in pos.neighbours() {
-                    let Position{x, y} = neighbor;
-                    if neighbor.within_bounds() && world_expectation.known_can_pass(&id, neighbor) != Some(false) {
 
-                        let reward = reward_expectations[depth+1][y as usize][x as usize];
-                        if reward > max_reward {
-                            max_reward = reward;
-                            updated_action = Some(Action::Move(neighbor));
-                        }
+            for neighbor in pos.neighbours() {
+                let Position{x, y} = neighbor;
+                if neighbor.within_bounds() && world_expectation.known_can_pass(&id, neighbor) != Some(false) {
+                    let mut reward = direct_reward(Action::Move(neighbor), ms.hunger);
+                    if depth < TIME_DEPTH - 1 {
+                        reward += reward_expectations[depth + 1][y as usize][x as usize];
+                    }
+                    if reward > max_reward {
+                        max_reward = reward;
+                        updated_action = Some(Action::Move(neighbor));
                     }
                 }
             }
             if updated_action.is_some() {
                 policy[depth][y as usize][x as usize] = updated_action;
                 reward_expectations[depth][y as usize][x as usize] = max_reward;
+                assert_eq!(max_reward, reward_expectations[depth][y as usize][x as usize]);
                 return true;
             }
             false
         };
         let mut converged = false;
         let mut runs = 0;
-        while !converged && runs < 10 {
+        while !converged && runs < 100 {
             runs += 1;
             converged = true;
             let ps = physical_state.clone();
             let ms = self.clone();
-            for t in 0 .. TIME_DEPTH {
+            for t in (0 .. TIME_DEPTH).rev() {
                 for x in 0..MAP_WIDTH {
                     for y in 0..MAP_HEIGHT {
                         let pos = Position{ x: x as u32, y: y as u32};
@@ -384,7 +389,7 @@ impl MentalState {
                 }
             }
         }
-        println!("reward expectation {:?}", reward_expectations[0][own_position.y as usize][own_position.x as usize]);
+        println!("expectation {:?}", reward_expectations[0][own_position.y as usize][own_position.x as usize]);
         let act = policy[0][own_position.y as usize][own_position.x as usize];
         if act.is_some() {
             self.current_action = act;

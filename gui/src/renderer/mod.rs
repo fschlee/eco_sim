@@ -629,7 +629,7 @@ impl<B: Backend> HalState<B> {
             self
                 .swapchain
                 .present(command_queue, i_u32, present_wait_semaphores)
-                .map_err(|_| "Failed to present into the swapchain!")
+                .map_err(|_| "Failed to present into the swapchain!").map(|_| ())
         }
     }
 
@@ -703,7 +703,7 @@ impl<B: Backend> HalState<B> {
             self
                 .swapchain
                 .present(command_queue, i_u32, present_wait_semaphores)
-                .map_err(|_| "Failed to present into the swapchain!")
+                .map_err(|_| "Failed to present into the swapchain!").map(|_| ())
         };
         res
     }
@@ -759,7 +759,7 @@ impl<B: Backend> HalState<B> {
             self
                 .swapchain
                 .present(command_queue, self.current_image as u32, present_wait_semaphores)
-                .map_err(|_| "Failed to present into the swapchain!")
+                .map_err(|_| "Failed to present into the swapchain!").map(|_| ())
         }
 
     }
