@@ -122,11 +122,14 @@ pub fn init_device<IS: InstSurface>(window: &Window) -> Result<(IS, Adapter<<IS:
     let inst_surface = IS::create(WINDOW_NAME, 1, window);
     let instance = inst_surface.get_instance();
     let surface = inst_surface.get_surface();
-    let adapter  = instance.enumerate_adapters().into_iter()
-        .find(|a| {
+    let mut adapters  = instance.enumerate_adapters().into_iter()
+        .filter(|a| {
+
             a.queue_families.iter()
                 .any(|qf| qf.supports_graphics() && surface.supports_queue_family(qf))
-        })
+        });
+    let first = adapters.next();
+    let adapter = adapters.find(|a| a.info.device_type == gfx_hal::adapter::DeviceType::DiscreteGpu).or(first)
         .ok_or("Couldn't find a graphical Adapter!")?;
     println!("selected {}", adapter.info.name);
     let (device, queue_group) =

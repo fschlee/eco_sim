@@ -207,6 +207,9 @@ static ENTITY_TYPES : [EntityType; 6] = [
     EntityType::Rabbit,
     EntityType::Deer,
 ];
+
+pub static MAX_FOOD_PREFS : usize = 6;
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Action {
     Move(Position),
@@ -232,6 +235,7 @@ pub struct MentalState {
 
 impl MentalState {
     pub fn new(entity: Entity, food_preferences: Vec<(EntityType, Reward)>) -> Self {
+        assert!(food_preferences.len() > 0);
         Self{
             id: entity,
             hunger: Hunger::default(),
@@ -248,7 +252,7 @@ impl MentalState {
         observation: impl Observation,
     ) -> Option<Action> {
         self.update(physical_state, own_position);
-        self.decide_simple(own_type, physical_state, own_position, observation);
+        self.decide_mdp(own_type, physical_state, own_position, observation);
         self.current_action
 
     }

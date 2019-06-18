@@ -5,6 +5,7 @@ use conrod_core::{widget_ids, widget, Colorable, Labelable, Positionable, Sizeab
 
 use crate::simulation::GameState;
 use winit::{EventsLoop, Event, WindowEvent, MouseButton, ElementState, KeyboardInput, VirtualKeyCode, ModifiersState, dpi::{LogicalPosition, LogicalSize} };
+use eco_sim::EntityType;
 
 
 widget_ids! {
@@ -48,6 +49,21 @@ widget_ids! {
         //
         edit_canvas,
         action_text,
+        food_prefs[],
+        list_canvas,
+        food_pref_text,
+    }
+}
+
+pub fn entity_type_label(et: EntityType) -> &'static  str {
+    use EntityType::*;
+    match et {
+        Rock => "Rock",
+        Tree => "Tree",
+        Grass => "Grass",
+        Clover=> "Clover",
+        Rabbit=> "Rabbit",
+        Deer=> "Deer",
     }
 }
 pub fn theme() -> conrod_core::Theme {
@@ -114,7 +130,8 @@ impl<'a> UIState<'a> {
         let bytes: &[u8] = include_bytes!("../resources/fonts/NotoSans/NotoSans-Regular.ttf");
         let font = cc::text::Font::from_bytes(bytes).unwrap();
         conrod.fonts.insert(font);
-        let ids = WidgetIds::new(conrod.widget_id_generator());
+        let mut ids = WidgetIds::new(conrod.widget_id_generator());
+        ids.food_prefs.resize(eco_sim::MAX_FOOD_PREFS, & mut conrod.widget_id_generator());
         Self{mouse_pos : LogicalPosition{x: 0.0, y:0.0}, hidpi_factor, size, conrod, ids, prev : Instant::now(), window, paused: true, edit_ent: None, test: 0.0 }
     }
     pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
@@ -177,6 +194,7 @@ impl<'a> UIState<'a> {
             if let Some(edit_ent) = self.edit_ent {
                 if let Some(ms) = game_state.get_mental_state(&edit_ent) {
                     cc::widget::Canvas::new().pad(0.0)
+                        .parent(self.ids.canvas)
                         .w_h(256.0, 1024.0)
                         .mid_right_of(self.ids.canvas)
                         .set(self.ids.edit_canvas, ui);
@@ -211,6 +229,36 @@ impl<'a> UIState<'a> {
                         let mut new_ms = ms.clone();
                         new_ms.sight_radius = sight as u32;
                         actions.push(Action::UpdateMentalState(new_ms));
+                    }
+                    cc::widget::Canvas::new().pad(0.0)
+                        .w_h(256.0, 1024.0)
+                        .parent(self.ids.edit_canvas)
+                        .mid_right_of(self.ids.edit_canvas)
+                        .down_from(self.ids.number_dialer, 120.0)
+
+                        .set(self.ids.list_canvas, ui);
+                    cc::widget::Text::new("Food preferences").font_size(20).mid_top_of(self.ids.list_canvas).set(self.ids.food_pref_text, ui);
+
+                    let mut prev = self.ids.food_pref_text;
+                    for (i, (&id, (et, old_pref))) in self.ids.food_prefs.iter().zip(&ms.food_preferences).enumerate() {
+
+                        let w = cc::widget::number_dialer::NumberDialer::new(*old_pref, 0.0, 20.0, 4)
+                            .down_from(prev, 60.0)
+                            .align_middle_x_of(self.ids.list_canvas)
+                            .w_h(160.0, 40.0)
+                            .label(entity_type_label(*et));
+
+                        prev = id;
+
+                        for fp in w.set(id, ui) {
+                            let mut new_ms = ms.clone();
+                            new_ms.food_preferences[i] = (*et, fp);
+                            actions.push(Action::UpdateMentalState(new_ms));
+                        }
+
+
+
+
                     }
 
                 }
