@@ -218,6 +218,9 @@ impl<'a> UIState<'a> {
                         None => format!("Idle"),
                         Some(eco_sim::Action::Eat(food)) => format!("eating {:?}", game_state.get_type(&food).unwrap()),
                         Some(eco_sim::Action::Move(pos)) => format!("moving to {:?}", pos),
+                        Some(eco_sim::Action::Attack(target)) => {
+                            format!("attacking {:?}", game_state.get_type(&target).unwrap())
+                        }
                     };
                     cc::widget::Text::new(&act_text).font_size(16)
                         .down_from(self.ids.hunger_dialer, 60.0)

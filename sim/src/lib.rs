@@ -3,6 +3,7 @@ use std::ops::Range;
 use rand::{Rng, SeedableRng};
 use rand_xorshift::XorShiftRng;
 use std::collections::HashMap;
+use std::cmp::Ordering;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct Entity {
@@ -117,6 +118,9 @@ impl<T> Storage<T> {
                     return opt.as_mut();
                 }
             }
+            else if stored_gen < gen {
+                self.content[id] = None;
+            }
         }
         None
     }
@@ -138,6 +142,15 @@ impl<T> Storage<T> {
             return Some((old_gen, old_cont.unwrap()));
         }
         None
+    }
+    pub fn remove(& mut self, entity: &Entity) {
+        let Entity { id, gen } = entity;
+        let id = *id as usize;
+        if let Some(stored_gen) = self.generations.get(id) {
+            if stored_gen <= gen {
+                self.content[id] = None;
+            }
+        }
     }
     pub fn new() -> Self {
         Self {
@@ -198,8 +211,23 @@ impl EntityType {
         match self {
             Rabbit=> Some(
                 PhysicalState{
-                    health: Health(100.0),
+                    health: Health(50.0),
+                    meat: Meat(40.0),
                     attack: None,
+                    satiation: Satiation(10.0)
+                }),
+            Deer => Some(
+                PhysicalState{
+                    health: Health(300.0),
+                    meat: Meat(100.0),
+                    attack: None,
+                    satiation: Satiation(10.0)
+                }),
+            Wolf => Some(
+                PhysicalState{
+                    health: Health(300.0),
+                    meat: Meat(100.0),
+                    attack: Some(Attack(60.0)),
                     satiation: Satiation(10.0)
                 }),
             _ => None
@@ -235,7 +263,15 @@ pub const ENTITY_TYPE_COUNT: usize = 7;
 pub enum Action {
     Move(Position),
     Eat(Entity),
+    Attack(Entity),
 }
+#[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
+pub enum Behavior {
+    Search(Vec<EntityType>),
+    FleeFrom(Entity),
+    Hunt(Entity),
+}
+
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug, Default)]
 pub struct Hunger(pub f32);
 
@@ -251,6 +287,7 @@ pub struct MentalState {
     pub hunger: Hunger,
     pub food_preferences: Vec<(EntityType, Reward)>,
     pub current_action: Option<Action>,
+    pub current_behavior: Option<Behavior>,
     pub sight_radius: u32,
 }
 
@@ -262,6 +299,7 @@ impl MentalState {
             hunger: Hunger::default(),
             food_preferences,
             current_action: None,
+            current_behavior: None,
             sight_radius: 5,
         }
     }
@@ -272,12 +310,12 @@ impl MentalState {
         own_position: Position,
         observation: impl Observation,
     ) -> Option<Action> {
-        self.update(physical_state, own_position);
-        self.decide_mdp(own_type, physical_state, own_position, observation);
+        self.update(physical_state, own_position, observation.clone());
+        self.decide_simple(own_type, physical_state, own_position, observation);
         self.current_action
 
     }
-    fn update(& mut self, physical_state: &PhysicalState, own_position: Position,) {
+    fn update(& mut self, physical_state: &PhysicalState, own_position: Position, observation: impl Observation,) {
         self.hunger.0 += (20.0 -  physical_state.satiation.0) * HUNGER_INCREMENT;
         match self.current_action {
             Some(Action::Eat(food)) => {
@@ -290,7 +328,22 @@ impl MentalState {
                     self.current_action = None;
                 }
             },
+            Some(Action::Attack(opponent)) => {
+                let can_attack = {
+                    if let (Some(pos), Some(phys)) =
+                    (observation.observed_position(&opponent),
+                     observation.observed_physical_state(&opponent)) {
+                        pos == own_position && phys.health.0 > 0.0
+                    } else {
+                        false
+                    }
+                };
+                if !can_attack {
+                    self.current_action = None;
+                }
+            }
             None => (),
+
 
         }
     }
@@ -303,28 +356,38 @@ impl MentalState {
     ) {
 
         if self.hunger > HUNGER_THRESHOLD {
-            match observation.find_closest(own_position, |e, w| {
+            if let Some((reward, food, position)) = observation.find_closest(own_position, |e, w| {
                 match w.entity_types.get(e) {
                     Some(other_type) => own_type.can_eat(other_type),
                     None => false
                 }
-            }).next() {
-                Some((entity, position)) => {
-                    if position == own_position {
-                        self.current_action = Some(Action::Eat(entity));
+            }).filter_map(|(e, p)| {
+                if let Some(rw) = observation.get_type(&e).and_then(|et| self.lookup_preference(et)) {
+                    let dist = own_position.distance(&p) as f32 * 0.05;
+                    Some((rw - dist, e, p))
+                } else {
+                    None
+                }
+            }).max_by(|(rw1, _, _), (rw2, _, _)| {
+                if rw1 < rw2 {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }) {
+                if position == own_position {
+                    self.current_action = Some(Action::Eat(food));
+                }
+                else {
+                    if own_position.is_neighbour(&position) {
+                        self.current_action = Some(Action::Move(position));
                     }
-                    else {
-                        if own_position.is_neighbour(&position) {
-                            self.current_action = Some(Action::Move(position));
-                        }
-                        else{
-                            if let Some(step) = self.path(own_position, position, observation.clone()){
-                                self.current_action = Some(Action::Move(step));
-                            }
+                    else{
+                        if let Some(step) = self.path(own_position, position, observation.clone()){
+                            self.current_action = Some(Action::Move(step));
                         }
                     }
                 }
-                None => println!("no food"),
             }
         }
     }
@@ -350,8 +413,8 @@ impl MentalState {
                         }
                     }
                     return 0.0;
-                }
-
+                },
+                Action::Attack(_) => return 0.0,
             }
         };
         const TIME_DEPTH : usize = 10;
@@ -414,7 +477,7 @@ impl MentalState {
                 }
             }
         }
-        println!("expectation {:?}", reward_expectations[0][own_position.y as usize][own_position.x as usize]);
+       // println!("expectation {:?}", reward_expectations[0][own_position.y as usize][own_position.x as usize]);
         let act = policy[0][own_position.y as usize][own_position.x as usize];
         if act.is_some() {
             self.current_action = act;
@@ -429,6 +492,16 @@ impl MentalState {
         }
         None
     }
+    pub fn lookup_preference(&self, entity_type: EntityType) -> Option<Reward> {
+        self.food_preferences.iter().find_map(|(et, rw)| {
+            if et == &entity_type
+            {
+                Some(*rw)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
@@ -439,6 +512,10 @@ impl Health {
         self.0 -= attack.0
     }
 }
+
+#[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
+pub struct Meat(f32);
+
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Attack(f32);
 
@@ -448,6 +525,7 @@ pub struct Satiation(f32);
 #[derive(Clone, Debug)]
 pub struct PhysicalState {
     pub health: Health,
+    pub meat: Meat,
     pub attack: Option<Attack>,
     pub satiation: Satiation,
 }
@@ -589,6 +667,24 @@ impl World {
                         Err("can only eat things in the same tile")
                     }
                 }
+                Action::Attack(opponent) => {
+                    if self.positions.get(&opponent) == Some(own_pos) {
+                        if let Some(attack) = self.physical_states.get(entity).and_then(|phys| phys.attack).clone() {
+                            if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
+                                phys_target.health.suffer(attack);
+                                Ok(())
+                            } else {
+                                Err("opponent has no physical state")
+                            }
+                        } else {
+                            Err("entity incapable of attacking")
+                        }
+
+
+                    }else {
+                        Err("cannot attack targets in the same tile")
+                    }
+                }
             }
         } else {
             error!(
@@ -599,6 +695,9 @@ impl World {
         }
     }
     fn can_pass(&self, entity: &Entity, position: Position) -> bool {
+        if !position.within_bounds() {
+            return false
+        }
         if let Some(mover) = self.entity_types.get(entity) {
             return self
                 .entities_at(position)
@@ -649,9 +748,23 @@ impl World {
         self.entities_at_mut(new_position).push(entity.clone());
     }
     fn eat_unchecked(&mut self, eater: &Entity, eaten: &Entity) {
+        let decrement = 5.0;
         self.physical_states
             .get_mut(eater)
-            .map(|ps| ps.satiation.0 += 5.0);
+            .map(|ps| ps.satiation.0 += decrement);
+        let remove = {
+            if let Some(phys) = self.physical_states.get_mut(eaten) {
+                phys.meat.0 -= decrement;
+                phys.meat.0 <= 0.0
+            }
+            else {
+                false
+            }
+        };
+        if remove {
+            self.physical_states.remove(eaten);
+            self.positions.remove(eaten);
+        }
     }
     pub fn get_view(
         &self,
@@ -686,6 +799,8 @@ pub trait Observation: Clone {
     fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool>;
     fn get_type(& self, entity: & Entity) -> Option<EntityType>;
     fn entities_at(&self, position: Position) -> &[Entity];
+    fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState>;
+    fn observed_position(& self, entity: &Entity) -> Option<Position>;
 }
 
 impl<'b> Observation for & 'b World {
@@ -707,6 +822,12 @@ impl<'b> Observation for & 'b World {
             }
         }
         return &[];
+    }
+    fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState> {
+        self.get_physical_state(entity)
+    }
+    fn observed_position(& self, entity: &Entity) -> Option<Position>{
+        self.positions.get(entity).copied()
     }
 }
 #[derive(Clone, Debug)]
@@ -735,6 +856,22 @@ impl<'b> Observation for RadiusObservation<'b> {
         if let Some(pos) = self.world.positions.get(entity) {
             if self.center.distance(pos) <= self.radius {
                 return self.world.get_type(entity);
+            }
+        }
+        None
+    }
+    fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState> {
+        if let Some(pos)= self.world.positions.get(entity) {
+            if pos.distance(&self.center) <= self.radius {
+                return self.world.get_physical_state(entity)
+            }
+        }
+        None
+    }
+    fn observed_position(&self, entity: &Entity) -> Option<Position> {
+        if let Some(pos)= self.world.positions.get(entity) {
+            if pos.distance(&self.center) <= self.radius {
+                return Some(*pos)
             }
         }
         None
