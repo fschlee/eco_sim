@@ -64,6 +64,7 @@ pub fn entity_type_label(et: EntityType) -> &'static  str {
         Clover=> "Clover",
         Rabbit=> "Rabbit",
         Deer=> "Deer",
+        Wolf => "Wolf",
     }
 }
 pub fn theme() -> conrod_core::Theme {
@@ -131,7 +132,7 @@ impl<'a> UIState<'a> {
         let font = cc::text::Font::from_bytes(bytes).unwrap();
         conrod.fonts.insert(font);
         let mut ids = WidgetIds::new(conrod.widget_id_generator());
-        ids.food_prefs.resize(eco_sim::MAX_FOOD_PREFS, & mut conrod.widget_id_generator());
+        ids.food_prefs.resize(eco_sim::ENTITY_TYPE_COUNT, & mut conrod.widget_id_generator());
         Self{mouse_pos : LogicalPosition{x: 0.0, y:0.0}, hidpi_factor, size, conrod, ids, prev : Instant::now(), window, paused: true, edit_ent: None, test: 0.0 }
     }
     pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
@@ -192,14 +193,15 @@ impl<'a> UIState<'a> {
                 cc::widget::Text::new("Paused").font_size(32).mid_top_of(self.ids.canvas).set(self.ids.title, ui);
             }
             if let Some(edit_ent) = self.edit_ent {
+                cc::widget::Canvas::new().pad(0.0)
+                    .parent(self.ids.canvas)
+                    .w_h(256.0, 1024.0)
+                    .mid_right_of(self.ids.canvas)
+                    .set(self.ids.edit_canvas, ui);
+                let txt = format!("{:?}", game_state.get_type(&edit_ent).unwrap());
+                cc::widget::Text::new(&txt).font_size(32).mid_top_of(self.ids.edit_canvas).set(self.ids.dialer_title, ui);
                 if let Some(ms) = game_state.get_mental_state(&edit_ent) {
-                    cc::widget::Canvas::new().pad(0.0)
-                        .parent(self.ids.canvas)
-                        .w_h(256.0, 1024.0)
-                        .mid_right_of(self.ids.canvas)
-                        .set(self.ids.edit_canvas, ui);
-                    let txt = format!("{:?}", game_state.get_type(&edit_ent).unwrap());
-                    cc::widget::Text::new(&txt).font_size(32).mid_top_of(self.ids.edit_canvas).set(self.ids.dialer_title, ui);
+
 
                     for hunger in cc::widget::number_dialer::NumberDialer::new(ms.hunger.0, 0.0, 10.0, 3)
                         .down_from(self.ids.dialer_title, 60.0)
@@ -255,20 +257,9 @@ impl<'a> UIState<'a> {
                             new_ms.food_preferences[i] = (*et, fp);
                             actions.push(Action::UpdateMentalState(new_ms));
                         }
-
-
-
-
                     }
-
                 }
             }
-
-
-
-
-
-
         }
         (should_close, ui_updates, actions)
     }

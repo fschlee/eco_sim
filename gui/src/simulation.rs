@@ -1,6 +1,6 @@
 use crate::ui::Action;
 
-use eco_sim::{SimState, EntityType, Storage, Entity, MentalState};
+use eco_sim::{SimState, EntityType, Storage, Entity, MentalState, et_idx, ENTITY_TYPE_COUNT};
 use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
@@ -37,7 +37,6 @@ pub struct GameState{
     cell_width: f32,
     cell_height: f32,
     margin: f32,
-
 }
 
 const SIM_STEP : f32 = 0.1;
@@ -97,6 +96,7 @@ impl GameState {
     pub fn get_render_data(&mut self) -> RenderData {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
+        let mut forms = [(0, 0); ENTITY_TYPE_COUNT];
         {
             let v = |p0, p1, c| UiVertex {
                 pos: [p0, p1],
@@ -104,63 +104,39 @@ impl GameState {
                 mode: 0,
                 color: c
             };
+
+            let full_block = |col| vec![v(0.0, 0.0, col), v(1.0, 0.0, col), v(1.0, 1.0, col), v(0.0, 1.0, col)];
+
             {
-                let grey = 0xff808080;
-                vertices.append(&mut vec![v(0.0, 0.0, grey), v(1.0, 0.0, grey), v(1.0, 1.0, grey), v(0.0, 1.0, grey)]);
+
+                vertices.append( & mut full_block(0xff808080));
                 indices.append(&mut vec![0, 1, 3, 3, 1, 2]);
             }
             {
                 let dg = 0xff008000;
-                let base = vertices.len() as u32;
-                vertices.append(&mut vec![v(0.5, 0.5, dg), v(0.8, 0.5, dg), v(0.7, 0.7, dg), v(0.5, 0.8, dg), v(0.3, 0.7, dg), v(0.2, 0.5, dg), v(0.3, 0.3, dg), v(0.5, 0.2, dg), v(0.7, 0.3, dg)]);
-
-                for i in 1..8 {
-                    indices.push(base);
-                    indices.push(base + i);
-                    indices.push(base + i + 1);
-                }
-                indices.push(base);
-                indices.push(base + 8);
-                indices.push(base + 1);
+                forms[eco_sim::et_idx(EntityType::Tree)] = ball(dg, 1.0, & mut vertices, & mut indices);
+                forms[eco_sim::et_idx(EntityType::Clover)]  = block(dg, & mut vertices, & mut indices);
             }
             let lg = 0xff00ff00;
-            vertices.append(& mut vec![v(0.1, 0.1, lg), v(0.9, 0.1, lg), v(0.9, 0.9, lg), v(0.1, 0.9, lg)]);
-            indices.append(&  mut vec![13, 14, 16, 16, 14, 15]);
+            forms[eco_sim::et_idx(EntityType::Grass)]  = block(lg, & mut vertices, & mut indices);
+
             {
                 let dg = 0xff404040;
-                let base = vertices.len() as u32;
-                vertices.append(&mut vec![v(0.5, 0.5, dg), v(0.8, 0.5, dg), v(0.7, 0.7, dg), v(0.5, 0.8, dg), v(0.3, 0.7, dg), v(0.2, 0.5, dg), v(0.3, 0.3, dg), v(0.5, 0.2, dg), v(0.7, 0.3, dg)]);
-
-                for i in 1..8 {
-                    indices.push(base);
-                    indices.push(base + i);
-                    indices.push(base + i + 1);
-                }
-                indices.push(base);
-                indices.push(base + 8);
-                indices.push(base + 1);
+                forms[eco_sim::et_idx(EntityType::Rabbit)] = ball(dg, 0.7, &mut vertices, &mut indices);
+                forms[eco_sim::et_idx(EntityType::Wolf)] = ball(dg, 0.9, &mut vertices, &mut indices);
+                let brown = 0xff002060;
+                forms[eco_sim::et_idx(EntityType::Deer)] = ball(brown, 0.85, &mut vertices, &mut indices);
             }
             {
                 let grey = 0xff202020;
-                let base = vertices.len() as u32;
-                vertices.append(&mut vec![v(0.1, 0.1, grey), v(0.9, 0.1, grey), v(0.9, 0.9, grey), v(0.1, 0.9, grey)]);
-                indices.append(&mut vec![base + 0, base + 1, base + 3, base + 3, base + 1, base + 2]);
+                forms[eco_sim::et_idx(EntityType::Rock)] = block(grey, & mut vertices, & mut indices);
             }
-
         }
         let mut commands = Vec::new();
-        fn lookup(et: EntityType) -> Range<u32> {
-            use EntityType::*;
-            // print!("{:?}", et);
-            match et {
-                Tree=> 6..30,
-                Grass => 30..36,
-                Clover => 30..36,
-                Rabbit=> 36..60,
-                Deer=> 36..60,
-                Rock => 60..66,
-            }
-        }
+        let lookup = |et: EntityType| {
+            let (b, e) = forms[et_idx(et)];
+            b..e
+        };
         if let Some(ent) = self.highlight_visible {
             self.highlighted.clear();
             for eco_sim::Position{x, y} in  self.eco_sim.get_visibility(&ent) {
@@ -193,7 +169,9 @@ impl GameState {
     pub fn get_editable_entity(&self, position: LogicalPosition) -> Option<Entity> {
         let (x, y) = self.logical_position_to_coords(position);
         let sim_pos = eco_sim::Position{ x: x as u32, y: y as u32};
-        self.eco_sim.entities_at(sim_pos).iter().find(|e| { self.eco_sim.get_mental_state(*e).is_some()}).copied()
+        self.eco_sim.entities_at(sim_pos).iter()
+            .find(|e| { self.eco_sim.get_mental_state(*e).is_some()}).copied()
+            .or(self.eco_sim.entities_at(sim_pos).iter().next().copied())
 
     }
     pub fn get_mental_state(&self, entity: &Entity) -> Option<&MentalState> {
@@ -215,3 +193,47 @@ impl GameState {
     }
 }
 
+pub fn block(col: u32, vertices: &mut Vec<UiVertex>, indices: & mut Vec<u32>) -> (u32, u32) {
+    let v = |p0, p1, c| UiVertex {
+        pos: [p0, p1],
+        uv: [p0, p1],
+        mode: 0,
+        color: c
+    };
+    let base = vertices.len() as u32;
+    let idx = indices.len();
+    vertices.append(&mut vec![v(0.1, 0.1, col), v(0.9, 0.1, col), v(0.9, 0.9, col), v(0.1, 0.9, col)]);
+    indices.append(&mut vec![base + 0, base + 1, base + 3, base + 3, base + 1, base + 2]);
+    (idx as u32,  idx as u32 + 6)
+}
+
+pub fn ball(col: u32, radius: f32, vertices: &mut Vec<UiVertex>, indices: & mut Vec<u32>) -> (u32, u32) {
+    let v = |p0, p1, c| UiVertex {
+        pos: [p0, p1],
+        uv: [p0, p1],
+        mode: 0,
+        color: c
+    };
+    let base = vertices.len() as u32;
+    let idx = indices.len();
+    let base = vertices.len() as u32;
+    let l = radius;
+    let m = 0.5 + (radius - 0.5)  / 1.5;
+
+
+    vertices.append(&mut vec![v(0.5, 0.5, col), v(l, 0.5, col),
+                              v(m, m, col), v(0.5, l, col),
+                              v(1.0 - m, m, col), v(1.0 - l, 0.5, col),
+                              v(1.0 - m, 1.0 - m, col), v(0.5, 1.0 - l, col),
+                              v(m, 1.0 - m, col)]);
+
+    for i in 1..8 {
+        indices.push(base);
+        indices.push(base + i);
+        indices.push(base + i + 1);
+    }
+    indices.push(base);
+    indices.push(base + 8);
+    indices.push(base + 1);
+    (idx as u32, idx as u32 + 24)
+}

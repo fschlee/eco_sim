@@ -160,6 +160,7 @@ pub enum EntityType {
     Clover,
     Rabbit,
     Deer,
+    Wolf,
 }
 impl EntityType {
     pub fn can_eat(&self, other: &Self) -> bool {
@@ -170,6 +171,8 @@ impl EntityType {
             (Deer, Grass) => true,
             (Deer, Clover) => true,
             (Deer, Tree) => true,
+            (Wolf, Rabbit) => true,
+            (Wolf, Deer) => true,
             _ => false,
         }
     }
@@ -182,6 +185,11 @@ impl EntityType {
             (Deer, Grass) => true,
             (Deer, Clover) => true,
             (Deer, Tree) => true,
+            (Wolf, Grass) => true,
+            (Wolf, Clover) => true,
+            (Wolf, Tree) => true,
+            (Wolf, Rabbit) => true,
+            (Wolf, Deer) => true,
             _ => false,
         }
     }
@@ -199,16 +207,29 @@ impl EntityType {
     }
 
  }
-static ENTITY_TYPES : [EntityType; 6] = [
+pub const ENTITY_TYPES : [EntityType; ENTITY_TYPE_COUNT] = [
     EntityType::Rock,
     EntityType::Tree,
     EntityType::Grass,
     EntityType::Clover,
     EntityType::Rabbit,
     EntityType::Deer,
+    EntityType::Wolf,
 ];
 
-pub static MAX_FOOD_PREFS : usize = 6;
+pub fn et_idx(et : EntityType) -> usize {
+    match et {
+        EntityType::Rock => 0,
+        EntityType::Tree => 1,
+        EntityType::Grass => 2,
+        EntityType::Clover => 3,
+        EntityType::Rabbit => 4,
+        EntityType::Deer => 5,
+        EntityType::Wolf => 6,
+    }
+}
+
+pub const ENTITY_TYPE_COUNT: usize = 7;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Action {
@@ -503,8 +524,11 @@ impl World {
         };
         inserter(EntityType::Tree, MAP_WIDTH * MAP_HEIGHT / 8);
         inserter(EntityType::Rock, MAP_WIDTH * MAP_HEIGHT / 16);
-        inserter(EntityType::Grass, MAP_WIDTH * MAP_HEIGHT / 4);
-        let agents = inserter(EntityType::Rabbit, 1);
+        inserter(EntityType::Grass, MAP_WIDTH * MAP_HEIGHT / 6);
+        inserter(EntityType::Clover, MAP_WIDTH * MAP_HEIGHT / 6);
+        let mut agents = inserter(EntityType::Rabbit, 2);
+        agents.append(&mut inserter(EntityType::Wolf, 1));
+        agents.append( & mut inserter(EntityType::Deer, 2));
 
         (
             Self {
