@@ -49,6 +49,7 @@ widget_ids! {
         //
         edit_canvas,
         action_text,
+        behavior_text,
         food_prefs[],
         list_canvas,
         food_pref_text,
@@ -225,8 +226,18 @@ impl<'a> UIState<'a> {
                     cc::widget::Text::new(&act_text).font_size(16)
                         .down_from(self.ids.hunger_dialer, 60.0)
                         .align_middle_x_of(self.ids.edit_canvas).set(self.ids.action_text, ui);
-                    for sight in cc::widget::number_dialer::NumberDialer::new(ms.sight_radius as f32, 0.0, 20.0, 0)
+                    let beh_text = match &ms.current_behavior {
+
+                        None => format!("Undecided"),
+                        Some(eco_sim::Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", game_state.get_type(&enemy).unwrap()),
+                        Some(eco_sim::Behavior::Hunt(prey)) => format!("hunting {:?} ", game_state.get_type(&prey).unwrap()),
+                        Some(eco_sim::Behavior::Search(target)) => format!("searching for {:?}", target),
+                    };
+                    cc::widget::Text::new(&beh_text).font_size(16)
                         .down_from(self.ids.action_text, 60.0)
+                        .align_middle_x_of(self.ids.edit_canvas).set(self.ids.behavior_text, ui);
+                    for sight in cc::widget::number_dialer::NumberDialer::new(ms.sight_radius as f32, 0.0, 20.0, 0)
+                        .down_from(self.ids.behavior_text, 60.0)
                         .align_middle_x_of(self.ids.edit_canvas)
                         .w_h(160.0, 40.0)
                         .label("Sight")

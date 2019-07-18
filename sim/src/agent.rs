@@ -20,6 +20,8 @@ const HUNGER_THRESHOLD : Hunger = Hunger(1.0);
 
 const HUNGER_INCREMENT : f32 = 0.0001;
 
+const FLEE_THRESHOLD : u32 = 4;
+
 type Reward = f32;
 
 #[derive(Clone, Debug)]
@@ -95,15 +97,24 @@ impl MentalState {
         own_position: Position,
         observation: impl Observation,
     ) {
-
-        if self.hunger > HUNGER_THRESHOLD {
+        if let Some((predator, pos)) = observation.find_closest(own_position, |e, w| {
+            match w.entity_types.get(e) {
+                Some(other_type) => other_type.can_eat(&own_type),
+                None => false
+            }
+        }).next() {
+            if pos.distance(&own_position) <= FLEE_THRESHOLD && observation.known_can_pass(&predator, own_position) != Some(false) {
+                self.current_behavior = Some(Behavior::FleeFrom(predator))
+            }
+        }
+        if self.current_behavior.is_none() && self.hunger > HUNGER_THRESHOLD {
             if let Some((reward, food, position)) = observation.find_closest(own_position, |e, w| {
                 match w.entity_types.get(e) {
                     Some(other_type) => own_type.can_eat(other_type),
                     None => false
                 }
             }).filter_map(|(e, p)| {
-                if let Some(rw) = observation.get_type(&e).and_then(|et| self.lookup_preference(et)) {
+                if let Some(rw) = observation.get_type(&e).and_then(|et| self.lookup_preference(et))  {
                     let dist = own_position.distance(&p) as f32 * 0.05;
                     Some((rw - dist, e, p))
                 } else {
@@ -116,17 +127,102 @@ impl MentalState {
                     Ordering::Greater
                 }
             }) {
-                if position == own_position {
-                    self.current_action = Some(Action::Eat(food));
-                }
-                else {
-                    if own_position.is_neighbour(&position) {
-                        self.current_action = Some(Action::Move(position));
+                match observation.observed_physical_state(&food) {
+                    Some(ps) if  ps.health > Health(0.0)  && observation.known_can_pass(&self.id, position) == Some(true) => {
+                        self.current_behavior = Some(Behavior::Hunt(food));
                     }
-                    else{
-                        if let Some(step) = self.path(own_position, position, observation.clone()){
+                    _ => {
+                        if position == own_position {
+                            self.current_action = Some(Action::Eat(food));
+                        }
+                        else {
+                            if own_position.is_neighbour(&position) {
+                                self.current_action = Some(Action::Move(position));
+                            }
+                            else{
+                                if let Some(step) = self.path(own_position, position, observation.clone()){
+                                    self.current_action = Some(Action::Move(step));
+                                }
+                            }
+                        }
+                    }
+                }
+
+            }
+            else {
+                self.current_behavior = Some(Behavior::Search(self.food_preferences.iter().map(|(f, r)| f.clone()).collect()));
+            }
+        }
+        match self.current_behavior.clone() {
+            None => (),
+            Some(Behavior::FleeFrom(predator)) => {
+                let mut escaped = false;
+                if observation.known_can_pass(&predator, own_position) != Some(false) {
+                    if let Some(pos) = observation.observed_position(&predator) {
+                        let d = pos.distance(&own_position);
+                        let mut step = own_position;
+                        let mut value = 0;
+                        for n in pos.neighbours() {
+                            if observation.known_can_pass(&self.id, n) == Some(true) {
+                                let v = match (observation.known_can_pass(&predator, n), pos.distance(&n).cmp( &d)) {
+                                    (Some(false), _) => 10,
+                                    (None, Ordering::Greater) => 4,
+                                    (None, Ordering::Equal) => 2,
+                                    (None, Ordering::Less) => 1,
+                                    (Some(true), Ordering::Greater) => 3,
+                                    (Some(true), Ordering::Equal) => 1,
+                                    (Some(true), Ordering::Less) => 0,
+                                };
+                                if v > value {
+                                    value = v;
+                                    step = n;
+                                }
+                            }
+                        }
+                        if step != own_position {
                             self.current_action = Some(Action::Move(step));
                         }
+
+                    } else {
+                        escaped = true;
+                    }
+                } else {
+                    escaped = true;
+                }
+                if escaped {
+                    self.current_behavior = None;
+                }
+            },
+            Some(Behavior::Hunt(prey)) => {
+                match observation.observed_position(&prey) {
+                    Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
+                        if let Some(step) = self.path(own_position, pos, observation.clone()){
+                            self.current_action = Some(Action::Move(step));
+                        }
+                        else {
+                            self.current_behavior = None;
+                        }
+                    }
+                    _ => self.current_behavior = None,
+                }
+            }
+            Some(Behavior::Search(list)) => {
+                if let Some(_) = observation.find_closest(own_position, |e, w| {
+                    match w.entity_types.get(e) {
+                        Some(other_type) => list.contains(other_type),
+                        None => false
+                    }
+                }).next() {
+                    self.current_behavior = None;
+                }
+                else {
+                    use rand::seq::SliceRandom;
+                    if let Some(step) = own_position.neighbours().into_iter()
+                        .filter(|p|
+                            observation.known_can_pass(&self.id, *p) == Some(true))
+                        .collect::<Vec<Position>>().choose(&mut rand::thread_rng()) {
+                        self.current_action = Some(Action::Move(*step));
+
                     }
                 }
             }
@@ -227,7 +323,7 @@ impl MentalState {
     pub fn path(&self, current: Position, goal: Position, observation: impl Observation) -> Option<Position> {
         let d = current.distance(&goal);
         for n in current.neighbours(){
-            if current.distance(&n) < d && Some(true) == observation.known_can_pass(&self.id, n) {
+            if n.distance(&goal) < d && Some(true) == observation.known_can_pass(&self.id, n) {
                 return Some(n);
             }
         }
