@@ -196,7 +196,7 @@ impl<B: Backend> LoadedTexture<B> {
             let upload_fence = device
                 .create_fence(false)
                 .map_err(|_| "Couldn't create an upload fence!")?;
-            command_queue.submit_nosemaphores(Some(&cmd_buffer), Some(&upload_fence));
+            command_queue.submit_without_semaphores(Some(&cmd_buffer), Some(&upload_fence));
             device
                 .wait_for_fence(&upload_fence, core::u64::MAX)
                 .map_err(|_| "Couldn't wait for the fence!")?;

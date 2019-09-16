@@ -38,7 +38,7 @@ use gfx_hal::{
         family::QueueGroup,
         CommandQueue, Submission,
     },
-    window::{Backbuffer, Extent2D, PresentMode, Swapchain, SwapchainConfig},
+    window::{Extent2D, PresentMode, Swapchain, SwapchainConfig},
     Backend, DescriptorPool, Gpu, Graphics, IndexType, Instance, Primitive, QueueFamily, Surface,
 };
 
@@ -403,7 +403,7 @@ impl<B: Backend> HalState<B> {
         // queue_group: Arc<QueueGroup<back::Backend, Graphics>>
     ) -> Result<Self, &'static str> {
         // Create A Swapchain, this is extra long
-        let (swapchain, extent, backbuffer, format, frames_in_flight) = {
+        let (swapchain, extent, images, format, frames_in_flight) = {
             let (caps, preferred_formats, present_modes) =
                 surface.compatibility(&adapter.physical_device);
             let format = match preferred_formats {
@@ -429,17 +429,17 @@ impl<B: Backend> HalState<B> {
             };
             let mut swapchain_config = SwapchainConfig::from_caps(&caps, format, default_extent);
             let image_count = if swapchain_config.present_mode == PresentMode::Mailbox {
-                (caps.image_count.end - 1).min(3)
+                (caps.image_count.end() - 1).min(3)
             } else {
-                (caps.image_count.end - 1).min(2)
+                (caps.image_count.end() - 1).min(2)
             };
             swapchain_config.image_count = image_count;
             let extent = swapchain_config.extent;
-            let (swapchain, backbuffer) = unsafe {
+            let (swapchain, images) = unsafe {
                 device.create_swapchain(surface, swapchain_config, None)
                     .map_err(|_| "Failed to create the swapchain!")?
             };
-            (swapchain, extent, backbuffer, format, image_count as usize)
+            (swapchain, extent, images, format, image_count as usize)
         };
         // println!("{}:{}", extent.width, extent.height);
         // Create Our Sync Primitives
@@ -498,8 +498,7 @@ impl<B: Backend> HalState<B> {
         };
 
         // Create The ImageViews
-        let image_views: Vec<_> = match backbuffer {
-            Backbuffer::Images(images) => images
+        let image_views: Vec<_> = images
                 .into_iter()
                 .map(|image| unsafe {
                     device
@@ -516,9 +515,7 @@ impl<B: Backend> HalState<B> {
                         )
                         .map_err(|_| "Couldn't create the image_view for the image!")
                 })
-                .collect::<Result<Vec<_>, &str>>()?,
-            Backbuffer::Framebuffer(_) => unimplemented!("Can't handle framebuffer backbuffer!"),
-        };
+                .collect::<Result<Vec<_>, &str>>()?;
 
         // Create Our FrameBuffers
         let framebuffers: Vec<<B as Backend>::Framebuffer> = {
@@ -579,7 +576,7 @@ impl<B: Backend> HalState<B> {
         self.current_frame = (self.current_frame + 1) % self.frames_in_flight;
 
         let (i_u32, i_usize) = unsafe {
-            let image_index = self
+            let (image_index, sbopt) = self
                 .swapchain
                 .acquire_image(core::u64::MAX, Some(image_available), None)
                 .map_err(|_| "Couldn't acquire an image from the swapchain!")?;
@@ -599,7 +596,7 @@ impl<B: Backend> HalState<B> {
         // RECORD COMMANDS
         unsafe {
             let buffer = &mut self.command_buffers[i_usize];
-            let clear_values = [ClearValue::Color(ClearColor::Float(color))];
+            let clear_values = [ClearValue::Color(ClearColor::Sfloat(color))];
             buffer.begin(false);
             buffer.begin_render_pass_inline(
                 &self.render_pass,
@@ -645,7 +642,7 @@ impl<B: Backend> HalState<B> {
         self.current_frame = (self.current_frame + 1) % self.frames_in_flight;
 
         let (i_u32, i_usize) = unsafe {
-            let image_index = self
+            let (image_index, sbopt) = self
                 .swapchain
                 .acquire_image(core::u64::MAX, Some(image_available), None)
                 .map_err(|_| "Couldn't acquire an image from the swapchain!")?;
@@ -711,7 +708,7 @@ impl<B: Backend> HalState<B> {
         self.next_frame = (self.current_frame + 1) % self.frames_in_flight;
         let image_available = &self.image_available_semaphores[self.current_frame];
         let (i_u32, i_usize) = unsafe {
-            let image_index = self
+            let (image_index, sbopt) = self
                 .swapchain
                 .acquire_image(core::u64::MAX, Some(image_available), None)
                 .map_err(|_| "Couldn't acquire an image from the swapchain!")?;

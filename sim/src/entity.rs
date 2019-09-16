@@ -52,6 +52,23 @@ impl EntityManager {
             gen,
         }
     }
+    pub fn put(&mut self, entity: Entity) -> Result<Entity, Entity> {
+        let Entity{gen, id} = entity;
+        let id = id as usize;
+        if id >= self.generations.len() {
+            self.generations.resize(id + 1, -1);
+            self.valid.resize(id + 1, false);
+            self.generations[id] = gen;
+            self.valid[id] = true;
+            return Ok(entity);
+        } if !self.valid[id] && self.generations[id] < gen {
+            self.generations[id] = gen;
+            self.valid[id] = true;
+            return Ok(entity)
+        } else {
+            return Err(self.fresh())
+        }
+    }
 }
 
 pub struct EntityIter<'a> {

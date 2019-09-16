@@ -22,30 +22,24 @@ impl<B: Backend> UiPipeline<B> {
 
         let vertex_shader_module = unsafe {
             device
-                .create_shader_module(vertex_compile_artifact.as_binary_u8())
+                .create_shader_module(vertex_compile_artifact.as_binary())
                 .map_err(|_| "Couldn't make the vertex module")?
         };
         let fragment_shader_module = unsafe {
             device
-                .create_shader_module(fragment_compile_artifact.as_binary_u8())
+                .create_shader_module(fragment_compile_artifact.as_binary())
                 .map_err(|_| "Couldn't make the fragment module")?
         };
         let (vs_entry, fs_entry) = (
             EntryPoint {
                 entry: "main",
                 module: &vertex_shader_module,
-                specialization: Specialization {
-                    constants: &[],
-                    data: &[],
-                },
+                specialization: Specialization::EMPTY
             },
             EntryPoint {
                 entry: "main",
                 module: &fragment_shader_module,
-                specialization: Specialization {
-                    constants: &[],
-                    data: &[],
-                },
+                specialization: Specialization::EMPTY
             },
         );
         let shaders = GraphicsShaderSet {
@@ -107,12 +101,12 @@ impl<B: Backend> UiPipeline<B> {
         };
 
         let depth_stencil = DepthStencilDesc {
-            depth: DepthTest::Off,
+            depth: None,
             depth_bounds: false,
-            stencil: StencilTest::Off,
+            stencil: None,
         };
 
-        let blender = BlendDesc{ logic_op: None, targets : vec![ColorBlendDesc(ColorMask::ALL, BlendState::ALPHA)]};
+        let blender = BlendDesc{ logic_op: None, targets : vec![ColorBlendDesc{mask: ColorMask::ALL, blend: Some(BlendState::ALPHA)}]};
 
         let baked_states = BakedStates {
             viewport: Some(Viewport {

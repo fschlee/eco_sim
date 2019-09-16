@@ -12,6 +12,7 @@ use std::time::Instant;
 
 mod renderer;
 pub mod ui;
+pub mod conrod_winit;
 pub mod simulation;
 
 const MAX_RENDER_FAILS : u32 = 100;

@@ -1,7 +1,8 @@
 
 use std::time::Instant;
 use conrod_core as cc;
-use conrod_core::{widget_ids, widget, Colorable, Labelable, Positionable, Sizeable, Widget};
+use conrod_core::{widget_ids, widget, Colorable, Labelable, Positionable, Sizeable, Widget, };
+use conrod_winit::{convert_event, WinitWindow};
 
 use crate::simulation::GameState;
 use winit::{EventsLoop, Event, WindowEvent, MouseButton, ElementState, KeyboardInput, VirtualKeyCode, ModifiersState, dpi::{LogicalPosition, LogicalSize} };
@@ -138,11 +139,12 @@ impl<'a> UIState<'a> {
     }
     pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
         let mut should_close = false;
-        let mut eventfull = false;
+        let mut eventful = false;
         let mut actions = vec![];
         let mut ui_updates = vec![];
         event_loop.poll_events(|event| {
-            if let Some(event) = conrod_winit::convert_event(event.clone(), self.window) {
+
+            if let Some(event) =  crate::conrod_winit::convert_event(event.clone(), self) {
                 self.conrod.handle_event(event);
             }
             match event {
@@ -183,11 +185,11 @@ impl<'a> UIState<'a> {
         }
         );
         if self.conrod.global_input().events().next().is_some() {
-            eventfull = true;
+            eventful = true;
         }
         let now = Instant::now();
         let delta = now - self.prev;
-        if eventfull || !self.paused {
+        if eventful || !self.paused {
             let ui = & mut self.conrod.set_widgets();
             cc::widget::Canvas::new().pad(0.0).scroll_kids_vertically().w_h(1280.0, 1024.0).set(self.ids.canvas, ui);
             if self.paused {
@@ -298,5 +300,15 @@ impl<'a> UIState<'a> {
             }
             _ => ()
         }
+    }
+}
+
+impl<'a> WinitWindow for UIState<'a> {
+    fn get_inner_size(&self) -> Option<(u32, u32)> {
+        self.window.get_inner_size().map(|l| l.into())
+    }
+
+    fn hidpi_factor(&self) -> f32 {
+        self.window.get_hidpi_factor() as f32
     }
 }

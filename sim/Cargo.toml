@@ -7,5 +7,5 @@ edition = "2018"
 [dependencies]
 "log" = "^0.4"
 "arr_macro" = "^0.1"
-"rand" = ""
-"rand_xorshift" = ""
+"rand" = "^0.7"
+"rand_xorshift" = "^0.2"

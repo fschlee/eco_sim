@@ -13,12 +13,12 @@ dx12 = ["gfx-backend-dx12"]
 gl = ["gfx-backend-gl"]
 [dependencies]
 "eco_sim" = { path="../sim" }
-"winit" = "^0.18.*"
-"gfx-backend-vulkan" = { git = "https://github.com/gfx-rs/gfx", rev= "115e472", optional = true }
-"gfx-backend-dx11" = { git = "https://github.com/gfx-rs/gfx", rev= "115e472", optional = true }
-"gfx-backend-dx12" = { git = "https://github.com/gfx-rs/gfx", rev= "115e472", optional = true }
-"gfx-backend-gl" = { git = "https://github.com/gfx-rs/gfx", rev= "115e472", optional = true }
-"gfx-hal" = { git = "https://github.com/gfx-rs/gfx", rev= "115e472" }
+"winit" = "^0.19.3"
+"gfx-backend-vulkan" = { version = "0.3", features =["winit"], optional = true }
+"gfx-backend-dx11" = { version = "0.3", optional = true }
+"gfx-backend-dx12" = { version = "0.3", optional = true }
+"gfx-backend-gl" = { version = "0.3", optional = true }
+"gfx-hal" = "0.3"
 "nalgebra" = "^0.17.*"
 "log" = "^0.4"
 "env_logger" = "^0.5"
@@ -29,11 +29,11 @@ gl = ["gfx-backend-gl"]
 "arrayvec" = "*"
 "image" = "*"
 "shaderc" = "0.3"
-"conrod_core"  = "^0.63"
-"conrod_winit" = "^0.63"
+"conrod_core"  = "^0.66"
+"conrod_winit" = "^0.66"
 
 [target.'cfg(macos)'.dependencies]
-"gfx-backend-metal" = { git = "https://github.com/gfx-rs/gfx", rev= "115e472"}
+"gfx-backend-metal" = "0.3"
 
 [[bin]]
 name = "eco_sim"

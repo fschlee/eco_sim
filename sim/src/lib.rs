@@ -32,13 +32,14 @@ impl SimState {
         let mut entity_manager = EntityManager::default();
         let rng = XorShiftRng::from_seed([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
         let (world, agents) = World::init(rng.clone(), &mut entity_manager);
-        let agent_system = AgentSystem::init(agents, &world, rng);
+        let agent_system = AgentSystem::init(agents, &world, true, rng);
+
 
         Self {
             time_acc: 0.0,
             sim_step: time_step,
             agent_system,
-            world,
+            world: world,
             entity_manager,
         }
     }

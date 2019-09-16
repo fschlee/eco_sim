@@ -3,6 +3,7 @@ use std::ops::Range;
 use rand::{Rng};
 
 use super::entity::*;
+use super::agent::AgentSystem;
 
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
@@ -133,8 +134,8 @@ pub struct PhysicalState {
     pub satiation: Satiation,
 }
 
-pub const MAP_HEIGHT: usize = 10;
-pub const MAP_WIDTH: usize = 10;
+pub const MAP_HEIGHT: usize = 11;
+pub const MAP_WIDTH: usize = 11;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct Position {
@@ -170,6 +171,15 @@ impl Position {
 }
 
 pub type ViewData = Option<Vec<EntityType>>;
+
+#[derive(Clone, Debug)]
+pub enum Occupancy {
+    Empty,
+    Filled(Vec<Entity>),
+    ExpectedFilled(Vec<Entity>),
+    ExpectedEmpty,
+    Unknown,
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct World {
@@ -223,24 +233,7 @@ impl World {
             agents
         )
     }
-    pub fn from_observation(observation: impl Observation) -> Self {
-        let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = Default::default();
-        let mut entity_types = Storage::new();
-        let mut physical_states = Storage::new();
-        let mut positions = Storage::new();
-        let pos = Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 };
-        let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
-        for (e, p) in observation.find_closest(pos, |e, w| true) {
-            positions.insert(&e, p);
-            if let Some(tp) = observation.get_type(&e) {
-                entity_types.insert(&e, tp);
-                if let Some(ps) = tp.typical_physical_state() {
-                    physical_states.insert(&e, ps);
-                }
-            }
-        }
-        Self{cells, entity_types, physical_states, positions }
-    }
+
     pub fn act(&mut self, entity: &Entity, action: Action) -> Result<(), &str> {
         if let Some(own_pos) = self.positions.get(entity) {
             match action {
@@ -400,16 +393,47 @@ impl World {
 }
 
 pub trait Observation: Clone {
-    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<Iterator<Item=(Entity, Position)> + 'a>;
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a>;
     fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool>;
     fn get_type(& self, entity: & Entity) -> Option<EntityType>;
     fn entities_at(&self, position: Position) -> &[Entity];
     fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState>;
     fn observed_position(& self, entity: &Entity) -> Option<Position>;
+    fn into_expected(& self, filler: impl Fn(Position) -> Option<Vec<EntityType>>, mut rng: impl Rng) -> (EntityManager, World, AgentSystem) {
+
+        let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = Default::default();
+        let mut entity_manager = EntityManager::default();
+        let mut entity_types = Storage::new();
+        let mut physical_states = Storage::new();
+        let mut positions = Storage::new();
+        let mut agents = Vec::new();
+        let mut insert_cell = |e, Position {x, y}| {
+            cells[y as usize][x as usize].get_or_insert(Vec::new()).push(e);
+        };
+        let pos = Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 };
+        let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
+        for (e, p) in self.find_closest(pos, |e, w| true) {
+            if let Ok(new_e) = entity_manager.put(e) {
+                positions.insert(&new_e, p);
+                insert_cell(new_e, p);
+                if let Some(tp) = self.get_type(&e) {
+                    entity_types.insert(&new_e, tp);
+                    if let Some(ps) = tp.typical_physical_state() {
+                        physical_states.insert(&new_e, ps);
+                        agents.push(new_e);
+                    }
+                }
+            }
+        }
+        let world = World{cells, entity_types, physical_states, positions };
+        let agent_system = AgentSystem::init(agents, &world, false, rng);
+        (entity_manager, world, agent_system)
+
+    }
 }
 
 impl<'b> Observation for & 'b World {
-    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, Self) -> bool + 'a) -> Box<Iterator<Item=(Entity, Position)> + 'a> {
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, Self) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a> {
         Box::new(EntityWalker::new(self, starting_point, std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32).filter(move |(e, p)| predicate(e, self)))
     }
     fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool> {
@@ -434,6 +458,7 @@ impl<'b> Observation for & 'b World {
     fn observed_position(& self, entity: &Entity) -> Option<Position>{
         self.positions.get(entity).copied()
     }
+
 }
 #[derive(Clone, Debug)]
 pub struct RadiusObservation<'a> {
@@ -447,7 +472,7 @@ impl<'a> RadiusObservation<'a> {
     }
 }
 impl<'b> Observation for RadiusObservation<'b> {
-    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<Iterator<Item=(Entity, Position)> + 'a> {
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a> {
         Box::new(EntityWalker::new(self.world, starting_point, self.radius).filter(
             move |(e, p)| self.center.distance(p) <= self.radius &&  predicate(e, self.world)))
     }
@@ -593,3 +618,4 @@ impl Iterator for PositionWalker {
         None
     }
 }
+

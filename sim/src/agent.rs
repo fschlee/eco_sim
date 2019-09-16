@@ -1,5 +1,5 @@
 
-use rand::{Rng};
+use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
 
 
@@ -32,10 +32,12 @@ pub struct MentalState {
     pub current_action: Option<Action>,
     pub current_behavior: Option<Behavior>,
     pub sight_radius: u32,
+    pub use_mdp: bool,
+    rng: rand_xorshift::XorShiftRng,
 }
 
 impl MentalState {
-    pub fn new(entity: Entity, food_preferences: Vec<(EntityType, Reward)>) -> Self {
+    pub fn new(entity: Entity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
         assert!(food_preferences.len() > 0);
         Self{
             id: entity,
@@ -44,6 +46,8 @@ impl MentalState {
             current_action: None,
             current_behavior: None,
             sight_radius: 5,
+            use_mdp,
+            rng: rand::SeedableRng::seed_from_u64(entity.id as u64)
         }
     }
     pub fn decide(
@@ -54,7 +58,11 @@ impl MentalState {
         observation: impl Observation,
     ) -> Option<Action> {
         self.update(physical_state, own_position, observation.clone());
-        self.decide_simple(own_type, physical_state, own_position, observation);
+        if self.use_mdp {
+            self.decide_mdp(own_type, physical_state, own_position, observation);
+        } else {
+            self.decide_simple(own_type, physical_state, own_position, observation);
+        }
         self.current_action
 
     }
@@ -162,7 +170,7 @@ impl MentalState {
                         let d = pos.distance(&own_position);
                         let mut step = own_position;
                         let mut value = 0;
-                        for n in pos.neighbours() {
+                        for n in own_position.neighbours() {
                             if observation.known_can_pass(&self.id, n) == Some(true) {
                                 let v = match (observation.known_can_pass(&predator, n), pos.distance(&n).cmp( &d)) {
                                     (Some(false), _) => 10,
@@ -196,7 +204,10 @@ impl MentalState {
             Some(Behavior::Hunt(prey)) => {
                 match observation.observed_position(&prey) {
                     Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
-                        if let Some(step) = self.path(own_position, pos, observation.clone()){
+                        if pos == own_position {
+                            self.current_action = Some(Action::Attack(prey));
+                        }
+                        else if let Some(step) = self.path(own_position, pos, observation.clone()){
                             self.current_action = Some(Action::Move(step));
                         }
                         else {
@@ -216,14 +227,7 @@ impl MentalState {
                     self.current_behavior = None;
                 }
                 else {
-                    use rand::seq::SliceRandom;
-                    if let Some(step) = own_position.neighbours().into_iter()
-                        .filter(|p|
-                            observation.known_can_pass(&self.id, *p) == Some(true))
-                        .collect::<Vec<Position>>().choose(&mut rand::thread_rng()) {
-                        self.current_action = Some(Action::Move(*step));
-
-                    }
+                    self.random_step(own_position, observation.clone());
                 }
             }
         }
@@ -235,7 +239,8 @@ impl MentalState {
         own_position: Position,
         observation: impl Observation,
     ) {
-        let world_expectation = &World::from_observation(observation);
+        let (_, expected_world, _) = observation.into_expected(|_| None, thread_rng());
+        let world_expectation = &expected_world;
         let direct_reward = | action, hunger | {
             match action {
                 Action::Move(_) => {
@@ -329,6 +334,15 @@ impl MentalState {
         }
         None
     }
+    pub fn random_step(& mut self, current: Position, observation: impl Observation) {
+        use  rand::seq::SliceRandom;
+        if let Some(step) = current.neighbours().into_iter()
+            .filter(|p|
+                observation.known_can_pass(&self.id, *p) == Some(true))
+            .collect::<Vec<Position>>().choose(&mut self.rng) {
+            self.current_action = Some(Action::Move(*step));
+        }
+    }
     pub fn lookup_preference(&self, entity_type: EntityType) -> Option<Reward> {
         self.food_preferences.iter().find_map(|(et, rw)| {
             if et == &entity_type
@@ -368,12 +382,12 @@ impl AgentSystem {
             }
         }
     }
-    pub fn init(agents: Vec<Entity>, world: &World, mut rng: impl Rng) -> Self {
+    pub fn init(agents: Vec<Entity>, world: &World, use_mdp: bool, mut rng: impl Rng) -> Self {
         let mut mental_states = Storage::new();
         for agent in &agents {
             if let Some(et) = world.get_type(agent) {
                 let food_prefs = ENTITY_TYPES.iter().filter(|e|et.can_eat(e)).map(|e| (e.clone(), rng.gen_range(0.0, 1.0))).collect();
-                mental_states.insert(agent, MentalState::new(agent.clone(), food_prefs));
+                mental_states.insert(agent, MentalState::new(agent.clone(), food_prefs, use_mdp));
             }
 
         }
