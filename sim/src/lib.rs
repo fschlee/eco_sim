@@ -1,3 +1,5 @@
+#![feature(vec_remove_item)]
+
 pub mod entity;
 pub mod world;
 pub mod agent;
@@ -24,7 +26,7 @@ impl SimState {
         self.time_acc += time_step;
         while self.time_acc >= self.sim_step {
             self.time_acc -= self.sim_step;
-            self.agent_system.advance(&mut self.world);
+            self.agent_system.advance(&mut self.world, &mut self.entity_manager);
             self.world.advance();
         }
     }

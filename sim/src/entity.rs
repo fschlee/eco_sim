@@ -153,14 +153,17 @@ impl<T> Storage<T> {
         }
         None
     }
-    pub fn remove(& mut self, entity: &Entity) {
+    pub fn remove(& mut self, entity: &Entity) -> Option<T> {
         let Entity { id, gen } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen <= gen {
-                self.content[id] = None;
+                let mut val = None;
+                std::mem::swap(& mut self.content[id], & mut val);
+                return val;
             }
         }
+        None
     }
     pub fn new() -> Self {
         Self {

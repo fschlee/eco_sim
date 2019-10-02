@@ -1,7 +1,7 @@
 
 use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
-
+use log::error;
 
 use super::world::*;
 use super::entity::*;
@@ -33,7 +33,7 @@ pub struct MentalState {
     pub current_behavior: Option<Behavior>,
     pub sight_radius: u32,
     pub use_mdp: bool,
-    rng: rand_xorshift::XorShiftRng,
+    pub rng: rand_xorshift::XorShiftRng,
 }
 
 impl MentalState {
@@ -353,6 +353,64 @@ impl MentalState {
             }
         })
     }
+    pub fn respawn_as(&mut self, entity: &Entity) {
+        self.id = entity.clone();
+        self.hunger = Hunger::default();
+        self.current_action = None;
+        self.current_behavior = None;
+    }
+}
+#[derive(Clone, Debug)]
+pub struct Estimate {
+    pub id: Entity,
+    pub physical_state: PhysicalState,
+    pub entity_type: EntityType,
+    pub hunger: Hunger,
+    pub food_preferences: Vec<(EntityType, Reward)>,
+    pub current_action: Option<Action>,
+    pub current_behavior: Option<Behavior>,
+    pub sight_radius: u32,
+    pub use_mdp: bool,
+}
+impl Estimate {
+    pub fn update(&mut self, ms: &MentalState){
+        self.hunger = ms.hunger;
+        self.food_preferences = ms.food_preferences.clone();
+        self.current_behavior = ms.current_behavior.clone();
+        self.current_action = ms.current_action;
+    }
+}
+
+impl Into<MentalState> for &Estimate {
+    fn into(self) -> MentalState {
+        MentalState {
+            id: self.id,
+            hunger: self.hunger,
+            food_preferences: self.food_preferences.clone(),
+            current_action: self.current_action,
+            current_behavior: self.current_behavior.clone(),
+            sight_radius: self.sight_radius,
+            use_mdp: false,
+            rng: rand::SeedableRng::seed_from_u64(self.id.id as u64)
+        }
+    }
+}
+
+
+pub fn update_ms_estimate(observation: impl Observation, action: Action, old_ms: Estimate) -> Estimate {
+    if let Some(pos) = observation.observed_position(&old_ms.id){
+        let ms : MentalState= (&old_ms).into();
+        let mut ms1 = ms.clone();
+        if let Some(act) = ms1.decide(old_ms.entity_type, &(old_ms.physical_state), pos, observation){
+            if act == action {
+                let mut est = old_ms.clone();
+                est.update(&ms1);
+                return est;
+            }
+            //Todo
+        }
+    }
+    return old_ms
 }
 
 
@@ -363,8 +421,9 @@ pub struct AgentSystem {
 }
 
 impl AgentSystem {
-    pub fn advance(&mut self, world: &mut World) {
-        for entity in &self.agents {
+    pub fn advance(&mut self, world: &mut World, entity_manager: &mut EntityManager) {
+        let mut killed = Vec::new();
+        for entity in &self.agents{
             let opt_action = match (
                 self.mental_states.get_mut(entity),
                 world.get_physical_state(entity),
@@ -372,13 +431,33 @@ impl AgentSystem {
                 world.positions.get(entity),
             ) {
                 (Some(mental_state), Some(physical_state), Some(et), Some(position)) => {
-                    mental_state.decide(*et, physical_state, *position, world.observe_in_radius(entity, mental_state.sight_radius))
+                    if physical_state.is_dead() {
+                        killed.push(entity.clone());
+                        None
                 }
-                _ => None,
+                    else {
+                        mental_state.decide(*et, physical_state, *position, world.observe_in_radius(entity, mental_state.sight_radius))
+                    }
+                }
+                _ => {
+                    killed.push(entity.clone());
+                    error!("Agent {:?} killed due to incomplete data", entity);
+                    None
+                },
             };
 
             if let Some(action) = opt_action {
                 world.act(entity, action);
+            }
+
+        }
+        for entity in killed {
+            self.agents.remove_item(&entity);
+
+            if let Some(mut ms) = self.mental_states.remove(&entity) {
+                let new_e = world.respawn(&entity, & mut ms, entity_manager);
+                self.mental_states.insert(&new_e, ms);
+                self.agents.push(new_e);
             }
         }
     }

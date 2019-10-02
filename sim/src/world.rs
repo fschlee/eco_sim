@@ -4,6 +4,7 @@ use rand::{Rng};
 
 use super::entity::*;
 use super::agent::AgentSystem;
+use crate::{MentalState, Hunger};
 
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
@@ -133,6 +134,11 @@ pub struct PhysicalState {
     pub attack: Option<Attack>,
     pub satiation: Satiation,
 }
+impl PhysicalState {
+    pub fn is_dead(&self) -> bool {
+        self.health.0 > 0.0
+    }
+}
 
 pub const MAP_HEIGHT: usize = 11;
 pub const MAP_WIDTH: usize = 11;
@@ -233,6 +239,28 @@ impl World {
             agents
         )
     }
+    pub fn respawn(&mut self, entity: &Entity, mental_state: & mut  MentalState, entity_manager: & mut EntityManager) -> Entity {
+        let new_e = entity_manager.fresh();
+
+        if let Some(et) = self.entity_types.get(entity) {
+            let mut random_pos = || {
+                let x = mental_state.rng.gen_range(0, MAP_WIDTH);
+                let y = mental_state.rng.gen_range(0, MAP_HEIGHT);
+                Position {x: x as u32, y : y as u32}
+            };
+            let mut pos = random_pos();
+            while !self.type_can_pass(et, pos) {
+                pos = random_pos();
+            }
+            self.positions.insert(&new_e, pos);
+            mental_state.respawn_as(&new_e);
+            if let Some(phys_state) = et.typical_physical_state() {
+                self.physical_states.insert(&entity, phys_state.clone());
+            }
+            self.entity_types.insert(&new_e, et.clone());
+        }
+        new_e
+    }
 
     pub fn act(&mut self, entity: &Entity, action: Action) -> Result<(), &str> {
         if let Some(own_pos) = self.positions.get(entity) {
@@ -297,15 +325,20 @@ impl World {
             return false
         }
         if let Some(mover) = self.entity_types.get(entity) {
-            return self
-                .entities_at(position)
-                .iter()
-                .all(|e| match self.entity_types.get(e) {
-                    Some(e) => mover.can_pass(e),
-                    None => true,
-                });
+            return self.type_can_pass(mover, position);
         }
         false
+    }
+    pub fn type_can_pass(&self, entity_type: & EntityType, position: Position) -> bool {
+        if !position.within_bounds() {
+            return false
+        }
+        self.entities_at(position)
+                .iter()
+                .all(|e| match self.entity_types.get(e) {
+                    Some(e) => entity_type.can_pass(e),
+                    None => true,
+                })
     }
     pub fn observe_as(&self, entity: &Entity) -> impl Observation + '_ {
         let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
