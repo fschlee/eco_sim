@@ -5,6 +5,24 @@ use log::error;
 
 use super::world::*;
 use super::entity::*;
+use std::collections::BinaryHeap;
+
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct PathNode {
+    pub pos : Position,
+    pub exp_cost: u32,
+}
+
+impl Ord for PathNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.exp_cost.cmp(&self.exp_cost)
+    }
+}
+impl PartialOrd for PathNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        other.exp_cost.partial_cmp(&self.exp_cost)
+    }
+}
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 pub enum Behavior {
@@ -23,6 +41,8 @@ const HUNGER_INCREMENT : f32 = 0.0001;
 const FLEE_THRESHOLD : u32 = 4;
 
 type Reward = f32;
+
+type Threat = f32;
 
 #[derive(Clone, Debug)]
 pub struct MentalState {
@@ -325,6 +345,25 @@ impl MentalState {
             self.current_action = act;
         }
     }
+    fn  calculate_threat(
+        &self,
+        own_type: EntityType,
+        physical_state: &PhysicalState,
+        own_position: Position,
+        observation: impl Observation,
+    ) -> Vec<(Entity, Threat)>{
+        observation.find_closest(own_position, |e, w| {
+            match w.entity_types.get(e) {
+                Some(other_type) => other_type.can_eat(&own_type),
+                None => false
+            }
+        }).filter_map(|(entity, position)| {
+            match self.path_as(position, own_position, &entity, observation.clone()){ // todo: without clone?
+                Some(v) => Some((entity, 1.0 / v.len() as f32)),
+                None => None
+            }
+        }).collect()
+    }
     pub fn path(&self, current: Position, goal: Position, observation: impl Observation) -> Option<Position> {
         let d = current.distance(&goal);
         for n in current.neighbours(){
@@ -334,6 +373,43 @@ impl MentalState {
         }
         None
     }
+
+    pub fn path_as(&self, start: Position, goal: Position, entity: &Entity, observation: impl Observation) -> Option<Vec<Position>> {
+        let mut came_from : PositionMap<Position> = PositionMap::new();
+        let mut cost = PositionMap::new();
+        let mut queue = BinaryHeap::new();
+        cost.insert(start, 0u32);
+        queue.push(PathNode { pos: start, exp_cost: start.distance(&goal)});
+        while let Some(PathNode{pos, exp_cost}) = queue.pop() {
+            let base_cost = *cost.get(&pos).unwrap();
+            for n in pos.neighbours() {
+                if n == goal {
+                    let mut v = vec![pos, n];
+                    let mut current = pos;
+                    while let Some(from) = came_from.get(&current) {
+                        v.push(from.clone());
+                        current = *from;
+                    }
+                    return Some(v);
+                }
+                else {
+                    let mut insert = true;
+                    if let Some(c) =cost.get(&n) {
+                        if *c <= base_cost + 1 {
+                            insert = false;
+                        }
+                    }
+                    if insert {
+                        cost.insert(n,base_cost + 1);
+                        came_from.insert(n, pos);
+                        queue.push(PathNode{pos: n, exp_cost : base_cost + 1 + n.distance(&goal) })
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn random_step(& mut self, current: Position, observation: impl Observation) {
         use  rand::seq::SliceRandom;
         if let Some(step) = current.neighbours().into_iter()

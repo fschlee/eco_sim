@@ -5,6 +5,8 @@ use rand::{Rng};
 use super::entity::*;
 use super::agent::AgentSystem;
 use crate::{MentalState, Hunger};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
@@ -143,7 +145,7 @@ impl PhysicalState {
 pub const MAP_HEIGHT: usize = 11;
 pub const MAP_WIDTH: usize = 11;
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Copy, Clone, Debug)]
 pub struct Position {
     pub x: u32,
     pub y: u32,
@@ -176,6 +178,24 @@ impl Position {
     }
 }
 
+pub struct PositionMap<T> {
+    map : HashMap<Position, T>
+}
+impl<T> PositionMap<T> {
+    pub fn new() -> Self {
+        Self{map: HashMap::new()}
+    }
+    pub fn get(&self, k: &Position) -> Option<&T> {
+        self.map.get(k)
+    }
+    pub fn insert(&mut self, k: Position, v: T) -> Option<T> {
+        self.map.insert(k, v)
+    }
+    pub fn entry(&mut self, k: Position) -> Entry<Position, T> {
+        self.map.entry(k)
+    }
+
+}
 pub type ViewData = Option<Vec<EntityType>>;
 
 #[derive(Clone, Debug)]
