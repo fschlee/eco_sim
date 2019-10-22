@@ -134,6 +134,31 @@ impl<T> Storage<T> {
         }
         None
     }
+    pub fn get_or_insert_with(& mut self, entity: & Entity, inserter: impl FnOnce() -> T) -> &mut T {
+        let Entity { id, gen } = entity;
+        let id = *id as usize;
+        if let Some(stored_gen) = self.generations.get(id) {
+            if stored_gen > gen {
+                log::error!("invalid entity state");
+            }
+            else if stored_gen < gen {
+                self.content[id] = None;
+            }
+        }
+        else {
+            let val = inserter();
+            let end = self.generations.len();
+            if id >= end {
+                for _ in end..=id {
+                    self.generations.push(-1);
+                    self.content.push(None);
+                }
+            }
+            self.generations[id] = *gen;
+            self.content[id] = Some(val);
+        }
+        self.content[id].get_or_insert_with(|| unreachable!())
+    }
     pub fn insert(&mut self, entity: &Entity, val: T) -> Option<(i32, T)> {
         let Entity { id, gen } = entity;
         let id = *id as usize;
