@@ -1,9 +1,6 @@
 #![feature(manually_drop_take)]
 #![feature(label_break_value)]
-#![feature(duration_float)]
 #![feature(type_ascription)]
-#![feature(const_slice_len)]
-
 
 use winit::{EventsLoop, WindowBuilder, Window};
 use log::{debug, error, info, trace, warn};
