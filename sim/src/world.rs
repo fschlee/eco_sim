@@ -446,6 +446,8 @@ impl World {
 }
 
 pub trait Observation: Clone {
+    type B: Observation;
+    fn borrow<'a>(& 'a self) -> Self::B;
     fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a>;
     fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool>;
     fn get_type(& self, entity: & Entity) -> Option<EntityType>;
@@ -486,6 +488,10 @@ pub trait Observation: Clone {
 }
 
 impl<'b> Observation for & 'b World {
+    type B = & 'b World;
+    fn borrow<'a>(& 'a self) -> Self {
+        self.clone()
+    }
     fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, Self) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a> {
         Box::new(EntityWalker::new(self, starting_point, std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32).filter(move |(e, p)| predicate(e, self)))
     }
@@ -525,6 +531,10 @@ impl<'a> RadiusObservation<'a> {
     }
 }
 impl<'b> Observation for RadiusObservation<'b> {
+    type B =  RadiusObservation<'b>;
+    fn borrow<'a>(& 'a self) -> Self {
+        self.clone()
+    }
     fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a> {
         Box::new(EntityWalker::new(self.world, starting_point, self.radius).filter(
             move |(e, p)| self.center.distance(p) <= self.radius &&  predicate(e, self.world)))
