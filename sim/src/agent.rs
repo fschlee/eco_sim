@@ -590,9 +590,9 @@ impl AgentSystem {
                         mental_state.decide(physical_state, *position, world.observe_in_radius(entity, mental_state.sight_radius))
                     }
                 }
-                _ => {
+                (ms, ps, p) => {
                     killed.push(entity.clone());
-                    error!("Agent {:?} killed due to incomplete data", entity);
+                    error!("Agent {:?} killed due to incomplete data: mental state {:?}, physical state {:?}, postion {:?}", entity, ms.is_some(), ps.is_some(), p.is_some());
                     None
                 },
             };

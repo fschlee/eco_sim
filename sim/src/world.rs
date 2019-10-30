@@ -138,7 +138,7 @@ pub struct PhysicalState {
 }
 impl PhysicalState {
     pub fn is_dead(&self) -> bool {
-        self.health.0 > 0.0
+        self.health.0 <= 0.0
     }
 }
 
@@ -232,7 +232,7 @@ impl World {
                     positions.insert(&entity, Position{x : x as u32, y: y as u32});
                     entity_types.insert(&entity, entity_type);
                     if let Some(phys_state) = entity_type.typical_physical_state() {
-                        physical_states.insert(&entity, phys_state.clone());
+                        physical_states.insert(&entity, phys_state);
                     }
                     cells[y][x] = Some(vec![entity]);
                     c+= 1;
@@ -275,7 +275,7 @@ impl World {
             self.positions.insert(&new_e, pos);
             mental_state.respawn_as(&new_e);
             if let Some(phys_state) = et.typical_physical_state() {
-                self.physical_states.insert(&entity, phys_state.clone());
+                self.physical_states.insert(&entity, phys_state);
             }
             self.entity_types.insert(&new_e, et.clone());
         }
