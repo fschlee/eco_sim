@@ -357,12 +357,12 @@ impl MentalState {
         let threat = self.calculate_threat(physical_state, own_position, observation );
 
         // todo switch behaviors
-        match &self.current_behavior {
+        match &self.current_behavior.clone() {
             None => (),
             Some(Behavior::Hunt(prey)) => (),
             Some(Behavior::Search(foods)) => (),
             Some(Behavior::FleeFrom(predator)) => (),
-        };
+        }
 
         // todo action based on behavior
         match &self.current_behavior {
@@ -373,6 +373,8 @@ impl MentalState {
         };
     }
 
+
+    // Threats are unordered
     fn  calculate_threat(
         &self,
         physical_state: &PhysicalState,
@@ -385,9 +387,12 @@ impl MentalState {
                 None => false
             }
         }).filter_map(|(entity, position)| {
-            match self.path_as(position, own_position, &entity, observation.borrow()){
-                Some(v) => Some((entity, 1.0 / v.len() as f32)),
-                None => None
+            match (observation.get_type(&entity), self.path_as(position, own_position, &entity, observation.borrow())){
+
+                (Some(other_type), Some(v)) => {
+                    Some((entity, 1.0 / v.len() as f32))
+                },
+                _ => None
             }
         }).collect()
     }
@@ -457,7 +462,7 @@ impl MentalState {
         self.current_action = None;
         self.current_behavior = None;
     }
-    fn estimate(& mut self, entity: & Entity, e_type: EntityType) -> &Estimate {
+    fn estimate(& mut self, entity: & Entity, e_type: EntityType) -> &mut Estimate {
         self.estimates.get_or_insert_with(entity, ||
             Estimate{
             id: entity.clone(),
@@ -615,12 +620,12 @@ impl AgentSystem {
         for agent in &self.agents {
             if let Some(ms) = self.mental_states.get_mut(agent) {
                 for (entity, action) in &actions {
-                    if let Some(estimate) = ms.estimates.get_mut(entity) {
-                        if let  Some(mut upd) = estimate.updated(world.observe_in_radius(agent, ms.sight_radius), *action) {
-                            std::mem::swap(&mut upd, estimate);
-                        }
+                    let e_type = world.entity_types.get(entity).unwrap();
+                    let sight = ms.sight_radius;
+                    let estimate = ms.estimate(entity, *e_type);
+                    if let  Some(mut upd) = estimate.updated(world.observe_in_radius(agent, sight), *action) {
+                        std::mem::swap(&mut upd, estimate);
                     }
-
                 }
             }
         }
