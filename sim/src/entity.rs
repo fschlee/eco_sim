@@ -142,7 +142,8 @@ impl<T> Storage<T> {
                 log::error!("invalid entity state");
             }
             else if stored_gen < gen {
-                self.content[id] = None;
+                let val = inserter();
+                self.content[id] = Some(val);
             }
         }
         else {
