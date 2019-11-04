@@ -260,7 +260,7 @@ impl World {
         )
     }
     pub fn respawn(&mut self, entity: &Entity, mental_state: & mut  MentalState, entity_manager: & mut EntityManager) -> Entity {
-        let new_e = entity_manager.fresh();
+        let new_e = *entity;
 
         if let Some(et) = self.entity_types.get(entity) {
             let mut random_pos = || {
@@ -275,7 +275,7 @@ impl World {
             self.positions.insert(&new_e, pos);
             mental_state.respawn_as(&new_e);
             if let Some(phys_state) = et.typical_physical_state() {
-                self.physical_states.insert(&entity, phys_state);
+                self.physical_states.insert(&new_e, phys_state);
             }
             self.entity_types.insert(&new_e, et.clone());
         }
