@@ -177,9 +177,6 @@ impl GameState {
     pub fn get_mental_state(&self, entity: &Entity) -> Option<&MentalState> {
         self.eco_sim.get_mental_state(entity)
     }
-    pub fn get_type(& self, entity: & Entity) -> Option<EntityType> {
-        self.eco_sim.get_type(entity)
-    }
     fn logical_position_to_coords(&self, position: LogicalPosition) -> (usize, usize) {
         let x = ((position.x as f32 - self.margin) / self.cell_width).floor() as usize;
         let y = ((position.y as f32 - self.margin) / self.cell_height).floor() as usize;

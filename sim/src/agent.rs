@@ -47,7 +47,6 @@ type Threat = f32;
 #[derive(Clone, Debug)]
 pub struct MentalState {
     pub id: Entity,
-    pub e_type: EntityType,
     pub hunger: Hunger,
     pub food_preferences: Vec<(EntityType, Reward)>,
     pub current_action: Option<Action>,
@@ -59,11 +58,10 @@ pub struct MentalState {
 }
 
 impl MentalState {
-    pub fn new(entity: Entity, e_type: EntityType, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
+    pub fn new(entity: Entity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
         assert!(food_preferences.len() > 0);
         Self{
             id: entity,
-            e_type,
             hunger: Hunger::default(),
             food_preferences,
             current_action: None,
@@ -127,13 +125,9 @@ impl MentalState {
         own_position: Position,
         observation: impl Observation,
     ) {
-        let own_type = self.e_type.clone();
+        let own_type = self.id.e_type.clone();
         if let Some((predator, pos)) = observation.find_closest(own_position, |e, w| {
-
-            match w.entity_types.get(e) {
-                Some(other_type) => other_type.can_eat(&own_type),
-                None => false
-            }
+            e.e_type.can_eat(&own_type)
         }).next() {
             if pos.distance(&own_position) <= FLEE_THRESHOLD && observation.known_can_pass(&predator, own_position) != Some(false) {
                 self.current_behavior = Some(Behavior::FleeFrom(predator))
@@ -141,12 +135,9 @@ impl MentalState {
         }
         if self.current_behavior.is_none() && self.hunger > HUNGER_THRESHOLD {
             if let Some((reward, food, position)) = observation.find_closest(own_position, |e, w| {
-                match w.entity_types.get(e) {
-                    Some(other_type) => self.e_type.can_eat(other_type),
-                    None => false
-                }
+                self.id.e_type.can_eat(&e.e_type)
             }).filter_map(|(e, p)| {
-                if let Some(rw) = observation.get_type(&e).and_then(|et| self.lookup_preference(et))  {
+                if let Some(rw) = self.lookup_preference(e.e_type) {
                     let dist = own_position.distance(&p) as f32 * 0.05;
                     Some((rw - dist, e, p))
                 } else {
@@ -243,10 +234,7 @@ impl MentalState {
             }
             Some(Behavior::Search(list)) => {
                 if let Some(_) = observation.find_closest(own_position, |e, w| {
-                    match w.entity_types.get(e) {
-                        Some(other_type) => list.contains(other_type),
-                        None => false
-                    }
+                     list.contains(&e.e_type)
                 }).next() {
                     self.current_behavior = None;
                 }
@@ -270,11 +258,9 @@ impl MentalState {
                     return 0.1;
                 },
                 Action::Eat(food) => {
-                    if let Some(food_type) = world_expectation.get_type(&food) {
-                        if hunger > HUNGER_THRESHOLD {
-                            if let Some((_, pref)) = self.food_preferences.iter().find(|(et, pref)| et == &food_type) {
-                                return 0.2 + pref;
-                            }
+                    if hunger > HUNGER_THRESHOLD {
+                        if let Some((_, pref)) = self.food_preferences.iter().find(|(et, pref)| et == &food.e_type) {
+                            return 0.2 + pref;
                         }
                     }
                     return 0.0;
@@ -382,14 +368,11 @@ impl MentalState {
         observation: impl Observation,
     ) -> Vec<(Entity, Threat)>{
         observation.find_closest(own_position, |e, w| {
-            match w.entity_types.get(e) {
-                Some(other_type) => other_type.can_eat(&self.e_type),
-                None => false
-            }
+            e.e_type.can_eat(&self.id.e_type)
         }).filter_map(|(entity, position)| {
-            match (observation.get_type(&entity), self.path_as(position, own_position, &entity, observation.borrow())){
+            match (self.path_as(position, own_position, &entity, observation.borrow())){
 
-                (Some(other_type), Some(v)) => {
+                (Some(v)) => {
                     Some((entity, 1.0 / v.len() as f32))
                 },
                 _ => None
@@ -462,20 +445,19 @@ impl MentalState {
         self.current_action = None;
         self.current_behavior = None;
     }
-    fn estimate(& mut self, entity: & Entity, e_type: EntityType) -> &mut Estimate {
+    fn estimate(& mut self, entity: & Entity) -> &mut Estimate {
         self.estimates.get_or_insert_with(entity, ||
             Estimate{
             id: entity.clone(),
-            physical_state: e_type.typical_physical_state().unwrap_or(PhysicalState {
+            physical_state: entity.e_type.typical_physical_state().unwrap_or(PhysicalState {
                 health: Health(0.0),
                 meat: Meat(0.0),
                 attack: None,
                 satiation: Satiation(0.0)
             }),
-            entity_type: e_type,
             hunger: Default::default(),
             food_preferences: ENTITY_TYPES.iter().filter_map(|other| {
-                if e_type.can_eat(other) {
+                if entity.e_type.can_eat(other) {
                     Some((*other, 0.5))
                 }
                 else {
@@ -493,7 +475,6 @@ impl MentalState {
 pub struct Estimate {
     pub id: Entity,
     pub physical_state: PhysicalState,
-    pub entity_type: EntityType,
     pub hunger: Hunger,
     pub food_preferences: Vec<(EntityType, Reward)>,
     pub current_action: Option<Action>,
@@ -523,7 +504,6 @@ impl Into<MentalState> for &Estimate {
     fn into(self) -> MentalState {
         MentalState {
             id: self.id,
-            e_type: self.entity_type,
             hunger: self.hunger,
             food_preferences: self.food_preferences.clone(),
             current_action: self.current_action,
@@ -618,13 +598,18 @@ impl AgentSystem {
             }
         }
         for agent in &self.agents {
-            if let Some(ms) = self.mental_states.get_mut(agent) {
+            if let (Some(ms), Some(own_pos)) =
+                (self.mental_states.get_mut(agent), world.positions.get(agent)) {
+                let sight = ms.sight_radius;
+                let observation = world.observe_in_radius(agent, sight);
                 for (entity, action) in &actions {
-                    let e_type = world.entity_types.get(entity).unwrap();
-                    let sight = ms.sight_radius;
-                    let estimate = ms.estimate(entity, *e_type);
-                    if let  Some(mut upd) = estimate.updated(world.observe_in_radius(agent, sight), *action) {
-                        std::mem::swap(&mut upd, estimate);
+                    if let Some(other_pos) = world.positions.get(entity) {
+                        if own_pos.distance(other_pos) <= sight {
+                            let estimate = ms.estimate(entity);
+                            if let  Some(mut upd) = estimate.updated(observation.borrow(), *action) {
+                                std::mem::swap(&mut upd, estimate);
+                            }
+                        }
                     }
                 }
             }
@@ -633,10 +618,8 @@ impl AgentSystem {
     pub fn init(agents: Vec<Entity>, world: &World, use_mdp: bool, mut rng: impl Rng) -> Self {
         let mut mental_states = Storage::new();
         for agent in &agents {
-            if let Some(et) = world.get_type(agent) {
-                let food_prefs = ENTITY_TYPES.iter().filter(|e|et.can_eat(e)).map(|e| (e.clone(), rng.gen_range(0.0, 1.0))).collect();
-                mental_states.insert(agent, MentalState::new(agent.clone(), et,food_prefs, use_mdp));
-            }
+            let food_prefs = ENTITY_TYPES.iter().filter(|e|agent.e_type.can_eat(e)).map(|e| (e.clone(), rng.gen_range(0.0, 1.0))).collect();
+            mental_states.insert(agent, MentalState::new(agent.clone(), food_prefs, use_mdp));
 
         }
         Self{ agents, mental_states}

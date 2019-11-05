@@ -214,7 +214,6 @@ pub enum Occupancy {
 #[derive(Clone, Debug, Default)]
 pub struct World {
     cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT],
-    pub entity_types: Storage<EntityType>,
     pub physical_states: Storage<PhysicalState>,
     pub positions: Storage<Position>,
 }
@@ -222,7 +221,6 @@ pub struct World {
 impl World {
     pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<Entity>) {
         let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = Default::default();
-        let mut entity_types = Storage::new();
         let mut physical_states =  Storage::new();
         let mut positions = Storage::new();
         let mut inserter = |entity_type: EntityType, count| {
@@ -234,7 +232,6 @@ impl World {
                 if let None = cells[y][x] {
                     let entity = entity_manager.fresh(entity_type);
                     positions.insert(&entity, Position{x : x as u32, y: y as u32});
-                    entity_types.insert(&entity, entity_type);
                     if let Some(phys_state) = entity_type.typical_physical_state() {
                         physical_states.insert(&entity, phys_state);
                     }
@@ -256,7 +253,6 @@ impl World {
         (
             Self {
                 cells,
-                entity_types,
                 physical_states,
                 positions,
             },
@@ -266,22 +262,20 @@ impl World {
     pub fn respawn(&mut self, entity: &Entity, mental_state: & mut  MentalState, entity_manager: & mut EntityManager) -> Entity {
         let new_e = *entity;
 
-        if let Some(et) = self.entity_types.get(entity) {
-            let mut random_pos = || {
-                let x = mental_state.rng.gen_range(0, MAP_WIDTH);
-                let y = mental_state.rng.gen_range(0, MAP_HEIGHT);
-                Position {x: x as u32, y : y as u32}
-            };
-            let mut pos = random_pos();
-            while !self.type_can_pass(et, pos) {
-                pos = random_pos();
-            }
-            self.positions.insert(&new_e, pos);
-            mental_state.respawn_as(&new_e);
-            if let Some(phys_state) = et.typical_physical_state() {
-                self.physical_states.insert(&new_e, phys_state);
-            }
-            self.entity_types.insert(&new_e, et.clone());
+
+        let mut random_pos = || {
+            let x = mental_state.rng.gen_range(0, MAP_WIDTH);
+            let y = mental_state.rng.gen_range(0, MAP_HEIGHT);
+            Position {x: x as u32, y : y as u32}
+        };
+        let mut pos = random_pos();
+        while !self.type_can_pass(&entity.e_type, pos) {
+            pos = random_pos();
+        }
+        self.positions.insert(&new_e, pos);
+        mental_state.respawn_as(&new_e);
+        if let Some(phys_state) = entity.e_type.typical_physical_state() {
+            self.physical_states.insert(&new_e, phys_state);
         }
         new_e
     }
@@ -299,15 +293,7 @@ impl World {
                 }
                 Action::Eat(target) => {
                     if self.positions.get(&target) == Some(own_pos) {
-                        let own_type = self
-                            .entity_types
-                            .get(entity)
-                            .ok_or("unknown eater entity")?;
-                        let target_type = self
-                            .entity_types
-                            .get(&target)
-                            .ok_or("unknown food entity")?;
-                        if own_type.can_eat(target_type) {
+                        if entity.e_type.can_eat(&target.e_type) {
                             self.eat_unchecked(entity, &target);
                             Ok(())
                         } else {
@@ -348,10 +334,8 @@ impl World {
         if !position.within_bounds() {
             return false
         }
-        if let Some(mover) = self.entity_types.get(entity) {
-            return self.type_can_pass(mover, position);
-        }
-        false
+        self.type_can_pass(&entity.e_type, position)
+
     }
     pub fn type_can_pass(&self, entity_type: & EntityType, position: Position) -> bool {
         if !position.within_bounds() {
@@ -359,10 +343,7 @@ impl World {
         }
         self.entities_at(position)
                 .iter()
-                .all(|e| match self.entity_types.get(e) {
-                    Some(e) => entity_type.can_pass(e),
-                    None => true,
-                })
+                .all(|e| entity_type.can_pass(&e.e_type))
     }
     pub fn observe_as(&self, entity: &Entity) -> impl Observation + '_ {
         let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
@@ -437,7 +418,7 @@ impl World {
                         let res = match oes {
                             Some(es) => Some(
                                 es.iter()
-                                    .filter_map(|e| self.entity_types.get(e).cloned())
+                                    .map(|e| e.e_type)
                                     .collect::<Vec<_>>(),
                             ),
                             None => None,
@@ -454,7 +435,6 @@ pub trait Observation: Clone {
     fn borrow<'a>(& 'a self) -> Self::B;
     fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a>;
     fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool>;
-    fn get_type(& self, entity: & Entity) -> Option<EntityType>;
     fn entities_at(&self, position: Position) -> &[Entity];
     fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState>;
     fn observed_position(& self, entity: &Entity) -> Option<Position>;
@@ -462,7 +442,6 @@ pub trait Observation: Clone {
 
         let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = Default::default();
         let mut entity_manager = EntityManager::default();
-        let mut entity_types = Storage::new();
         let mut physical_states = Storage::new();
         let mut positions = Storage::new();
         let mut agents = Vec::new();
@@ -475,16 +454,13 @@ pub trait Observation: Clone {
             if let Ok(new_e) = entity_manager.put(e) {
                 positions.insert(&new_e, p);
                 insert_cell(new_e, p);
-                if let Some(tp) = self.get_type(&e) {
-                    entity_types.insert(&new_e, tp);
-                    if let Some(ps) = tp.typical_physical_state() {
-                        physical_states.insert(&new_e, ps);
-                        agents.push(new_e);
-                    }
+                if let Some(ps) = e.e_type.typical_physical_state() {
+                    physical_states.insert(&new_e, ps);
+                    agents.push(new_e);
                 }
             }
         }
-        let world = World{cells, entity_types, physical_states, positions };
+        let world = World{cells, physical_states, positions };
         let agent_system = AgentSystem::init(agents, &world, false, rng);
         (entity_manager, world, agent_system)
 
@@ -501,9 +477,6 @@ impl<'b> Observation for & 'b World {
     }
     fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool> {
         Some(self.can_pass(entity, position))
-    }
-    fn get_type(& self, entity: & Entity) -> Option<EntityType> {
-        self.entity_types.get(entity).copied()
     }
     fn entities_at(&self, position: Position) -> &[Entity] {
         let x = position.x as usize;
@@ -548,14 +521,6 @@ impl<'b> Observation for RadiusObservation<'b> {
             return None;
         }
         Some(self.world.can_pass(entity, position))
-    }
-    fn get_type(& self, entity: & Entity) -> Option<EntityType> {
-        if let Some(pos) = self.world.positions.get(entity) {
-            if self.center.distance(pos) <= self.radius {
-                return self.world.get_type(entity);
-            }
-        }
-        None
     }
     fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState> {
         if let Some(pos)= self.world.positions.get(entity) {

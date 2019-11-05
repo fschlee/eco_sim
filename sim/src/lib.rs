@@ -61,9 +61,6 @@ impl SimState {
     pub fn get_mental_state(&self, entity :&Entity) -> Option<&MentalState> {
         self.agent_system.mental_states.get(entity)
     }
-    pub fn get_type(& self, entity: & Entity) -> Option<EntityType> {
-        self.world.entity_types.get(entity).copied()
-    }
     pub fn get_visibility(& self, entity: &Entity) -> impl Iterator<Item=Position> {
         let pos = self.world.positions.get(entity);
         let ms = self.agent_system.mental_states.get(entity);

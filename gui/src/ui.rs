@@ -201,7 +201,7 @@ impl<'a> UIState<'a> {
                     .w_h(256.0, 1024.0)
                     .mid_right_of(self.ids.canvas)
                     .set(self.ids.edit_canvas, ui);
-                let txt = format!("{:?}", game_state.get_type(&edit_ent).unwrap());
+                let txt = format!("{:?}", edit_ent.e_type);
                 cc::widget::Text::new(&txt).font_size(32).mid_top_of(self.ids.edit_canvas).set(self.ids.dialer_title, ui);
                 if let Some(ms) = game_state.get_mental_state(&edit_ent) {
 
@@ -219,10 +219,10 @@ impl<'a> UIState<'a> {
                     let act_text = match ms.current_action {
 
                         None => format!("Idle"),
-                        Some(eco_sim::Action::Eat(food)) => format!("eating {:?}", game_state.get_type(&food).unwrap()),
+                        Some(eco_sim::Action::Eat(food)) => format!("eating {:?}", food.e_type),
                         Some(eco_sim::Action::Move(pos)) => format!("moving to {:?}", pos),
                         Some(eco_sim::Action::Attack(target)) => {
-                            format!("attacking {:?}", game_state.get_type(&target).unwrap())
+                            format!("attacking {:?}", target.e_type)
                         }
                     };
                     cc::widget::Text::new(&act_text).font_size(16)
@@ -231,8 +231,8 @@ impl<'a> UIState<'a> {
                     let beh_text = match &ms.current_behavior {
 
                         None => format!("Undecided"),
-                        Some(eco_sim::Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", game_state.get_type(&enemy).unwrap()),
-                        Some(eco_sim::Behavior::Hunt(prey)) => format!("hunting {:?} ", game_state.get_type(&prey).unwrap()),
+                        Some(eco_sim::Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", enemy.e_type),
+                        Some(eco_sim::Behavior::Hunt(prey)) => format!("hunting {:?} ", prey.e_type),
                         Some(eco_sim::Behavior::Search(target)) => format!("searching for {:?}", target),
                     };
                     cc::widget::Text::new(&beh_text).font_size(16)
