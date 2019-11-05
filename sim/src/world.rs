@@ -77,7 +77,11 @@ impl EntityType {
             _ => None
         }
     }
-
+}
+impl Default for EntityType {
+    fn default() -> Self {
+        Self::Rock
+    }
 }
 pub const ENTITY_TYPES : [EntityType; ENTITY_TYPE_COUNT] = [
     EntityType::Rock,
@@ -228,7 +232,7 @@ impl World {
                 let x = rng.gen_range(0, MAP_WIDTH);
                 let y = rng.gen_range(0, MAP_HEIGHT);
                 if let None = cells[y][x] {
-                    let entity = entity_manager.fresh();
+                    let entity = entity_manager.fresh(entity_type);
                     positions.insert(&entity, Position{x : x as u32, y: y as u32});
                     entity_types.insert(&entity, entity_type);
                     if let Some(phys_state) = entity_type.typical_physical_state() {

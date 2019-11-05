@@ -1,12 +1,18 @@
+use crate::EntityType;
+
+type GenID = i16;
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct Entity {
     pub id: u32,
-    pub gen: i32,
+    pub gen: GenID,
+    pub e_type: EntityType,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct EntityManager {
-    generations: Vec<i32>,
+    generations: Vec<GenID>,
+    types: Vec<EntityType>,
     valid: Vec<bool>,
     full_to: usize,
     deleted: u32,
@@ -28,16 +34,17 @@ impl EntityManager {
             Err("Entity to be destroyed does not exist")
         }
     }
-    pub fn fresh(&mut self) -> Entity {
+    pub fn fresh(&mut self, e_type: EntityType) -> Entity {
         if self.deleted > 0 {
             for i in (self.full_to + 1)..self.valid.len() {
                 if !self.valid[i] {
                     let gen = self.generations[i] + 1;
                     self.generations[i] = gen;
+                    self.types[i] = e_type;
                     self.valid[i] = true;
                     self.deleted -= 1;
                     self.full_to = i;
-                    return Entity { id: i as u32, gen };
+                    return Entity { id: i as u32, gen, e_type };
                 }
             }
         }
@@ -45,28 +52,32 @@ impl EntityManager {
         let len = self.valid.len();
         let gen = 0;
         self.generations.push(gen);
+        self.types.push(e_type);
         self.valid.push(true);
         self.full_to = len;
         Entity {
             id: len as u32,
             gen,
+            e_type
         }
     }
     pub fn put(&mut self, entity: Entity) -> Result<Entity, Entity> {
-        let Entity{gen, id} = entity;
+        let Entity{gen, id, e_type} = entity;
         let id = id as usize;
         if id >= self.generations.len() {
             self.generations.resize(id + 1, -1);
             self.valid.resize(id + 1, false);
             self.generations[id] = gen;
+            self.types[id] = e_type;
             self.valid[id] = true;
             return Ok(entity);
         } if !self.valid[id] && self.generations[id] < gen {
             self.generations[id] = gen;
+            self.types[id] = e_type;
             self.valid[id] = true;
             return Ok(entity)
         } else {
-            return Err(self.fresh())
+            return Err(self.fresh(e_type))
         }
     }
 }
@@ -85,6 +96,7 @@ impl<'a> Iterator for EntityIter<'a> {
                 return Some(Entity {
                     id: self.idx as u32,
                     gen: self.em.generations[self.idx],
+                    e_type: self.em.types[self.idx],
                 });
             }
         }
@@ -103,12 +115,12 @@ impl<'a> IntoIterator for &'a EntityManager {
 #[derive(Clone, Debug)]
 pub struct Storage<T> {
     content: Vec<Option<T>>,
-    generations: Vec<i32>,
+    generations: Vec<GenID>,
 }
 
 impl<T> Storage<T> {
     pub fn get(&self, entity: &Entity) -> Option<&T> {
-        let Entity { id, gen } = entity;
+        let Entity { id, gen, e_type } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen == gen {
@@ -120,7 +132,7 @@ impl<T> Storage<T> {
         None
     }
     pub fn get_mut(&mut self, entity: &Entity) -> Option<&mut T> {
-        let Entity { id, gen } = entity;
+        let Entity { id, gen, e_type } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen == gen {
@@ -135,7 +147,7 @@ impl<T> Storage<T> {
         None
     }
     pub fn get_or_insert_with(& mut self, entity: & Entity, inserter: impl FnOnce() -> T) -> &mut T {
-        let Entity { id, gen } = entity;
+        let Entity { id, gen, e_type } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen > gen {
@@ -143,6 +155,7 @@ impl<T> Storage<T> {
             }
             else if stored_gen < gen {
                 let val = inserter();
+                self.generations[id] = *gen;
                 self.content[id] = Some(val);
             }
         }
@@ -160,8 +173,8 @@ impl<T> Storage<T> {
         }
         self.content[id].get_or_insert_with(|| unreachable!())
     }
-    pub fn insert(&mut self, entity: &Entity, val: T) -> Option<(i32, T)> {
-        let Entity { id, gen } = entity;
+    pub fn insert(&mut self, entity: &Entity, val: T) -> Option<(GenID, T)> {
+        let Entity { id, gen, e_type } = entity;
         let id = *id as usize;
         let end = self.generations.len();
         if id >= end {
@@ -180,7 +193,7 @@ impl<T> Storage<T> {
         None
     }
     pub fn remove(& mut self, entity: &Entity) -> Option<T> {
-        let Entity { id, gen } = entity;
+        let Entity { id, gen, e_type } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen <= gen {
