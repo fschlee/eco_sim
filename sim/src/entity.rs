@@ -1,4 +1,4 @@
-use crate::EntityType;
+use crate::entity_type::EntityType;
 
 type GenID = i16;
 

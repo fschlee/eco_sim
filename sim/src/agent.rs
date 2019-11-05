@@ -5,6 +5,7 @@ use log::error;
 
 use super::world::*;
 use super::entity::*;
+use super::entity_type::{EntityType, ENTITY_TYPES};
 use std::collections::BinaryHeap;
 
 #[derive(Eq, PartialEq, Clone, Debug)]

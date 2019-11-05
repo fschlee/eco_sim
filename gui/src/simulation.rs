@@ -1,6 +1,6 @@
 use crate::ui::Action;
 
-use eco_sim::{SimState, EntityType, Storage, Entity, MentalState, et_idx, ENTITY_TYPE_COUNT};
+use eco_sim::{SimState, Storage, Entity, MentalState, entity_type::{EntityType, et_idx, ENTITY_TYPE_COUNT}};
 use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
@@ -114,22 +114,22 @@ impl GameState {
             }
             {
                 let dg = 0xff008000;
-                forms[eco_sim::et_idx(EntityType::Tree)] = ball(dg, 1.0, & mut vertices, & mut indices);
-                forms[eco_sim::et_idx(EntityType::Clover)]  = block(dg, & mut vertices, & mut indices);
+                forms[et_idx(EntityType::Tree)] = ball(dg, 1.0, & mut vertices, & mut indices);
+                forms[et_idx(EntityType::Clover)]  = block(dg, & mut vertices, & mut indices);
             }
             let lg = 0xff00ff00;
-            forms[eco_sim::et_idx(EntityType::Grass)]  = block(lg, & mut vertices, & mut indices);
+            forms[et_idx(EntityType::Grass)]  = block(lg, & mut vertices, & mut indices);
 
             {
                 let dg = 0xff404040;
-                forms[eco_sim::et_idx(EntityType::Rabbit)] = ball(dg, 0.7, &mut vertices, &mut indices);
-                forms[eco_sim::et_idx(EntityType::Wolf)] = ball(dg, 0.9, &mut vertices, &mut indices);
+                forms[et_idx(EntityType::Rabbit)] = ball(dg, 0.7, &mut vertices, &mut indices);
+                forms[et_idx(EntityType::Wolf)] = ball(dg, 0.9, &mut vertices, &mut indices);
                 let brown = 0xff002060;
-                forms[eco_sim::et_idx(EntityType::Deer)] = ball(brown, 0.85, &mut vertices, &mut indices);
+                forms[et_idx(EntityType::Deer)] = ball(brown, 0.85, &mut vertices, &mut indices);
             }
             {
                 let grey = 0xff202020;
-                forms[eco_sim::et_idx(EntityType::Rock)] = block(grey, & mut vertices, & mut indices);
+                forms[et_idx(EntityType::Rock)] = block(grey, & mut vertices, & mut indices);
             }
         }
         let mut commands = Vec::new();

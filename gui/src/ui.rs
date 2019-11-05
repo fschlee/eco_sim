@@ -6,7 +6,7 @@ use conrod_winit::{convert_event, WinitWindow};
 
 use crate::simulation::GameState;
 use winit::{EventsLoop, Event, WindowEvent, MouseButton, ElementState, KeyboardInput, VirtualKeyCode, ModifiersState, dpi::{LogicalPosition, LogicalSize} };
-use eco_sim::EntityType;
+use eco_sim::entity_type::{EntityType, ENTITY_TYPE_COUNT};
 
 
 widget_ids! {
@@ -134,7 +134,7 @@ impl<'a> UIState<'a> {
         let font = cc::text::Font::from_bytes(bytes).unwrap();
         conrod.fonts.insert(font);
         let mut ids = WidgetIds::new(conrod.widget_id_generator());
-        ids.food_prefs.resize(eco_sim::ENTITY_TYPE_COUNT, & mut conrod.widget_id_generator());
+        ids.food_prefs.resize(ENTITY_TYPE_COUNT, & mut conrod.widget_id_generator());
         Self{mouse_pos : LogicalPosition{x: 0.0, y:0.0}, hidpi_factor, size, conrod, ids, prev : Instant::now(), window, paused: true, edit_ent: None, test: 0.0 }
     }
     pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
