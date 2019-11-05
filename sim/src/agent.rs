@@ -373,7 +373,20 @@ impl MentalState {
             match (self.path_as(position, own_position, &entity, observation.borrow())){
 
                 (Some(v)) => {
-                    Some((entity, 1.0 / v.len() as f32))
+                    let pred_ms : MentalState = self.estimates.get(&entity).map(|e| e.into())
+                        .unwrap_or_else( || (&default_estimate(&entity)).into());
+                    pred_ms.lookup_preference(self.id.e_type).map(|pref| {
+                        let mut score = pred_ms.hunger.0 * pref / v.len() as f32;
+                        if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
+                            if prey == self.id {
+                                score += 10.0;
+                            }
+                            else {
+                                score *= 0.5;
+                            }
+                        }
+                        (entity, score)
+                    })
                 },
                 _ => None
             }
@@ -445,30 +458,8 @@ impl MentalState {
         self.current_action = None;
         self.current_behavior = None;
     }
-    fn estimate(& mut self, entity: & Entity) -> &mut Estimate {
-        self.estimates.get_or_insert_with(entity, ||
-            Estimate{
-            id: entity.clone(),
-            physical_state: entity.e_type.typical_physical_state().unwrap_or(PhysicalState {
-                health: Health(0.0),
-                meat: Meat(0.0),
-                attack: None,
-                satiation: Satiation(0.0)
-            }),
-            hunger: Default::default(),
-            food_preferences: ENTITY_TYPES.iter().filter_map(|other| {
-                if entity.e_type.can_eat(other) {
-                    Some((*other, 0.5))
-                }
-                else {
-                    None
-                }
-            }).collect(),
-            current_action: None,
-            current_behavior: None,
-            sight_radius: 5,
-            use_mdp: false
-        })
+    fn get_estimate_or_init(& mut self, entity: & Entity) -> &mut Estimate {
+        self.estimates.get_or_insert_with(entity, || default_estimate(entity))
     }
 }
 #[derive(Clone, Debug)]
@@ -545,9 +536,31 @@ impl Estimate {
         }
         None
     }
-
 }
-
+fn default_estimate(entity: & Entity) -> Estimate {
+    Estimate{
+        id: entity.clone(),
+        physical_state: entity.e_type.typical_physical_state().unwrap_or(PhysicalState {
+            health: Health(0.0),
+            meat: Meat(0.0),
+            attack: None,
+            satiation: Satiation(0.0)
+        }),
+        hunger: Default::default(),
+        food_preferences: ENTITY_TYPES.iter().filter_map(|other| {
+            if entity.e_type.can_eat(other) {
+                Some((*other, 0.5))
+            }
+            else {
+                None
+            }
+        }).collect(),
+        current_action: None,
+        current_behavior: None,
+        sight_radius: 5,
+        use_mdp: false
+    }
+}
 
 
 #[derive(Clone, Debug, Default)]
@@ -605,7 +618,7 @@ impl AgentSystem {
                 for (entity, action) in &actions {
                     if let Some(other_pos) = world.positions.get(entity) {
                         if own_pos.distance(other_pos) <= sight {
-                            let estimate = ms.estimate(entity);
+                            let estimate = ms.get_estimate_or_init(entity);
                             if let  Some(mut upd) = estimate.updated(observation.borrow(), *action) {
                                 std::mem::swap(&mut upd, estimate);
                             }
