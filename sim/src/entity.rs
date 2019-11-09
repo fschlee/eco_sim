@@ -26,7 +26,7 @@ impl EntityManager {
         if self.valid[id] && self.generations[id] == entity.gen {
             self.valid[id] = false;
             self.deleted += 1;
-            if (self.full_to > id) {
+            if self.full_to > id {
                 self.full_to = id;
             }
             Ok(())
@@ -120,7 +120,7 @@ pub struct Storage<T> {
 
 impl<T> Storage<T> {
     pub fn get(&self, entity: &Entity) -> Option<&T> {
-        let Entity { id, gen, e_type } = entity;
+        let Entity { id, gen, e_type : _ } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen == gen {
@@ -132,7 +132,7 @@ impl<T> Storage<T> {
         None
     }
     pub fn get_mut(&mut self, entity: &Entity) -> Option<&mut T> {
-        let Entity { id, gen, e_type } = entity;
+        let Entity { id, gen, e_type : _ } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen == gen {
@@ -174,7 +174,7 @@ impl<T> Storage<T> {
         self.content[id].get_or_insert_with(|| unreachable!())
     }
     pub fn insert(&mut self, entity: &Entity, val: T) -> Option<(GenID, T)> {
-        let Entity { id, gen, e_type } = entity;
+        let Entity { id, gen, e_type : _ } = entity;
         let id = *id as usize;
         let end = self.generations.len();
         if id >= end {
@@ -193,7 +193,7 @@ impl<T> Storage<T> {
         None
     }
     pub fn remove(& mut self, entity: &Entity) -> Option<T> {
-        let Entity { id, gen, e_type } = entity;
+        let Entity { id, gen, e_type : _ } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen <= gen {

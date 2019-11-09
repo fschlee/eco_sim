@@ -30,14 +30,17 @@ impl EntityType {
             (Rabbit, Grass) => true,
             (Rabbit, Clover) => true,
             (Rabbit, Tree) => true,
+            (Rabbit, Rabbit) => true,
             (Deer, Grass) => true,
             (Deer, Clover) => true,
             (Deer, Tree) => true,
+            (Deer, Deer) => true,
             (Wolf, Grass) => true,
             (Wolf, Clover) => true,
             (Wolf, Tree) => true,
             (Wolf, Rabbit) => true,
             (Wolf, Deer) => true,
+            (Wolf, Wolf) => true,
             _ => false,
         }
     }

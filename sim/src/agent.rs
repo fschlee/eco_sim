@@ -1,12 +1,13 @@
 
 use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
-use log::error;
+use log:: {error, info};
 
 use super::world::*;
 use super::entity::*;
 use super::entity_type::{EntityType, ENTITY_TYPES};
 use std::collections::BinaryHeap;
+use crate::Action::Eat;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct PathNode {
@@ -92,7 +93,7 @@ impl MentalState {
         self.hunger.0 += (20.0 -  physical_state.satiation.0) * HUNGER_INCREMENT;
         match self.current_action {
             Some(Action::Eat(food)) => {
-                if self.hunger.0 <= 0.0 {
+                if self.hunger.0 <= 0.0 || !observation.entities_at(own_position).contains(&food) {
                     self.current_action = None;
                 }
             },
@@ -221,10 +222,17 @@ impl MentalState {
                 match observation.observed_position(&prey) {
                     Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
                         if pos == own_position {
-                            self.current_action = Some(Action::Attack(prey));
+                            match observation.observed_physical_state(&prey) {
+                                Some(ps) if ps.is_dead() => {
+                                    self.current_behavior = None;
+                                    self.current_action = Some(Eat(prey))
+                                },
+                                _ => self.current_action = Some(Action::Attack(prey)),
+                            }
+
                         }
                         else if let Some(path) = self.path(own_position, pos, observation.borrow()){
-                            self.current_action = Some(Action::Move(path[0]));
+                            self.current_action = Some(Action::Move(path[1]));
                         }
                         else {
                             self.current_behavior = None;
@@ -371,9 +379,9 @@ impl MentalState {
         observation.find_closest(own_position, |e, w| {
             e.e_type.can_eat(&self.id.e_type)
         }).filter_map(|(entity, position)| {
-            match (self.path_as(position, own_position, &entity, observation.borrow())){
+            match self.path_as(position, own_position, &entity, observation.borrow()){
 
-                (Some(v)) => {
+                Some(v) => {
                     let pred_ms : MentalState = self.estimates.get(&entity).map(|e| e.into())
                         .unwrap_or_else( || (&default_estimate(&entity)).into());
                     pred_ms.lookup_preference(self.id.e_type).map(|pref| {
@@ -406,8 +414,11 @@ impl MentalState {
         while let Some(PathNode{pos, exp_cost}) = queue.pop() {
             let base_cost = *cost.get(&pos).unwrap();
             for n in pos.neighbours() {
+                if observation.known_can_pass(entity, n) == Some(false) {
+                    continue;
+                }
                 if n == goal {
-                    let mut v = vec![pos, n];
+                    let mut v = vec![n, pos];
                     let mut current = pos;
                     while let Some(from) = came_from.get(&current) {
                         v.push(from.clone());
@@ -574,7 +585,7 @@ impl AgentSystem {
     pub fn advance(&mut self, world: &mut World, entity_manager: &mut EntityManager) {
         let mut killed = Vec::new();
         let mut actions = Vec::new();
-        for entity in &self.agents{
+        for entity in &self.agents {
             let opt_action = match (
                 self.mental_states.get_mut(entity),
                 world.get_physical_state(entity),
@@ -583,6 +594,7 @@ impl AgentSystem {
                 (Some(mental_state), Some(physical_state),  Some(position)) => {
                     if physical_state.is_dead() {
                         killed.push(entity.clone());
+                        info!("Agent {:?} died", entity);
                         None
                 }
                     else {
@@ -597,7 +609,9 @@ impl AgentSystem {
             };
 
             if let Some(action) = opt_action {
-                world.act(entity, action);
+                if let Err(err) = world.act(entity, action) {
+                    error!("Action of agent {:?} failed: {}", entity, err);
+                }
                 actions.push((entity.clone(), action));
             }
 

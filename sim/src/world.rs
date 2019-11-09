@@ -5,7 +5,7 @@ use rand::{Rng};
 use super::entity::*;
 use super::entity_type::*;
 use super::agent::AgentSystem;
-use crate::{MentalState, Hunger};
+use crate::{MentalState};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
@@ -165,7 +165,7 @@ impl World {
         )
     }
     pub fn respawn(&mut self, entity: &Entity, mental_state: & mut  MentalState, entity_manager: & mut EntityManager) -> Entity {
-        let new_e = *entity;
+        let new_e = entity_manager.fresh(entity.e_type);
 
 
         let mut random_pos = || {
@@ -177,7 +177,7 @@ impl World {
         while !self.type_can_pass(&entity.e_type, pos) {
             pos = random_pos();
         }
-        self.positions.insert(&new_e, pos);
+        self.move_unchecked(&new_e, pos);
         mental_state.respawn_as(&new_e);
         if let Some(phys_state) = entity.e_type.typical_physical_state() {
             self.physical_states.insert(&new_e, phys_state);
@@ -304,7 +304,10 @@ impl World {
         };
         if remove {
             self.physical_states.remove(eaten);
-            self.positions.remove(eaten);
+            if let Some(pos) = self.positions.remove(eaten) {
+                self.entities_at_mut(pos).retain(|e| e!= eaten)
+            }
+
         }
     }
     pub fn get_view(
@@ -355,7 +358,7 @@ pub trait Observation: Clone {
         };
         let pos = Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 };
         let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
-        for (e, p) in self.find_closest(pos, |e, w| true) {
+        for (e, p) in self.find_closest(pos, |_, _| true) {
             if let Ok(new_e) = entity_manager.put(e) {
                 positions.insert(&new_e, p);
                 insert_cell(new_e, p);
