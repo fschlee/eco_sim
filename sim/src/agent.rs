@@ -495,10 +495,11 @@ impl Estimate {
     pub fn sample(&self, seed: u64) -> MentalState {
         let mut sample : MentalState = self.into();
         let mut rng : rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(seed);
-        sample.hunger.0 += rng.gen_range(-0.5, 0.5);
+        sample.hunger.0 =  10.0f32.min(0.0f32.max( sample.hunger.0 + rng.gen_range(-10.0, 10.0)));
         for (_, pref) in sample.food_preferences.iter_mut() {
             *pref = 1.0f32.min(0.0f32.max( *pref + rng.gen_range(-0.5, 0.5)));
         }
+        sample.rng = rng;
         sample
     }
 }
@@ -519,30 +520,24 @@ impl Into<MentalState> for &Estimate {
     }
 }
 impl Estimate {
-    pub fn updated(&self, observation: impl Observation, action: Action) -> Option<Estimate> {
+    pub fn updated(&self, observation: impl Observation, action: Option<Action>) -> Option<Estimate> {
         if let Some(pos) = observation.observed_position(&self.id){
-            let ms : MentalState= self.into();
-
-            let mut ms1 = ms.clone();
-            if let Some(act) = ms1.decide( &(self.physical_state), pos, observation.borrow()){
-                if act == action {
-                    return None;
-                }
-                else {
-                    let max_tries = 20;
-                    for i in 0..max_tries {
-                        let mut sample = self.sample(i);
-                        if let Some(act) = sample.decide( &(self.physical_state), pos, observation.borrow()){
-                            if act == action
-                            {
-                                let mut est = self.clone();
-                                est.update(&sample);
-                                return Some(est);
-                            }
+            let mut ms : MentalState= self.into();
+            if action == ms.decide( &(self.physical_state), pos, observation.borrow()){
+                return None;
+            }
+            else {
+                let max_tries = 20;
+                for i in 0..max_tries {
+                    let mut sample = self.sample(i);
+                    if action == sample.decide( &(self.physical_state), pos, observation.borrow()){
+                        let mut est = self.clone();
+                        est.update(&sample);
+                        return Some(est);
                     }
-                    }
-
                 }
+
+
                 //Todo
             }
         }
@@ -584,8 +579,7 @@ pub struct AgentSystem {
 impl AgentSystem {
     pub fn advance(&mut self, world: &mut World, entity_manager: &mut EntityManager) {
         let mut killed = Vec::new();
-        let mut actions = Vec::new();
-        for entity in &self.agents {
+        for entity in &self.agents.clone() {
             let opt_action = match (
                 self.mental_states.get_mut(entity),
                 world.get_physical_state(entity),
@@ -607,12 +601,27 @@ impl AgentSystem {
                     None
                 },
             };
-
+            if let Some(other_pos) = world.positions.get(entity){
+                for agent in &self.agents {
+                    if let (Some(ms), Some(own_pos)) =
+                    (self.mental_states.get_mut(agent), world.positions.get(agent)) {
+                        let sight = ms.sight_radius;
+                        if own_pos.distance(other_pos) <= sight {
+                            let estimate = ms.get_estimate_or_init(entity);
+                            if let  Some(mut upd) = estimate.updated( world.observe_in_radius(agent, sight), opt_action.clone()) {
+                                std::mem::swap(&mut upd, estimate);
+                            }
+                        }
+                    }
+                }
+            }
             if let Some(action) = opt_action {
+
+
                 if let Err(err) = world.act(entity, action) {
                     error!("Action of agent {:?} failed: {}", entity, err);
                 }
-                actions.push((entity.clone(), action));
+
             }
 
         }
@@ -623,23 +632,6 @@ impl AgentSystem {
                 let new_e = world.respawn(&entity, & mut ms, entity_manager);
                 self.mental_states.insert(&new_e, ms);
                 self.agents.push(new_e);
-            }
-        }
-        for agent in &self.agents {
-            if let (Some(ms), Some(own_pos)) =
-                (self.mental_states.get_mut(agent), world.positions.get(agent)) {
-                let sight = ms.sight_radius;
-                let observation = world.observe_in_radius(agent, sight);
-                for (entity, action) in &actions {
-                    if let Some(other_pos) = world.positions.get(entity) {
-                        if own_pos.distance(other_pos) <= sight {
-                            let estimate = ms.get_estimate_or_init(entity);
-                            if let  Some(mut upd) = estimate.updated(observation.borrow(), *action) {
-                                std::mem::swap(&mut upd, estimate);
-                            }
-                        }
-                    }
-                }
             }
         }
     }

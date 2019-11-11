@@ -223,7 +223,7 @@ impl World {
 
 
                     }else {
-                        Err("cannot attack targets in the same tile")
+                        Err("cannot attack targets unless in the same tile")
                     }
                 }
             }
