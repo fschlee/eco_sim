@@ -4,6 +4,7 @@ pub mod entity;
 pub mod entity_type;
 pub mod world;
 pub mod agent;
+pub mod estimate;
 
 pub use entity::*;
 pub use world::*;
