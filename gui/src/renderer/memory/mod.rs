@@ -47,7 +47,6 @@ impl<T> std::fmt::Debug for Id<T> {
 }
 impl<T> std::hash::Hash for Id<T> {
     fn hash<H: Hasher>(&self, hasher: &mut H){
-        use std::hash::Hash;
         self.id.hash(hasher);
     }
 }
@@ -77,7 +76,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
         adapter: Arc<Adapter<B>>,
         command_pool: CommandPool<B, Trans>,
         //       command_queue: CommandQueue<back::Backend, Trans>,
-    )->Result<Self, &'static str> {
+    )->Result<Self, Error> {
         let pool_size = 32;
         let mut descriptor_set_layouts: Vec<<B as Backend>::DescriptorSetLayout> = Vec::new();
 
@@ -107,7 +106,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
         //    you specify how many sets you want to be able to allocate from the
         //    pool, as well as the maximum number of each kind of descriptor you
         //    want to be able to allocate from that pool, total, for all sets.
-        let mut descriptor_pool = unsafe {
+        let descriptor_pool = unsafe {
             device
                 .create_descriptor_pool(
                     pool_size, // sets
@@ -146,27 +145,28 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
             _ => None
         }
     }
-    pub fn get_descriptor_set(& mut self, id: Id<Tex>) -> Result<& <B as Backend>::DescriptorSet, & str> {
+    pub fn get_descriptor_set(& mut self, id: Id<Tex>) -> Result<& <B as Backend>::DescriptorSet, Error> {
         if self.descriptor_map.contains_key(&id) {
             match self.descriptor_map.get(&id) {
                 Some(desc) => Ok(&desc),
-                None => Err("unknown texture id")
+                None => Err("unknown texture id".into())
             }
         } else {
             self.set_descriptor_set(id)
         }
     }
-    fn set_descriptor_set(& mut self, id: Id<Tex>) -> Result<& <B as Backend>::DescriptorSet, & str> {
+    fn set_descriptor_set(& mut self, id: Id<Tex>) -> Result<& <B as Backend>::DescriptorSet, Error> {
 
 
         if self.descriptor_map.len() >= self.pool_size {
-            self.refresh_pool();
+            self.refresh_pool()?;
             warn!("refreshed descriptor pool");
+
         }
         match self.textures.get(id.id as usize).and_then(|a| a.as_ref()) {
             None => {
                 error!("Texture id {} requested but does not exist", id.id);
-                return Err("unknown texture id");
+                return Err("unknown texture id".into());
             }
             Some(texture) => {
                 unsafe {
@@ -192,13 +192,13 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
                             self.descriptor_map.insert(id, new_set);
                             Ok(self.descriptor_map.get(&id).unwrap())
                         },
-                        Err(err) => { error!("{} for texture #{}", err, id.id); Err("couldn't allocate descriptor set")}
+                        Err(err) => { error!("{} for texture #{}", err, id.id); Err("couldn't allocate descriptor set".into())}
                     }
                 }
             }
         }
     }
-    fn refresh_pool(&mut self) -> Result<(), & str> {
+    fn refresh_pool(&mut self) -> Result<(), Error> {
         unsafe {
             let pool = self.device
                 .create_descriptor_pool(
@@ -222,7 +222,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
         self.descriptor_map.clear();
         Ok(())
     }
-    pub fn remove_texture(& mut self, id: Id<Tex>) -> Result<(), & 'static str> {
+    pub fn remove_texture(& mut self, id: Id<Tex>) -> Result<(), Error> {
         if let Some(mut mtex) = self.textures.get_mut(id.id as usize) {
             if let Some(tex)=mtex.take() {
                 self.old_textures.push(tex);
@@ -230,14 +230,14 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
                 return Ok(());
             }
         }
-        Err("No texture present")
+        Err("No texture present".into())
     }
     pub fn replace_texture<'a>(
         & mut self,
         id: Id<Tex>,
         spec: &'a TextureSpec,
-        command_queue: & mut CommandQueue<B, Trans>) -> Result<(), & 'static str> {
-        if let Some(mut mtex) = self.textures.get_mut(id.id as usize) {
+        command_queue: & mut CommandQueue<B, Trans>) -> Result<(), Error> {
+        if let Some(mtex) = self.textures.get_mut(id.id as usize) {
             if mtex.is_some() {
                 let mut other = LoadedTexture::from_texture_spec(
                     self.adapter.deref(),
@@ -254,12 +254,12 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
                 return Ok(());
             }
         }
-        Err("No texture present")
+        Err("No texture present".into())
     }
     pub fn add_texture<'a>(
         & mut self,
         spec: &'a TextureSpec,
-        command_queue: & mut CommandQueue<B, Trans>) -> Result<Id<Tex>, & 'static str> {
+        command_queue: & mut CommandQueue<B, Trans>) -> Result<Id<Tex>, Error> {
         let id = Id::new(self.textures.len() as u32);
         let tex = LoadedTexture::from_texture_spec(
             self.adapter.deref(),

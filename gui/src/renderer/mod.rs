@@ -51,10 +51,12 @@ use init::InstSurface;
 use gfx_hal::command::{CommandBufferInheritanceInfo, SecondaryCommandBuffer, SubpassCommandBuffer};
 use gfx_hal::query::Type::PipelineStatistics;
 use crate::renderer::memory::descriptors::DescriptorPoolManager;
+use crate::error::{Error, LogError};
 
 
-type Back<IS : InstSurface> = <IS::Instance as Instance>::Backend;
-type Dev<B: Backend> = <B as Backend>::Device;
+
+type Back<IS> = <<IS as InstSurface>::Instance as Instance>::Backend;
+type Dev<B> = <B as Backend>::Device;
 
 const CLEAR_COLOR : [ClearValue; 1] =  [ClearValue::Color(ClearColor::Uint([0x2E, 0x34, 0x36, 0]))];
 
@@ -105,7 +107,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
     const DELETE_DELAY : i32 = 4;
     pub fn new(window: & 'a Window) -> Self {
 
-        let (mut inst_surface, adapter, mut _device, mut queue_group)
+        let (mut inst_surface, adapter, mut _device, queue_group)
             = init::init_device::<IS>(window).expect("failed to initiate 3D device");
         //debug_assert!(queue_group.queues.len() == 2);
         let device = Arc::new(_device);
@@ -166,7 +168,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
         let l = self.queue_group.queues.len();
         & mut self.queue_group.queues[l -1]
     }*/
-    pub fn tick(&mut self, cmds: &Vec<con_back::Command>, ui_updates: Vec<crate::ui::UIUpdate>, render_data: &crate::simulation::RenderData) -> Result<(), &str>{
+    pub fn tick(&mut self, cmds: &Vec<con_back::Command>, ui_updates: Vec<crate::ui::UIUpdate>, render_data: &crate::simulation::RenderData) -> Result<(), Error>{
         use crate::ui::UIUpdate::*;
         let mut restart = false;
         let mut refresh = false;
@@ -184,9 +186,9 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             }
         }
         if restart {
-            self.restart();
+            self.restart()?;
         } else if refresh {
-            self.reload_shaders();
+            self.reload_shaders()?;
         }
         self.dec_old();
         self.texture_manager.tick();
@@ -217,7 +219,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
 
         })  // */ */
     }
-    fn compile_ui_shaders() -> Result<(shaderc::CompilationArtifact, shaderc::CompilationArtifact), &'static str> {
+    fn compile_ui_shaders() -> Result<(shaderc::CompilationArtifact, shaderc::CompilationArtifact), Error> {
 
         let mut v = complile_shaders(&UI_SHADERS)?;
         if v.len() == 2 {
@@ -225,11 +227,11 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             let vert = v.remove(0);
             Ok((vert, frag))
         } else {
-            Err("unexpected number of compilation artifacts")
+            Err("unexpected number of compilation artifacts".into())
         }
     }
 
-    fn reload_shaders(&mut self) -> Result<(), &str> {
+    fn reload_shaders(&mut self) -> Result<(), Error> {
         #[cfg(feature = "reload_shaders")]
         {
             println!("reloading shaders");
@@ -253,7 +255,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
         }
         Ok(())
     }
-    fn restart(& mut self)-> Result<(), &str> {
+    fn restart(& mut self)-> Result<(), Error> {
         let pool = self.hal_state.dispose();
         info!("disposing old");
         self.hal_state = HalState::init(& self.window, self.inst_surface.get_mut_surface(),  &mut self.adapter,  self.device.deref().clone(),   pool)?;
@@ -262,20 +264,18 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
         self.ui_pipeline = ui_pipeline::UiPipeline::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_art, frag_art, &self.texture_manager.descriptor_set_layouts)?;
         Ok(())
     }
-    pub fn set_ui_buffer(& mut self, vtx: Vec<con_back::UiVertex>) -> Result<(), &str>{
+    pub fn set_ui_buffer(& mut self, vtx: Vec<con_back::UiVertex>) -> Result<(), Error>{
         let proper_size = (vtx.len() * size_of::<f32>() * 6);
         let padded_size = ((proper_size + self.mem_atom - 1) / self.mem_atom)  * self.mem_atom;
         let size = (vtx.len() * size_of::<f32>() * 6) as u64;
         if self.ui_vbuff.len() < 1 || self.ui_vbuff[0].requirements.size <= padded_size as u64 {
-            unsafe {
-                let device = self.device.deref().deref();
-                for b in self.ui_vbuff.drain(..){
-                    self.old_buffers.push(b);
-                    self.old_buffer_expirations.push(Self::DELETE_DELAY);
-                } // b.manually_drop(device));
-                let vb = BufferBundle::new(& self.adapter, self.device.deref().deref(), padded_size, BufferUsage::VERTEX)?;
-                self.ui_vbuff.insert(0, vb);
-            }
+            let device = self.device.deref().deref();
+            for b in self.ui_vbuff.drain(..){
+                self.old_buffers.push(b);
+                self.old_buffer_expirations.push(Self::DELETE_DELAY);
+            } // b.manually_drop(device));
+            let vb = BufferBundle::new(& self.adapter, self.device.deref().deref(), padded_size, BufferUsage::VERTEX)?;
+            self.ui_vbuff.insert(0, vb);
         }
         unsafe {
             let mut vtx_target = self.device.acquire_mapping_writer(& self.ui_vbuff[0].memory, 0..(padded_size as u64))
@@ -298,13 +298,13 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             }
         }
     }
-    pub fn replace_texture<'b>(& mut self, id: Id<Tex>, spec: &'b TextureSpec) -> Result<(), & 'static str> {
+    pub fn replace_texture<'b>(& mut self, id: Id<Tex>, spec: &'b TextureSpec) -> Result<(), Error> {
         let l = self.queue_group.queues.len();
 
         let  transfer_queue = & mut self.queue_group.queues[l -1];
          self.texture_manager.replace_texture(id, spec, transfer_queue)
     }
-    pub fn add_texture<'b>(& mut self, spec: &'b TextureSpec) -> Result<Id<Tex>, & 'static str> {
+    pub fn add_texture<'b>(& mut self, spec: &'b TextureSpec) -> Result<Id<Tex>, Error> {
         let l = self.queue_group.queues.len();
         let  transfer_queue = & mut self.queue_group.queues[l -1];
         self.texture_manager.add_texture(spec, transfer_queue)
@@ -312,7 +312,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
     fn padded_size(& self, proper_size: usize) -> usize {
         ((proper_size + self.mem_atom - 1) / self.mem_atom)  * self.mem_atom
     }
-    fn temp_buffer<T: Sized + Copy>(& mut self, slice: & [T], usage: BufferUsage) -> Result<usize, & 'static str> {
+    fn temp_buffer<T: Sized + Copy>(& mut self, slice: & [T], usage: BufferUsage) -> Result<usize, Error> {
         let idx = self.old_buffers.len();
         {
             let size = size_of::<T>() * slice.len();
@@ -338,7 +338,7 @@ impl<'a, IS: InstSurface> Drop for Renderer<'a, IS>{
     fn drop(&mut self) {
         while self.old_buffers.len() > 0 {
             let  draw_queue = & mut self.queue_group.queues[0];
-            self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
+            let _ = self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
             self.dec_old();
             self.texture_manager.tick();
         }
@@ -401,7 +401,7 @@ impl<B: Backend> HalState<B> {
         device: Arc<Dev<B>>,
         mut command_pool : CommandPool<B, Graphics>,
         // queue_group: Arc<QueueGroup<back::Backend, Graphics>>
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, Error> {
         // Create A Swapchain, this is extra long
         let (swapchain, extent, images, format, frames_in_flight) = {
             let (caps, preferred_formats, present_modes) =
@@ -513,7 +513,7 @@ impl<B: Backend> HalState<B> {
                                 layers: 0..1,
                             },
                         )
-                        .map_err(|_| "Couldn't create the image_view for the image!")
+                        .map_err(|_| "Couldn't create the image_view for the image!".into())
                 })
                 .collect::<Result<Vec<_>, &str>>()?;
 
@@ -532,7 +532,7 @@ impl<B: Backend> HalState<B> {
                                 depth: 1,
                             },
                         )
-                        .map_err(|_| "Failed to create a framebuffer!")
+                        .map_err(|_| "Failed to create a framebuffer!".into())
                 })
                 .collect::<Result<Vec<_>, &str>>()?
         };
@@ -568,7 +568,7 @@ impl<B: Backend> HalState<B> {
     pub fn draw_clear_frame(
             &mut self,
             command_queue: & mut CommandQueue<B, Graphics>,
-            color: [f32; 4]) -> Result<(), &'static str> {
+            color: [f32; 4]) -> Result<(), Error> {
         // SETUP FOR THIS FRAME
         let image_available = &self.image_available_semaphores[self.current_frame];
         let render_finished = &self.render_finished_semaphores[self.current_frame];
@@ -626,14 +626,14 @@ impl<B: Backend> HalState<B> {
             self
                 .swapchain
                 .present(command_queue, i_u32, present_wait_semaphores)
-                .map_err(|_| "Failed to present into the swapchain!").map(|_| ())
+                .map_err(|_| "Failed to present into the swapchain!".into()).map(|_| ())
         }
     }
 
     pub fn with_inline_encoder<F>(
             &mut self,
             command_queue: & mut CommandQueue<B, Graphics>,
-            draw: F) -> Result<(), &'static str>
+            draw: F) -> Result<(), Error>
         where F : FnOnce(&mut RenderPassInlineEncoder<B>) {
         // SETUP FOR THIS FRAME
         let image_available = &self.image_available_semaphores[self.current_frame];
@@ -694,17 +694,17 @@ impl<B: Backend> HalState<B> {
             wait_semaphores,
             signal_semaphores,
         };
-        let res = unsafe {
+        unsafe {
             // let the_command_queue = queues.get_unchecked_mut(0);
             command_queue.submit(submission, Some(flight_fence));
             self
                 .swapchain
                 .present(command_queue, i_u32, present_wait_semaphores)
-                .map_err(|_| "Failed to present into the swapchain!").map(|_| ())
+                .map_err(|_| "Failed to present into the swapchain!")?;
         };
-        res
+        Ok(())
     }
-    pub fn prepare_command_buffers(& mut self)-> Result<(& mut CommandBuffer<B, Graphics, MultiShot, Primary>, gfx_hal::pass::Subpass<B>, & <B as Backend>::Framebuffer, usize) , &'static str> {
+    pub fn prepare_command_buffers(& mut self)-> Result<(& mut CommandBuffer<B, Graphics, MultiShot, Primary>, gfx_hal::pass::Subpass<B>, & <B as Backend>::Framebuffer, usize) , Error> {
         self.next_frame = (self.current_frame + 1) % self.frames_in_flight;
         let image_available = &self.image_available_semaphores[self.current_frame];
         let (i_u32, i_usize) = unsafe {
@@ -731,10 +731,10 @@ impl<B: Backend> HalState<B> {
     pub fn submit<'a>(
         &mut self,
         command_queue: & mut CommandQueue<B, Graphics>,
-    ) -> Result<(), &'static str>
+    ) -> Result<(), Error>
     {
         if self.current_frame == self.next_frame {
-            return Err("frame not set up, nothing to submit to")
+            return Err("frame not set up, nothing to submit to".into())
         }
         let image_available = &self.image_available_semaphores[self.current_frame];
         let render_finished = &self.render_finished_semaphores[self.current_frame];
@@ -756,9 +756,9 @@ impl<B: Backend> HalState<B> {
             self
                 .swapchain
                 .present(command_queue, self.current_image as u32, present_wait_semaphores)
-                .map_err(|_| "Failed to present into the swapchain!").map(|_| ())
+                .map_err(|_| "Failed to present into the swapchain!")?;
         }
-
+        Ok(())
     }
 
 
@@ -830,7 +830,7 @@ struct ShaderSpec {
     pub source_path: & 'static str,
     pub source: Option<& 'static str>,
 }
-fn complile_shaders(shaders: &[ShaderSpec]) -> Result<Vec<shaderc::CompilationArtifact>, &str>{
+fn complile_shaders(shaders: &[ShaderSpec]) -> Result<Vec<shaderc::CompilationArtifact>, Error>{
     let mut compiler = shaderc::Compiler::new().unwrap();
     let mut res = Vec::with_capacity(shaders.len());
     for ShaderSpec{ kind, source_path, source } in shaders {

@@ -19,7 +19,7 @@ impl<B: Backend> DescriptorLayoutSpec<B> {
     pub fn new(textures: Vec<(usize, ShaderStageFlags)>, buffers: Vec<(gfx_hal::pso::DescriptorType, ShaderStageFlags)>) -> Self {
         Self{textures, buffers, phantom_b: PhantomData}
     }
-    pub fn build_layout(&self, device: & Dev<B>) -> Result<<B as Backend>::DescriptorSetLayout, & 'static str> {
+    pub fn build_layout(&self, device: & Dev<B>) -> Result<<B as Backend>::DescriptorSetLayout, Error> {
         let mut acc = Vec::new();
         let mut bind_count = 0;
         for (s,f) in &self.textures {
@@ -52,7 +52,7 @@ impl<B: Backend> DescriptorLayoutSpec<B> {
         }
         unsafe {
             device.create_descriptor_set_layout(&acc, &[])
-                .map_err(|e| {error!("{}", e); "out of memory"})
+                .map_err(|e| {error!("{}", e); "out of memory".into()})
         }
     }
     pub fn write_to_set(
@@ -105,7 +105,6 @@ impl<B: Backend> DescriptorLayoutSpec<B> {
         out.push(DescriptorRangeDesc{
             ty: gfx_hal::pso::DescriptorType::Sampler,
             count: pool_size * (self.textures.len()) });
-        let mut c = 0;
         for (dt, v) in self.buffers.clone().into_iter().into_group_map().iter() {
             out.push(DescriptorRangeDesc {
                 ty: *dt,
@@ -125,7 +124,7 @@ pub struct DescriptorPoolManager<B: Backend> {
 }
 
 impl<B: Backend>  DescriptorPoolManager<B> {
-    pub fn new(device: & Dev<B>, spec: DescriptorLayoutSpec<B>, pool_size: usize) -> Result<Self, & 'static str> {
+    pub fn new(device: & Dev<B>, spec: DescriptorLayoutSpec<B>, pool_size: usize) -> Result<Self, Error> {
         let layout = spec.build_layout(device)?;
         let pool = unsafe {
             device.create_descriptor_pool(pool_size, spec.create_pool_range(pool_size), gfx_hal::pso::DescriptorPoolCreateFlags::empty())
@@ -145,7 +144,7 @@ impl<B: Backend>  DescriptorPoolManager<B> {
         texture_indices:  &[usize],
         buffers: &[BufferBundle<B>],
         buffer_indices: &[usize]
-    ) -> Result<Id<Desc>, & str> {
+    ) -> Result<Id<Desc>, Error> {
         if self.descriptor_sets.len() < self.pool_size {
             let mut new_set = unsafe {
                  self.descriptor_pool.allocate_set(&self.descriptor_set_layouts[0])
@@ -155,9 +154,9 @@ impl<B: Backend>  DescriptorPoolManager<B> {
             self.descriptor_sets.push(new_set);
             return Ok(Id::new(l as u32))
         }
-        Err("too many descriptor set allocations")
+        Err("too many descriptor set allocations".into())
     }
-    pub fn reset(& mut self, device : & Dev<B>) -> Result<<B as Backend>::DescriptorPool, & str> {
+    pub fn reset(& mut self, device : & Dev<B>) -> Result<<B as Backend>::DescriptorPool, Error> {
         unsafe {
             let mut new = device.create_descriptor_pool(self.pool_size, self.spec.create_pool_range(self.pool_size), gfx_hal::pso::DescriptorPoolCreateFlags::empty())
                 .map_err(|e| { error!("{}", e); "not enough memory for descriptor pool"})?;
@@ -174,8 +173,8 @@ impl<B: Backend>  DescriptorPoolManager<B> {
             device.destroy_descriptor_pool(ManuallyDrop::take(& mut self.descriptor_pool));
         }
     }
-    pub fn get_desc(& self, id: Id<Desc>) -> Result<& <B as Backend>::DescriptorSet, & str>{
-        self.descriptor_sets.get(id.id as usize).ok_or("descriptor set not registered")
+    pub fn get_desc(& self, id: Id<Desc>) -> Result<& <B as Backend>::DescriptorSet, Error>{
+        self.descriptor_sets.get(id.id as usize).ok_or("descriptor set not registered".into())
     }
     pub fn get_layouts(& self) -> & Vec<<B as Backend>::DescriptorSetLayout> {
         &self.descriptor_set_layouts

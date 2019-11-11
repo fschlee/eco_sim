@@ -18,7 +18,7 @@ impl<B: Backend> Pipeline2D<B> {
         vertex_compile_artifact: shaderc::CompilationArtifact,
         fragment_compile_artifact: shaderc::CompilationArtifact,
         descriptor_set_layouts: & Vec<<B as Backend>::DescriptorSetLayout>,
-    ) -> Result<Pipeline2D<B>, &'static str> {
+    ) -> Result<Pipeline2D<B>, Error> {
 
         let vertex_shader_module = unsafe {
             device

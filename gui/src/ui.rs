@@ -85,13 +85,12 @@ pub struct UIState<'a> {
     window: &'a winit::Window,
     mouse_pos : LogicalPosition,
     edit_ent : Option<eco_sim::Entity>,
-    hidpi_factor: f64,
+    // hidpi_factor: f64,
     pub conrod: cc::Ui,
     pub ids: WidgetIds,
-    size: LogicalSize,
+    // size: LogicalSize,
     prev: Instant,
     paused: bool,
-    test: f32,
 }
 
 impl<'a> UIState<'a> {
@@ -105,7 +104,17 @@ impl<'a> UIState<'a> {
         conrod.fonts.insert(font);
         let mut ids = WidgetIds::new(conrod.widget_id_generator());
         ids.food_prefs.resize(ENTITY_TYPE_COUNT, & mut conrod.widget_id_generator());
-        Self{mouse_pos : LogicalPosition{x: 0.0, y:0.0}, hidpi_factor, size, conrod, ids, prev : Instant::now(), window, paused: true, edit_ent: None, test: 0.0 }
+        Self{
+            mouse_pos : LogicalPosition{x: 0.0, y:0.0},
+            // hidpi_factor,
+            // size,
+            conrod,
+            ids,
+            prev : Instant::now(),
+            window,
+            paused: true,
+            edit_ent: None
+        }
     }
     pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
         let mut should_close = false;

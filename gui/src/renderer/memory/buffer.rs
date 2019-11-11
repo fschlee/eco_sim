@@ -9,7 +9,7 @@ pub struct BufferBundle<B: Backend> {
 impl<B: Backend> BufferBundle<B> {
     pub fn new(
         adapter: &Adapter<B>, device: &Dev<B>, size: usize, usage: BufferUsage,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, Error> {
         unsafe {
             let mut buffer = device
                 .create_buffer(size as u64, usage)

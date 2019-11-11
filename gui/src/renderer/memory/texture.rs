@@ -14,14 +14,14 @@ impl<B: Backend> LoadedTexture<B> {
     pub fn from_image<C: Capability + Supports<Transfer>>(
         adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut CommandPool<B, C>,
         command_queue: &mut CommandQueue<B, C>, img: image::RgbaImage,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, Error> {
         Self::from_buffer(adapter, device, command_pool, command_queue, &(*img), img.width(), img.height(), Format::Rgba8Srgb)
     }
     pub fn from_texture_spec<C: Capability + Supports<Transfer>>(
         adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut CommandPool<B, C>,
         command_queue: &mut CommandQueue<B, C>,
         spec: & TextureSpec,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, Error> {
         Self::from_buffer(adapter, device, command_pool, command_queue, spec.buffer, spec.width, spec.height, spec.format)
     }
     pub fn from_buffer<C: Capability + Supports<Transfer>>(
@@ -31,7 +31,7 @@ impl<B: Backend> LoadedTexture<B> {
         width: u32,
         height: u32,
         format: Format,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, Error> {
         let pixel_size = (format.surface_desc().bits / 8) as usize; // size_of::<image::Rgba<u8>>();
         let row_size = pixel_size * width as usize;
         let limits = adapter.physical_device.limits();
@@ -235,14 +235,14 @@ pub struct TextureSpec<'a> {
     pub buffer: &'a [u8]
 }
 impl<'a> TextureSpec<'a> {
-    pub fn save_as_image(&self, path: & std::path::Path) -> Result<(), String> {
+    pub fn save_as_image(&self, path: & std::path::Path) -> Result<(), Error> {
         use image::ColorType::*;
         let color_format = match self.format {
             Format::R8Unorm => Gray(8),
             Format::Rgba8Srgb => RGBA(8),
-            _ => Err("texture format with unknown image color mapping".to_string())?
+            _ => Err("texture format with unknown image color mapping")?
         };
-        image::save_buffer(path, self.buffer, self.width, self.height, color_format).map_err(|e| format!("{:?}", e))
+        image::save_buffer(path, self.buffer, self.width, self.height, color_format).map_err(|e| e.into())
     }
 }
 

@@ -18,7 +18,7 @@ impl<B: Backend> UiPipeline<B> {
         vertex_compile_artifact: shaderc::CompilationArtifact,
         fragment_compile_artifact: shaderc::CompilationArtifact,
         descriptor_set_layouts: & Vec<<B as Backend>::DescriptorSetLayout>,
-    ) -> Result<UiPipeline<B>, &'static str> {
+    ) -> Result<UiPipeline<B>, Error> {
 
         let vertex_shader_module = unsafe {
             device

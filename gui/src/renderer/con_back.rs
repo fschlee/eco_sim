@@ -63,19 +63,19 @@ impl<'a> UiProcessor<'a> {
         }
         Self::from_glyph_cache_with_filled_queue(glyph_cache)
     }
-    pub fn from_glyph_cache_with_filled_queue<'b: 'a>(mut glyph_cache: GlyphCache<'b>) -> Self{
+    pub fn from_glyph_cache_with_filled_queue<'b: 'a>(glyph_cache: GlyphCache<'b>) -> Self {
         let (width, height) = glyph_cache.dimensions();
-        let mut cache_data = vec![0; (width * height) as usize];
-        glyph_cache.cache_queued(|region, data|{
-            let mut c = 0usize;
-            let data_width = (region.max.x - region.min.x) as usize;
-            for row in region.min.y  .. region.max.y  {
-                let source = &data[data_width * c .. data_width * (c + 1) ];
-                & mut cache_data[(row * width + region.min.x) as usize .. (row * width + region.max.x) as usize].copy_from_slice(source);
-                c += 1;
-            }
-        });
-        Self{tex_id: Id::new(0), image_map: cc::image::Map::new(), glyph_cache, key_map: std::collections::HashMap::new(), tex_updated : true, cache_data}
+        let cache_data = vec![0; (width * height) as usize];
+        let mut proc = Self {
+            tex_id: Id::new(0),
+            image_map: cc::image::Map::new(),
+            glyph_cache,
+            key_map: std::collections::HashMap::new(),
+            tex_updated: true,
+            cache_data
+        };
+        proc.update_gyph_cache(std::iter::empty());
+        proc
     }
     pub fn get_image_tex_id(&self, image_id: conrod_core::image::Id) -> Option<Id<Tex>> {
         self.key_map.get(& image_id).map(|id| id.clone())
@@ -117,9 +117,9 @@ impl<'a> UiProcessor<'a> {
                  }
              })
          } {
-            let (width, height) = self.glyph_cache.dimensions();
+             let (width, height) = self.glyph_cache.dimensions();
              let (new_width, new_height) = if width > height { (width, height * 2)} else { (width * 2, height) };
-            self.glyph_cache.to_builder().dimensions(new_width, new_height).rebuild(& mut self.glyph_cache);
+             self.glyph_cache.to_builder().dimensions(new_width, new_height).rebuild(& mut self.glyph_cache);
              self.cache_data.resize((new_width * new_height) as usize, 0);
          }
         use std::convert::TryInto;
@@ -355,10 +355,5 @@ impl<'a> Iterator for GlyphWalker<'a> {
         None
     }
 }
-/*
-pub struct PipelineBuilder<'a> {
-    device: &'a Dev,
-}
-*/
 
 

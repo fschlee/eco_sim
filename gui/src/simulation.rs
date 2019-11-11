@@ -30,7 +30,7 @@ pub enum RenderUpdate{
 
 pub struct GameState{
     eco_sim: eco_sim::SimState,
-    cache: Storage<Command>,
+    // cache: Storage<Command>,
     paused: bool,
     highlighted: HashSet<(usize, usize)>,
     highlight_visible: Option<Entity>,
@@ -47,7 +47,7 @@ impl GameState {
         println!("init");
         GameState{
             eco_sim,
-            cache: Storage::new(),
+        //    cache: Storage::new(),
             paused: true,
             highlighted: HashSet::new(),
             highlight_visible: None,
