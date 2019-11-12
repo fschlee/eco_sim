@@ -1,4 +1,5 @@
-use rand::{Rng, thread_rng};
+use rand::{Rng};
+use rand_distr::{Normal, StandardNormal, Distribution};
 
 use super::agent::{MentalState, Behavior, Hunger, Reward};
 use super::entity::{Entity, Storage};
@@ -23,12 +24,16 @@ impl Estimate {
         self.current_behavior = ms.current_behavior.clone();
         self.current_action = ms.current_action;
     }
-    pub fn sample(&self, seed: u64) -> MentalState {
+    pub fn sample(&self, index: u8) -> MentalState {
         let mut sample : MentalState = self.into();
-        let mut rng : rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(seed);
-        sample.hunger.0 =  10.0f32.min(0.0f32.max( sample.hunger.0 + rng.gen_range(-10.0, 10.0)));
+        let mut rng : rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(index as u64);
+        let scale = (1.0 + index as f32).log2() / 256f32.log2();
+
+        let mut hunger_sample = rng.sample(Normal::new(self.hunger.0, scale * 10.0).unwrap()); // can only fail if std_dev < 0 or nan;
+        sample.hunger.0 = clip(hunger_sample, 0.0, 10.0);
         for (_, pref) in sample.food_preferences.iter_mut() {
-            *pref = 1.0f32.min(0.0f32.max( *pref + rng.gen_range(-0.5, 0.5)));
+            let pref_sample : f32 = StandardNormal.sample(& mut rng);
+            *pref = clip(*pref +  pref_sample * scale, 0.0, 1.0);
         }
         sample.rng = rng;
         sample
@@ -67,8 +72,6 @@ impl Estimate {
                         return Some(est);
                     }
                 }
-
-
                 //Todo
             }
         }
@@ -98,4 +101,8 @@ pub fn default_estimate(entity: & Entity) -> Estimate {
         sight_radius: 5,
         use_mdp: false
     }
+}
+
+fn clip(val: f32, min: f32, max: f32) -> f32 {
+    max.min(min.max(val))
 }

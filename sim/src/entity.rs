@@ -147,7 +147,7 @@ impl<T> Storage<T> {
         None
     }
     pub fn get_or_insert_with(& mut self, entity: & Entity, inserter: impl FnOnce() -> T) -> &mut T {
-        let Entity { id, gen, e_type } = entity;
+        let Entity { id, gen, e_type : _  } = entity;
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen > gen {
