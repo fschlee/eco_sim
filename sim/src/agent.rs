@@ -33,6 +33,16 @@ pub enum Behavior {
     FleeFrom(Entity),
     Hunt(Entity),
 }
+impl Behavior {
+    pub fn fmt(bhv: &std::option::Option<Behavior>) -> String {
+        match bhv {
+            None => format!("Undecided"),
+            Some(Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", enemy.e_type),
+            Some(Behavior::Hunt(prey)) => format!("hunting {:?} ", prey.e_type),
+            Some(Behavior::Search(target)) => format!("searching for {:?}", target),
+        }
+    }
+}
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug, Default)]
 pub struct Hunger(pub f32);

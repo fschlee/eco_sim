@@ -1,6 +1,4 @@
 #![feature(manually_drop_take)]
-#![feature(label_break_value)]
-#![feature(type_ascription)]
 
 use winit::{EventsLoop, WindowBuilder, Window};
 use log::{debug, error, info, trace, warn};
@@ -20,7 +18,7 @@ fn main() {
     env_logger::init();
     let event_loop = EventsLoop::new();
     let window = WindowBuilder::new()
-        .with_dimensions(LogicalSize { width: 1280.0, height: 1024.0 })
+        .with_dimensions(LogicalSize { width: 1640.0, height: 1024.0 })
         .with_title("Eco sim")
         .build(&event_loop)
         .unwrap();

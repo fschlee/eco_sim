@@ -18,7 +18,18 @@ pub enum Action {
     Eat(Entity),
     Attack(Entity),
 }
-
+impl Action {
+    pub fn fmt(act: &Option<Action>) -> String {
+        match act {
+            None => format!("Idle"),
+            Some(Action::Eat(food)) => format!("Eating {:?}", food.e_type),
+            Some(Action::Move(pos)) => format!("Moving to {:?}", pos),
+            Some(Action::Attack(target)) => {
+                format!("Attacking {:?}", target.e_type)
+            }
+        }
+    }
+}
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Health(pub f32);

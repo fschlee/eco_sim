@@ -123,7 +123,8 @@ impl<'a> UiProcessor<'a> {
              self.cache_data.resize((new_width * new_height) as usize, 0);
          }
         use std::convert::TryInto;
-        info!("cached {} glyphs, {}", gc, gl.iter().map(|&c| c.try_into().unwrap() : char).collect::<String>());
+        info!("cached {} glyphs, {}", gc, gl.iter().map(|&c|
+            TryInto::<char>::try_into(c).unwrap()).collect::<String>());
 
         self.tex_updated = true;
     }

@@ -216,3 +216,30 @@ impl<T> Default for Storage<T> {
         Self::new()
     }
 }
+
+impl<'a, T> IntoIterator for &'a Storage<T> {
+    type Item = &'a T;
+    type IntoIter = StorageIter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        StorageIter { st: self, idx: 0 }
+    }
+}
+
+pub struct StorageIter<'a, T> {
+    st: &'a Storage<T>,
+    idx: usize,
+}
+
+impl<'a, T> Iterator for StorageIter<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.idx + 1 < self.st.content.len() {
+            self.idx += 1;
+
+            if let Some(t) = &self.st.content[self.idx] {
+                return Some(t);
+            }
+        }
+        None
+    }
+}

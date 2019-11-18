@@ -102,6 +102,20 @@ pub fn default_estimate(entity: & Entity) -> Estimate {
         use_mdp: false
     }
 }
+impl std::fmt::Display for Estimate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        writeln!(f, "{:?} ({})", self.id.e_type, self.id.id)?;
+        writeln!(f, "Hunger: ({})", self.hunger.0)?;
+        writeln!(f, "Preferences:")?;
+        for (t, p) in &self.food_preferences {
+            writeln!(f, "{:?}: {}", t, p)?;
+        }
+        writeln!(f, "Behavior:")?;
+        writeln!(f, "{}", Behavior::fmt(&self.current_behavior))?;
+
+        writeln!(f, "{}", Action::fmt(&self.current_action))
+    }
+}
 
 fn clip(val: f32, min: f32, max: f32) -> f32 {
     max.min(min.max(val))

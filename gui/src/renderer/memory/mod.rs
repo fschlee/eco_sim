@@ -223,7 +223,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
         Ok(())
     }
     pub fn remove_texture(& mut self, id: Id<Tex>) -> Result<(), Error> {
-        if let Some(mut mtex) = self.textures.get_mut(id.id as usize) {
+        if let Some(mtex) = self.textures.get_mut(id.id as usize) {
             if let Some(tex)=mtex.take() {
                 self.old_textures.push(tex);
                 self.old_texture_expirations.push(Self::DELETE_DELAY);

@@ -7,6 +7,7 @@ use conrod_winit::{convert_event, WinitWindow};
 use crate::simulation::GameState;
 use winit::{EventsLoop, Event, WindowEvent, MouseButton, ElementState, KeyboardInput, VirtualKeyCode, ModifiersState, dpi::{LogicalPosition, LogicalSize} };
 use eco_sim::entity_type::{EntityType, ENTITY_TYPE_COUNT};
+use glium::vertex::MultiVerticesSource;
 
 
 widget_ids! {
@@ -24,6 +25,9 @@ widget_ids! {
         food_prefs[],
         list_canvas,
         food_pref_text,
+        mental_model_canvas,
+        mental_models[],
+        mm_title,
     }
 }
 
@@ -85,6 +89,7 @@ pub struct UIState<'a> {
     window: &'a winit::Window,
     mouse_pos : LogicalPosition,
     edit_ent : Option<eco_sim::Entity>,
+    mental_model: Option<eco_sim::Entity>,
     // hidpi_factor: f64,
     pub conrod: cc::Ui,
     pub ids: WidgetIds,
@@ -104,6 +109,7 @@ impl<'a> UIState<'a> {
         conrod.fonts.insert(font);
         let mut ids = WidgetIds::new(conrod.widget_id_generator());
         ids.food_prefs.resize(ENTITY_TYPE_COUNT, & mut conrod.widget_id_generator());
+        ids.mental_models.resize(10, & mut conrod.widget_id_generator());
         Self{
             mouse_pos : LogicalPosition{x: 0.0, y:0.0},
             // hidpi_factor,
@@ -113,7 +119,8 @@ impl<'a> UIState<'a> {
             prev : Instant::now(),
             window,
             paused: true,
-            edit_ent: None
+            edit_ent: None,
+            mental_model: None,
         }
     }
     pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
@@ -121,6 +128,7 @@ impl<'a> UIState<'a> {
         let mut eventful = false;
         let mut actions = vec![];
         let mut ui_updates = vec![];
+        let mut extend = 0;
         event_loop.poll_events(|event| {
 
             if let Some(event) =  crate::conrod_winit::convert_event(event.clone(), self) {
@@ -134,14 +142,19 @@ impl<'a> UIState<'a> {
                         self.mouse_pos = position;
                         actions.push(Action::Hover(position));
                     },
-                    WindowEvent::MouseInput {button : MouseButton::Right, state: ElementState::Pressed, .. } =>
+                    WindowEvent::MouseInput {button : MouseButton::Right, state: ElementState::Pressed, modifiers,.. } =>
                         {
-                            self.edit_ent = game_state.get_editable_entity(self.mouse_pos);
-                            match self.edit_ent {
-                                Some(ent) => actions.push(Action::HighlightVisibility(ent)),
-                                None => actions.push(Action::ClearHighlight),
+                            if modifiers.ctrl {
+                                self.mental_model = game_state.get_editable_entity(self.mouse_pos);
                             }
-                            ui_updates.push(UIUpdate::ToolTip{ pos : self.mouse_pos, txt : "foo".to_string()});
+                            else {
+                                self.edit_ent = game_state.get_editable_entity(self.mouse_pos);
+                                match self.edit_ent {
+                                    Some(ent) => actions.push(Action::HighlightVisibility(ent)),
+                                    None => actions.push(Action::ClearHighlight),
+                                }
+                                ui_updates.push(UIUpdate::ToolTip{ pos : self.mouse_pos, txt : "foo".to_string()});
+                            }
                         }
                     WindowEvent::MouseInput {button : MouseButton::Left, state: ElementState::Pressed, .. } =>
                         {
@@ -170,17 +183,48 @@ impl<'a> UIState<'a> {
         let delta = now - self.prev;
         if eventful || !self.paused {
             let ui = & mut self.conrod.set_widgets();
-            cc::widget::Canvas::new().pad(0.0).scroll_kids_vertically().w_h(1280.0, 1024.0).set(self.ids.canvas, ui);
+            cc::widget::Canvas::new().pad(0.0).scroll_kids_vertically().w_h(1640.0, 1024.0).set(self.ids.canvas, ui);
             if self.paused {
                 cc::widget::Text::new("Paused").font_size(32).mid_top_of(self.ids.canvas).set(self.ids.title, ui);
+            }
+            cc::widget::Canvas::new().pad(0.0)
+                .parent(self.ids.canvas)
+                .w_h(256.0, 1024.0)
+                .mid_right_of(self.ids.canvas)
+                //                 .left_from(self.ids.edit_canvas, 60.0)
+                .set(self.ids.mental_model_canvas, ui);
+            if let Some(mm) = self.mental_model {
+                if let Some(ms) = game_state.get_mental_state(&mm) {
+                    let title = format!("{:?} ({})", mm.e_type, mm.id);
+                    cc::widget::Text::new(&title).font_size(32).mid_top_of(self.ids.mental_model_canvas).set(self.ids.mm_title, ui);
+                    let mut prev = self.ids.mm_title;
+                    let mut i = 0;
+                    for mental_model in &ms.estimates {
+                        if i >= self.ids.mental_models.len() {
+                            extend += 1;
+                            continue;
+                        }
+                        let m_id =  self.ids.mental_models[i];
+                        i+=1;
+                        let txt = format!("{}", mental_model);
+                        cc::widget::Text::new(&txt).font_size(12)
+                            .down_from(prev, 60.0)
+                            .align_middle_x_of(self.ids.mental_model_canvas).set(m_id, ui);
+                        prev = m_id;
+                    }
+
+                }
             }
             if let Some(edit_ent) = self.edit_ent {
                 cc::widget::Canvas::new().pad(0.0)
                     .parent(self.ids.canvas)
                     .w_h(256.0, 1024.0)
-                    .mid_right_of(self.ids.canvas)
+            //        .mid_right_of(self.ids.canvas)
+                    .left_from(self.ids.mental_model_canvas, 60.0)
+                    // .right(1024.0)
+
                     .set(self.ids.edit_canvas, ui);
-                let txt = format!("{:?}", edit_ent.e_type);
+                let txt = format!("{:?} ({})", edit_ent.e_type, edit_ent.id);
                 cc::widget::Text::new(&txt).font_size(32).mid_top_of(self.ids.edit_canvas).set(self.ids.dialer_title, ui);
                 if let Some(ms) = game_state.get_mental_state(&edit_ent) {
 
@@ -195,25 +239,11 @@ impl<'a> UIState<'a> {
                         new_ms.hunger = eco_sim::Hunger(hunger);
                         actions.push(Action::UpdateMentalState(new_ms));
                     }
-                    let act_text = match ms.current_action {
-
-                        None => format!("Idle"),
-                        Some(eco_sim::Action::Eat(food)) => format!("eating {:?}", food.e_type),
-                        Some(eco_sim::Action::Move(pos)) => format!("moving to {:?}", pos),
-                        Some(eco_sim::Action::Attack(target)) => {
-                            format!("attacking {:?}", target.e_type)
-                        }
-                    };
+                    let act_text = eco_sim::Action::fmt(&ms.current_action);
                     cc::widget::Text::new(&act_text).font_size(16)
                         .down_from(self.ids.hunger_dialer, 60.0)
                         .align_middle_x_of(self.ids.edit_canvas).set(self.ids.action_text, ui);
-                    let beh_text = match &ms.current_behavior {
-
-                        None => format!("Undecided"),
-                        Some(eco_sim::Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", enemy.e_type),
-                        Some(eco_sim::Behavior::Hunt(prey)) => format!("hunting {:?} ", prey.e_type),
-                        Some(eco_sim::Behavior::Search(target)) => format!("searching for {:?}", target),
-                    };
+                    let beh_text = eco_sim::Behavior::fmt(&ms.current_behavior);
                     cc::widget::Text::new(&beh_text).font_size(16)
                         .down_from(self.ids.action_text, 60.0)
                         .align_middle_x_of(self.ids.edit_canvas).set(self.ids.behavior_text, ui);
@@ -255,6 +285,9 @@ impl<'a> UIState<'a> {
                     }
                 }
             }
+        }
+        if extend > 0 {
+            self.ids.mental_models.resize(self.ids.mental_models.len() + extend, & mut self.conrod.widget_id_generator());
         }
         (should_close, ui_updates, actions)
     }
