@@ -44,8 +44,14 @@ impl Behavior {
     }
 }
 
-#[derive(PartialOrd, PartialEq, Copy, Clone, Debug, Default)]
+#[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Hunger(pub f32);
+
+impl Default for Hunger {
+    fn default() -> Self {
+        Self(3.9)
+    }
+}
 
 const HUNGER_THRESHOLD : Hunger = Hunger(1.0);
 
@@ -177,7 +183,7 @@ impl MentalState {
                             }
                             else{
                                 if let Some(path) = self.path(own_position, position, observation.clone()){
-                                    self.current_action = Some(Action::Move(path[0]));
+                                    self.current_action = Some(Action::Move(path[1]));
                                 }
                             }
                         }
