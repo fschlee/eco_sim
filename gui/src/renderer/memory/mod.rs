@@ -65,6 +65,7 @@ pub struct ResourceManager<B: Backend, Trans: Capability + Supports<Transfer>> {
     descriptor_pool: ManuallyDrop<<B as Backend>::DescriptorPool>,
     pool_size: usize,
     descriptor_map: std::collections::HashMap<Id<Tex>, <B as Backend>::DescriptorSet, RandomState>,
+    unmapped_descriptor_count : usize,
 }
 
 
@@ -136,6 +137,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
             old_pool_expirations : Vec::new(),
             old_pools: Vec::new(),
             descriptor_map: std::collections::HashMap::with_capacity(pool_size ),
+            unmapped_descriptor_count: 0,
             pool_size
         })
     }
@@ -158,8 +160,9 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
     fn set_descriptor_set(& mut self, id: Id<Tex>) -> Result<& <B as Backend>::DescriptorSet, Error> {
 
 
-        if self.descriptor_map.len() >= self.pool_size {
+        if self.descriptor_map.len() + self.unmapped_descriptor_count >= self.pool_size {
             self.refresh_pool()?;
+            self.unmapped_descriptor_count = 0;
             warn!("refreshed descriptor pool");
 
         }
@@ -251,6 +254,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
                     self.old_texture_expirations.push(Self::DELETE_DELAY);
                 }
                 self.descriptor_map.remove(&id);
+                self.unmapped_descriptor_count += 1;
                 return Ok(());
             }
         }
