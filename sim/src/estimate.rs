@@ -112,7 +112,7 @@ impl std::fmt::Display for Estimate {
         }
         writeln!(f, "Behavior:")?;
         writeln!(f, "{}", Behavior::fmt(&self.current_behavior))?;
-
+        writeln!(f, "Action:")?;
         writeln!(f, "{}", Action::fmt(&self.current_action))
     }
 }

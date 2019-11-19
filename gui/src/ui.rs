@@ -208,8 +208,9 @@ impl<'a> UIState<'a> {
                         i+=1;
                         let txt = format!("{}", mental_model);
                         cc::widget::Text::new(&txt).font_size(12)
+                            .parent(self.ids.mental_model_canvas)
                             .down_from(prev, 60.0)
-                            .align_middle_x_of(self.ids.mental_model_canvas).set(m_id, ui);
+                            .align_left().set(m_id, ui);
                         prev = m_id;
                     }
 
