@@ -9,6 +9,7 @@ use super::entity::*;
 use super::entity_type::{EntityType, ENTITY_TYPES};
 use super::estimate::{Estimate, default_estimate};
 use crate::Action::Eat;
+use crate::Behavior::Partake;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct PathNode {
@@ -32,6 +33,7 @@ pub enum Behavior {
     Search(Vec<EntityType>),
     FleeFrom(Entity),
     Hunt(Entity),
+    Partake(Entity),
 }
 impl Behavior {
     pub fn fmt(bhv: &std::option::Option<Behavior>) -> String {
@@ -39,6 +41,7 @@ impl Behavior {
             None => format!("Undecided"),
             Some(Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", enemy.e_type),
             Some(Behavior::Hunt(prey)) => format!("hunting {:?} ", prey.e_type),
+            Some(Behavior::Partake(food)) => format!("partaking of  {:?} ", food.e_type),
             Some(Behavior::Search(target)) => format!("searching for {:?}", target),
         }
     }
@@ -174,22 +177,9 @@ impl MentalState {
                         self.current_behavior = Some(Behavior::Hunt(food));
                     }
                     _ => {
-                        if position == own_position {
-                            self.current_action = Some(Action::Eat(food));
-                        }
-                        else {
-                            if own_position.is_neighbour(&position) {
-                                self.current_action = Some(Action::Move(position));
-                            }
-                            else{
-                                if let Some(path) = self.path(own_position, position, observation.clone()){
-                                    self.current_action = Some(Action::Move(path[1]));
-                                }
-                            }
-                        }
+                        self.current_behavior = Some(Behavior::Partake(food));
                     }
                 }
-
             }
             else {
                 self.current_behavior = Some(Behavior::Search(self.food_preferences.iter().map(|(f, r)| f.clone()).collect()));
@@ -238,14 +228,32 @@ impl MentalState {
             Some(Behavior::Hunt(prey)) => {
                 match observation.observed_position(&prey) {
                     Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
-                        if pos == own_position {
+                        if pos == own_position || own_position.is_neighbour(&pos) {
                             match observation.observed_physical_state(&prey) {
                                 Some(ps) if ps.is_dead() => {
-                                    self.current_behavior = None;
-                                    self.current_action = Some(Eat(prey))
+                                    self.current_behavior = Some(Partake(prey));
+                                    if pos == own_position {
+                                        self.current_action = Some(Eat(prey));
+                                    }
                                 },
                                 _ => self.current_action = Some(Action::Attack(prey)),
                             }
+                        }
+                        else if let Some(path) = self.path(own_position, pos, observation.borrow()){
+                            self.current_action = Some(Action::Move(path[1]));
+                        }
+                        else {
+                            self.current_behavior = None;
+                        }
+                    }
+                    _ => self.current_behavior = None,
+                }
+            }
+            Some(Behavior::Partake(food)) => {
+                match observation.observed_position(&food) {
+                    Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
+                        if pos == own_position {
+                            self.current_action = Some(Eat(food));
 
                         }
                         else if let Some(path) = self.path(own_position, pos, observation.borrow()){
@@ -374,6 +382,7 @@ impl MentalState {
             Some(Behavior::Hunt(prey)) => (),
             Some(Behavior::Search(foods)) => (),
             Some(Behavior::FleeFrom(predator)) => (),
+            Some(Behavior::Partake(food)) => (),
         }
 
         // todo action based on behavior
@@ -382,6 +391,7 @@ impl MentalState {
             Some(Behavior::Hunt(prey)) => (),
             Some(Behavior::Search(foods)) => (),
             Some(Behavior::FleeFrom(predator)) => (),
+            Some(Behavior::Partake(food)) => (),
         };
     }
 

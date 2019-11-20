@@ -220,7 +220,9 @@ impl World {
                     }
                 }
                 Action::Attack(opponent) => {
-                    if self.positions.get(&opponent) == Some(own_pos) {
+                    if self.positions.get(&opponent).map_or(false, |pos|{
+                        pos == own_pos || self.can_pass(entity, *pos) && own_pos.is_neighbour(pos)
+                    })  {
                         if let Some(attack) = self.physical_states.get(entity).and_then(|phys| phys.attack).clone() {
                             if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
                                 phys_target.health.suffer(attack);
