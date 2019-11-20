@@ -219,7 +219,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
                     gfx_hal::pso::DescriptorPoolCreateFlags::empty(),
                 ).map_err(|_| "Couldn't create a descriptor pool!")?;
             self.old_pools.push(ManuallyDrop::take(& mut self.descriptor_pool));
-            self.old_texture_expirations.push(Self::DELETE_DELAY);
+            self.old_pool_expirations.push(Self::DELETE_DELAY);
             self.descriptor_pool = ManuallyDrop::new(pool);
         }
         self.descriptor_map.clear();
