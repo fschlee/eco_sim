@@ -8,6 +8,7 @@ use super::world::*;
 use super::entity::*;
 use super::entity_type::{EntityType, ENTITY_TYPES};
 use super::estimate::{Estimate, default_estimate};
+use super::estimator::Estimator;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
 
@@ -497,7 +498,7 @@ impl MentalState {
         self.current_action = None;
         self.current_behavior = None;
     }
-    fn get_estimate_or_init(& mut self, entity: & Entity) -> &mut Estimate {
+    fn get_estimate_or_init(& mut self, entity: & Entity, observation: impl Observation) -> &mut Estimate {
         self.estimates.get_or_insert_with(entity, || default_estimate(entity))
     }
 }
@@ -538,11 +539,14 @@ impl AgentSystem {
                     if let (Some(ms), Some(own_pos)) =
                     (self.mental_states.get_mut(agent), world.positions.get(agent)) {
                         let sight = ms.sight_radius;
+                        let observation = world.observe_in_radius(agent, sight); // &(*world);//
                         if own_pos.distance(other_pos) <= sight {
-                            let estimate = ms.get_estimate_or_init(entity);
-                            if let  Some(mut upd) = estimate.updated( world.observe_in_radius(agent, sight), opt_action.clone()) {
-                                std::mem::swap(&mut upd, estimate);
-                            }
+                            ms.get_estimate_or_init(entity, observation.borrow())
+                                .update_seen(opt_action.clone(), observation);
+
+                        }
+                        else {
+                            ms.estimates.get_mut(entity).map(|e| e.update_unseen(observation));
                         }
                     }
                 }

@@ -8,6 +8,11 @@ pub struct Entity {
     pub gen: GenID,
     pub e_type: EntityType,
 }
+impl std::fmt::Display for Entity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{:?} ({})", self.e_type, self.id)
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct EntityManager {

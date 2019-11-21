@@ -2,6 +2,7 @@ use rand::{Rng};
 use rand_distr::{Normal, StandardNormal, Distribution};
 
 use super::agent::{MentalState, Behavior, Hunger, Reward};
+use super::estimator::Estimator;
 use super::entity::{Entity, Storage};
 use super::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
 use super::entity_type::{EntityType, ENTITY_TYPES};
@@ -24,20 +25,6 @@ impl Estimate {
         self.current_behavior = ms.current_behavior.clone();
         self.current_action = ms.current_action;
     }
-    pub fn sample(&self, index: u8) -> MentalState {
-        let mut sample : MentalState = self.into();
-        let mut rng : rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(index as u64);
-        let scale = (1.0 + index as f32).log2() / 256f32.log2();
-
-        let mut hunger_sample = rng.sample(Normal::new(self.hunger.0, scale * 10.0).unwrap()); // can only fail if std_dev < 0 or nan;
-        sample.hunger.0 = clip(hunger_sample, 0.0, 10.0);
-        for (_, pref) in sample.food_preferences.iter_mut() {
-            let pref_sample : f32 = StandardNormal.sample(& mut rng);
-            *pref = clip(*pref +  pref_sample * scale, 0.0, 1.0);
-        }
-        sample.rng = rng;
-        sample
-    }
 }
 
 impl Into<MentalState> for &Estimate {
@@ -55,29 +42,48 @@ impl Into<MentalState> for &Estimate {
         }
     }
 }
-impl Estimate {
-    pub fn updated(&self, observation: impl Observation, action: Option<Action>) -> Option<Estimate> {
+
+impl Estimator for Estimate {
+    fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState {
+        let mut sample : MentalState = self.into();
+        let mut hunger_sample = rng.sample(Normal::new(self.hunger.0, scale * 10.0).unwrap()); // can only fail if std_dev < 0 or nan;
+        sample.hunger.0 = clip(hunger_sample, 0.0, 10.0);
+        for (_, pref) in sample.food_preferences.iter_mut() {
+            let pref_sample : f32 = StandardNormal.sample(rng);
+            *pref = clip(*pref +  pref_sample * scale, 0.0, 1.0);
+        }
+        let bhv_sample : f32  = StandardNormal.sample(rng);
+        if  bhv_sample * scale > 0.25f32 {
+            sample.current_behavior = None;
+        }
+        sample.rng = rand::SeedableRng::seed_from_u64(rng.gen());
+        sample
+    }
+
+    fn update_seen(&mut self, action: Option<Action>, observation: impl Observation) {
         if let Some(pos) = observation.observed_position(&self.id){
-            let mut ms : MentalState= self.into();
+            let mut ms : MentalState= (&(*self)).into();
             if action == ms.decide( &(self.physical_state), pos, observation.borrow()){
-                return None;
+                self.update(&ms);
             }
             else {
-                let max_tries = 20;
+                let mut rng : rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(self.id.id as u64);
+                let max_tries = 255;
                 for i in 0..max_tries {
-                    let mut sample = self.sample(i);
+                    let scale = (1.0 + i as f32).log2() / 256f32.log2();
+                    let mut sample = self.sample(scale, & mut rng);
                     if action == sample.decide( &(self.physical_state), pos, observation.borrow()){
-                        let mut est = self.clone();
-                        est.update(&sample);
-                        return Some(est);
+                        self.update(&sample);
                     }
                 }
-                //Todo
             }
         }
-        None
+    }
+    fn update_unseen(&mut self, observation: impl Observation) {
+        //TODO
     }
 }
+
 pub fn default_estimate(entity: & Entity) -> Estimate {
     Estimate{
         id: entity.clone(),
