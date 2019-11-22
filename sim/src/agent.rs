@@ -11,6 +11,7 @@ use super::estimate::{Estimate, default_estimate};
 use super::estimator::Estimator;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
+use std::cmp::Ordering::Equal;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct PathNode {
@@ -61,7 +62,7 @@ const HUNGER_THRESHOLD : Hunger = Hunger(1.0);
 
 const HUNGER_INCREMENT : f32 = 0.0001;
 
-const FLEE_THRESHOLD : u32 = 4;
+const FLEE_THREAT : f32 = 5.0;
 
 pub type Reward = f32;
 
@@ -149,11 +150,9 @@ impl MentalState {
         observation: impl Observation,
     ) {
         let own_type = self.id.e_type.clone();
-        if let Some((predator, pos)) = observation.find_closest(own_position, |e, w| {
-            e.e_type.can_eat(&own_type)
-        }).next() {
-            if pos.distance(&own_position) <= FLEE_THRESHOLD && observation.known_can_pass(&predator, own_position) != Some(false) {
-                self.current_behavior = Some(Behavior::FleeFrom(predator))
+        if let Some((predator, threat)) = self.calculate_threat(own_position, observation.borrow()).iter().max_by(|(_, t1), (_, t2)| f32_cmp(t1, t2)) {
+            if *threat > FLEE_THREAT {
+                self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
             }
         }
         if self.current_behavior.is_none() && self.hunger > HUNGER_THRESHOLD {
@@ -166,13 +165,7 @@ impl MentalState {
                 } else {
                     None
                 }
-            }).max_by(|(rw1, _, _), (rw2, _, _)| {
-                if rw1 < rw2 {
-                    Ordering::Less
-                } else {
-                    Ordering::Greater
-                }
-            }) {
+            }).max_by(|(rw1, _, _), (rw2, _, _)| f32_cmp(rw1, rw2)) {
                 match observation.observed_physical_state(&food) {
                     Some(ps) if  ps.health > Health(0.0)  && observation.known_can_pass(&self.id, position) == Some(true) => {
                         self.current_behavior = Some(Behavior::Hunt(food));
@@ -375,7 +368,7 @@ impl MentalState {
         own_position: Position,
         observation: impl Observation,
     ) {
-        let threat = self.calculate_threat(physical_state, own_position, observation );
+        let threat = self.calculate_threat( own_position, observation );
 
         // todo switch behaviors
         match &self.current_behavior.clone() {
@@ -400,30 +393,36 @@ impl MentalState {
     // Threats are unordered
     fn  calculate_threat(
         &self,
-        physical_state: &PhysicalState,
+      //  physical_state: &PhysicalState,
         own_position: Position,
         observation: impl Observation,
     ) -> Vec<(Entity, Threat)>{
+        let mut rng = self.rng.clone();
         observation.find_closest(own_position, |e, w| {
             e.e_type.can_eat(&self.id.e_type)
         }).filter_map(|(entity, position)| {
             match self.path_as(position, own_position, &entity, observation.borrow()){
-
                 Some(v) => {
-                    let pred_ms : MentalState = self.estimates.get(&entity).map(|e| e.into())
-                        .unwrap_or_else( || (&default_estimate(&entity)).into());
-                    pred_ms.lookup_preference(self.id.e_type).map(|pref| {
-                        let mut score = pred_ms.hunger.0 * pref / v.len() as f32;
-                        if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
-                            if prey == self.id {
-                                score += 10.0;
-                            }
-                            else {
-                                score *= 0.5;
-                            }
+                    let mut total = 0.0;
+                    let inv_dist = 1.0 / v.len() as f32;
+                    let mut scorer = |estimate : &Estimate| {
+                        for _ in 0..10 {
+                            let pred_ms = estimate.sample(0.5, &mut rng);
+                            pred_ms.lookup_preference(self.id.e_type).map(|pref| {
+                                let mut score = pred_ms.hunger.0 * pref * inv_dist;
+                                if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
+                                    if prey == self.id {
+                                        score += 10.0;
+                                    } else {
+                                        score *= 0.5;
+                                    }
+                                }
+                                total += score;
+                            });
                         }
-                        (entity, score)
-                    })
+                    };
+                    self.estimates.get(&entity).map(|e | scorer(e)).unwrap_or_else(  || scorer(&default_estimate(&entity)));
+                    Some((entity, total))
                 },
                 _ => None
             }
@@ -580,4 +579,8 @@ impl AgentSystem {
         }
         Self{ agents, mental_states}
     }
+}
+#[inline]
+fn f32_cmp(f1: &f32, f2: &f32) -> Ordering {
+    f32::partial_cmp(f1,f2).unwrap_or(Equal)
 }
