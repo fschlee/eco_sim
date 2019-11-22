@@ -5,6 +5,7 @@ use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
 use std::collections::HashSet;
+use itertools::Itertools;
 
 pub struct RenderData{
     pub vertices: Vec<UiVertex>,
@@ -17,8 +18,6 @@ pub struct Command {
     pub x_offset: f32,
     pub y_offset: f32,
     pub highlight: bool,
-
-
 }
 
 pub enum RenderUpdate{
@@ -168,15 +167,29 @@ impl GameState {
         self.eco_sim.get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT)
     }
     pub fn get_editable_entity(&self, position: LogicalPosition) -> Option<Entity> {
-        let (x, y) = self.logical_position_to_coords(position);
-        let sim_pos = eco_sim::Position{ x: x as u32, y: y as u32};
+        let sim_pos = self.logical_to_sim_position(position);
         self.eco_sim.entities_at(sim_pos).iter()
             .find(|e| { self.eco_sim.get_mental_state(*e).is_some()}).copied()
             .or(self.eco_sim.entities_at(sim_pos).iter().next().copied())
 
     }
+    pub fn get_editable_index(&self, sim_pos: eco_sim::Position) -> usize {
+        self.eco_sim.entities_at(sim_pos).iter().enumerate().find_map(|(i, e)| {
+            match self.eco_sim.get_mental_state(e) {
+                Some(_) => Some(i),
+                None => None,
+            }
+        }).unwrap_or(0)
+    }
+    pub fn get_nth_entity(&self, n: usize, sim_pos: eco_sim::Position) -> Option<Entity> {
+        self.eco_sim.entities_at(sim_pos).iter().cycle().dropping(n).next().copied()
+    }
     pub fn get_mental_state(&self, entity: &Entity) -> Option<&MentalState> {
         self.eco_sim.get_mental_state(entity)
+    }
+    pub fn logical_to_sim_position(&self, position: LogicalPosition) -> eco_sim::Position {
+        let (x, y) = self.logical_position_to_coords(position);
+        eco_sim::Position{ x: x as u32, y: y as u32}
     }
     fn logical_position_to_coords(&self, position: LogicalPosition) -> (usize, usize) {
         let x = ((position.x as f32 - self.margin) / self.cell_width).floor() as usize;

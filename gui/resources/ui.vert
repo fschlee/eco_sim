@@ -18,7 +18,7 @@ void main()
 {
     float width = push.width; //1024.0;
     float height = push.height;
-    gl_Position = vec4(position.x * height, - position.y * width, 0.5, 0.5 * width * height);
+    gl_Position = vec4(position.x * height, - position.y * width, 0.0, 0.5 * width * height);
         //
 
     // vec4(position.x * 2.0/1024.0 -1.f, position.y * 2.0/768.0 - 1.f, 0.0, 1.0);

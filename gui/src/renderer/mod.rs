@@ -208,6 +208,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
         let vbuffs = &self.ui_vbuff;
         let  draw_queue = & mut self.queue_group.queues[0];
         self.hal_state.with_inline_encoder( draw_queue, |enc| {
+
             {
                 pipeline_2d.execute(enc, mm, sim_vtx_buff, sim_idx_buff, render_area, &render_data.commands);
             }
@@ -215,9 +216,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
                 pipeline.execute(enc, mm, vbuffs, render_area, cmds)
             }
 
-
-
-        })  // */ */
+        })
     }
     fn compile_ui_shaders() -> Result<(shaderc::CompilationArtifact, shaderc::CompilationArtifact), Error> {
 

@@ -582,5 +582,5 @@ impl AgentSystem {
 }
 #[inline]
 fn f32_cmp(f1: &f32, f2: &f32) -> Ordering {
-    f32::partial_cmp(f1,f2).unwrap_or(Equal)
+    f32::partial_cmp(f1,f2).expect("NaN")
 }

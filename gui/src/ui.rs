@@ -1,7 +1,7 @@
 
 use std::time::Instant;
 use conrod_core as cc;
-use conrod_core::{widget_ids, widget, Colorable, Labelable, Positionable, Sizeable, Widget, };
+use conrod_core::{widget_ids, widget, Colorable, Labelable, Positionable, Sizeable, Widget, Borderable};
 use conrod_winit::{convert_event, WinitWindow};
 
 use crate::simulation::GameState;
@@ -28,8 +28,12 @@ widget_ids! {
         mental_model_canvas,
         mental_models[],
         mm_title,
+        tooltip,
+        tooltip_text,
     }
 }
+
+const HOVER_TIME : f32 = 0.5;
 
 pub fn entity_type_label(et: EntityType) -> &'static  str {
     use EntityType::*;
@@ -66,7 +70,7 @@ pub fn theme() -> conrod_core::Theme {
 }
 
 pub enum UIUpdate {
-    ToolTip{ pos : LogicalPosition, txt : String},
+    // ToolTip{ pos : LogicalPosition, txt : String},
     MoveCamera { transformation: nalgebra::Translation3<f32> },
     Resized { size : LogicalSize},
     Refresh,
@@ -88,13 +92,15 @@ static CAMERA_STEP : f32 = 0.05;
 pub struct UIState<'a> {
     window: &'a winit::Window,
     mouse_pos : LogicalPosition,
+    hover_pos : Option<eco_sim::Position>,
+    hover_start_time: Instant,
+    tooltip_index: usize,
+    tooltip_active: bool,
     edit_ent : Option<eco_sim::Entity>,
     mental_model: Option<eco_sim::Entity>,
     // hidpi_factor: f64,
     pub conrod: cc::Ui,
     pub ids: WidgetIds,
-    // size: LogicalSize,
-    prev: Instant,
     paused: bool,
 }
 
@@ -116,11 +122,14 @@ impl<'a> UIState<'a> {
             // size,
             conrod,
             ids,
-            prev : Instant::now(),
             window,
             paused: true,
             edit_ent: None,
             mental_model: None,
+            hover_pos: None,
+            hover_start_time: Instant::now(),
+            tooltip_index: 0,
+            tooltip_active: false,
         }
     }
     pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
@@ -140,20 +149,31 @@ impl<'a> UIState<'a> {
                     WindowEvent::Resized(logical_size) => ui_updates.push(UIUpdate::Resized { size : logical_size}),
                     WindowEvent::CursorMoved { position, .. } => {
                         self.mouse_pos = position;
+                        let sim_pos = game_state.logical_to_sim_position(position);
+                        if Some(sim_pos) != self.hover_pos {
+                            self.hover_pos = Some(sim_pos);
+                            self.hover_start_time = Instant::now();
+                            self.tooltip_active = false;
+                            self.tooltip_index = game_state.get_editable_index(sim_pos);
+                        }
                         actions.push(Action::Hover(position));
                     },
                     WindowEvent::MouseInput {button : MouseButton::Right, state: ElementState::Pressed, modifiers,.. } =>
                         {
+                            let entity = match self.hover_pos {
+                                Some(hover_pos) if self.tooltip_active =>
+                                game_state.get_nth_entity(self.tooltip_index, hover_pos),
+                                _ => game_state.get_editable_entity(self.mouse_pos)
+                            };
                             if modifiers.ctrl {
-                                self.mental_model = game_state.get_editable_entity(self.mouse_pos);
+                                self.mental_model = entity;
                             }
                             else {
-                                self.edit_ent = game_state.get_editable_entity(self.mouse_pos);
+                                self.edit_ent = entity;
                                 match self.edit_ent {
                                     Some(ent) => actions.push(Action::HighlightVisibility(ent)),
                                     None => actions.push(Action::ClearHighlight),
                                 }
-                                ui_updates.push(UIUpdate::ToolTip{ pos : self.mouse_pos, txt : "foo".to_string()});
                             }
                         }
                     WindowEvent::MouseInput {button : MouseButton::Left, state: ElementState::Pressed, .. } =>
@@ -179,10 +199,16 @@ impl<'a> UIState<'a> {
         if self.conrod.global_input().events().next().is_some() {
             eventful = true;
         }
-        let now = Instant::now();
-        let delta = now - self.prev;
+        {
+            let now = Instant::now();
+            if now.duration_since(self.hover_start_time).as_secs_f32() > HOVER_TIME {
+                self.tooltip_active = true;
+            }
+        }
         if eventful || !self.paused {
+            let mouse_pos = self.logical_to_conrod(self.mouse_pos);
             let ui = & mut self.conrod.set_widgets();
+
             cc::widget::Canvas::new().pad(0.0).scroll_kids_vertically().w_h(1640.0, 1024.0).set(self.ids.canvas, ui);
             if self.paused {
                 cc::widget::Text::new("Paused").font_size(32).mid_top_of(self.ids.canvas).set(self.ids.title, ui);
@@ -286,6 +312,27 @@ impl<'a> UIState<'a> {
                     }
                 }
             }
+
+            match self.hover_pos {
+                Some(pos) if self.tooltip_active => {
+                    if let Some(tt) = game_state.get_nth_entity(self.tooltip_index, pos) {
+                        let (w, h) = (90.0, 30.0);
+                        cc::widget::Canvas::new()
+                            .pad(1.0).w_h(w, h)
+                            .x_y(mouse_pos.0 + 0.5 * w, mouse_pos.1 - 0.5 * h)
+                            .rgb(0.0, 0.0, 0.0)
+                            .border_color(cc::color::WHITE)
+                            .parent(self.ids.canvas)
+                            .set(self.ids.tooltip, ui);
+                        let txt = format!("{}", tt);
+                        cc::widget::Text::new(&txt)
+                            .font_size(16)
+                            .mid_top_of(self.ids.tooltip)
+                            .set(self.ids.tooltip_text, ui);
+                    }
+                },
+            _ => (),
+            }
         }
         if extend > 0 {
             self.ids.mental_models.resize(self.ids.mental_models.len() + extend, & mut self.conrod.widget_id_generator());
@@ -311,8 +358,15 @@ impl<'a> UIState<'a> {
                     actions.push(Action::Pause);
                 }
             }
+            VirtualKeyCode::Tab => {
+                self.tooltip_index += 1;
+            }
             _ => ()
         }
+    }
+    fn logical_to_conrod(&self, position: LogicalPosition) -> (cc::Scalar, cc::Scalar) {
+        let (width, height) = self.get_inner_size().expect("cannot access windows size");
+        (position.x -(width as cc::Scalar / 2.0) , - position.y + (height as cc::Scalar / 2.0))
     }
 }
 
