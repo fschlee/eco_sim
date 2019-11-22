@@ -13,7 +13,8 @@ pub struct Pipeline2D<B: Backend>{
 impl<B: Backend> Pipeline2D<B> {
 
     pub fn create(
-        device: Arc<Dev<B>>, render_area: Rect,
+        device: Arc<Dev<B>>,
+        render_area: Rect,
         render_pass: &<B as Backend>::RenderPass,
         vertex_compile_artifact: shaderc::CompilationArtifact,
         fragment_compile_artifact: shaderc::CompilationArtifact,
@@ -185,7 +186,13 @@ impl<B: Backend> Pipeline2D<B> {
 
             let device = self.device.deref();
             for cmd in cmds.iter() {
-                encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &[(render_area.w as f32).to_bits(), (render_area.h as f32).to_bits(), cmd.x_offset.to_bits(), cmd.y_offset.to_bits(), cmd.highlight as u32]);
+                encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &[
+                    (render_area.w as f32).to_bits(),
+                    (render_area.h as f32).to_bits(),
+                    cmd.x_offset.to_bits(),
+                    cmd.y_offset.to_bits(),
+                    cmd.highlight as u32
+                ]);
                 let scissor = render_area;
                 encoder.set_scissors(0, Some(scissor));
                 encoder.draw_indexed(cmd.range.clone(), 0, 0..1);

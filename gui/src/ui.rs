@@ -98,7 +98,7 @@ pub struct UIState<'a> {
     tooltip_active: bool,
     edit_ent : Option<eco_sim::Entity>,
     mental_model: Option<eco_sim::Entity>,
-    // hidpi_factor: f64,
+    size: LogicalSize,
     pub conrod: cc::Ui,
     pub ids: WidgetIds,
     paused: bool,
@@ -107,7 +107,6 @@ pub struct UIState<'a> {
 impl<'a> UIState<'a> {
     pub fn new<'b: 'a>(window: &'b winit::Window) -> UIState<'a>{
         let size = window.get_inner_size().expect("window should have size");
-        let hidpi_factor = window.get_hidpi_factor();
         let dim = [size.width, size.height];
         let mut conrod = cc::UiBuilder::new(dim).theme(theme()).build();
         let bytes: &[u8] = include_bytes!("../resources/fonts/NotoSans/NotoSans-Regular.ttf");
@@ -118,8 +117,7 @@ impl<'a> UIState<'a> {
         ids.mental_models.resize(10, & mut conrod.widget_id_generator());
         Self{
             mouse_pos : LogicalPosition{x: 0.0, y:0.0},
-            // hidpi_factor,
-            // size,
+            size,
             conrod,
             ids,
             window,
@@ -146,7 +144,10 @@ impl<'a> UIState<'a> {
             match event {
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::CloseRequested => should_close = true,
-                    WindowEvent::Resized(logical_size) => ui_updates.push(UIUpdate::Resized { size : logical_size}),
+                    WindowEvent::Resized(logical_size) => {
+                        ui_updates.push(UIUpdate::Resized { size : logical_size});
+                        self.size = self.window.get_inner_size().expect("cannot detect new window size");
+                    },
                     WindowEvent::CursorMoved { position, .. } => {
                         self.mouse_pos = position;
                         let sim_pos = game_state.logical_to_sim_position(position);
@@ -209,13 +210,16 @@ impl<'a> UIState<'a> {
             let mouse_pos = self.logical_to_conrod(self.mouse_pos);
             let ui = & mut self.conrod.set_widgets();
 
-            cc::widget::Canvas::new().pad(0.0).scroll_kids_vertically().w_h(1640.0, 1024.0).set(self.ids.canvas, ui);
+            cc::widget::Canvas::new().pad(0.0)
+                .scroll_kids_vertically()
+                .w_h(self.size.width, self.size.height)
+                .set(self.ids.canvas, ui);
             if self.paused {
                 cc::widget::Text::new("Paused").font_size(32).mid_top_of(self.ids.canvas).set(self.ids.title, ui);
             }
             cc::widget::Canvas::new().pad(0.0)
                 .parent(self.ids.canvas)
-                .w_h(256.0, 1024.0)
+                .w_h(256.0, self.size.height)
                 .mid_right_of(self.ids.canvas)
                 //                 .left_from(self.ids.edit_canvas, 60.0)
                 .set(self.ids.mental_model_canvas, ui);
@@ -285,7 +289,7 @@ impl<'a> UIState<'a> {
                         actions.push(Action::UpdateMentalState(new_ms));
                     }
                     cc::widget::Canvas::new().pad(0.0)
-                        .w_h(256.0, 1024.0)
+                        .w_h(256.0, self.size.height)
                         .parent(self.ids.edit_canvas)
                         .mid_right_of(self.ids.edit_canvas)
                         .down_from(self.ids.number_dialer, 120.0)

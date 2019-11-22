@@ -243,7 +243,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
 
             let (vert_art, frag_art) = Self::compile_ui_shaders()?;
             self.ui_pipeline = ui_pipeline::UiPipeline::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_art, frag_art, &self.texture_manager.descriptor_set_layouts)?;
-            let mut art_2d = complile_shaders(&SHADERS_2D).expect("couldn't compile shader");
+            let mut art_2d = complile_shaders(&SHADERS_2D)?;
             let frag_2d = art_2d.remove(1);
             let vert_2d = art_2d.remove(0);
             self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(),vert_2d, frag_2d, &self.texture_manager.descriptor_set_layouts)?;
@@ -260,7 +260,11 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
         self.hal_state = HalState::init(& self.window, self.inst_surface.get_mut_surface(),  &mut self.adapter,  self.device.deref().clone(),   pool)?;
         info!("disposed");
         let (vert_art, frag_art) = Self::compile_ui_shaders()?;
+        let mut art_2d = complile_shaders(&SHADERS_2D)?;
+        let frag_2d = art_2d.remove(1);
+        let vert_2d = art_2d.remove(0);
         self.ui_pipeline = ui_pipeline::UiPipeline::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_art, frag_art, &self.texture_manager.descriptor_set_layouts)?;
+        self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_2d, frag_2d, &self.texture_manager.descriptor_set_layouts)?;
         Ok(())
     }
     pub fn set_ui_buffer(& mut self, vtx: Vec<con_back::UiVertex>) -> Result<(), Error>{
