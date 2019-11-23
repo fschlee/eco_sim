@@ -1,34 +1,43 @@
 use winit::{Window, EventsLoop, WindowBuilder};
-use gfx_hal::{Backend, Instance, Adapter, QueueGroup, QueueFamily, Surface, Graphics};
+use gfx_hal::{Backend, Instance, adapter::{Adapter, PhysicalDevice},
+              queue::{QueueGroup, QueueFamily}, window::Surface, Features};
 use log::{error};
 use winit::dpi::LogicalSize;
+
+use crate::error::Error;
 
 pub const WINDOW_NAME: &str = "Textures";
 
 pub trait InstSurface {
-    type Instance : Instance;
-    fn get_surface<'a>(&'a self) -> & 'a <<Self::Instance as Instance>::Backend as Backend>::Surface;
-    fn get_mut_surface<'a>(& 'a mut self) -> & 'a mut <<Self::Instance as Instance>::Backend as Backend>::Surface;
-    fn get_instance<'a>(&'a self) -> & 'a Self::Instance;
+    type Back : Backend;
+    type SurfaceInfo : Surface<Self::Back>;
+    fn get_surface<'a>(&'a self) -> & 'a <<Self as InstSurface>::Back as Backend>::Surface;
+    fn get_surface_info<'a>(& 'a self) -> & 'a Self::SurfaceInfo;
+    fn get_mut_surface<'a>(& 'a mut self) -> & 'a mut <<Self as InstSurface>::Back as Backend>::Surface;
+    fn get_instance<'a>(&'a self) -> & 'a <<Self as InstSurface>::Back as Backend>::Instance;
     fn create(name: & str, version: u32, window: &Window) -> Self;
 }
 #[cfg(feature = "vulkan")]
 impl InstSurface for (gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend as Backend>::Surface)  {
-    type Instance = gfx_backend_vulkan::Instance;
-    fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
+    type Back = gfx_backend_vulkan::Backend;
+    type SurfaceInfo = <Self::Back as Backend>::Surface;
+    fn get_surface<'a>(&'a self) -> &'a <<Self as InstSurface>::Back as Backend>::Surface {
         &self.1
     }
-
-    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self::Instance as Instance>::Backend as Backend>::Surface {
+    fn get_surface_info<'a>(&'a self) -> & 'a Self::SurfaceInfo {
+        &self.1
+    }
+    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self as InstSurface>::Back as Backend>::Surface {
         &mut self.1
     }
-
-    fn get_instance<'a>(&'a self) -> &'a Self::Instance {
+    fn get_instance<'a>(&'a self) -> &'a <<Self as InstSurface>::Back as Backend>::Instance {
         &self.0
     }
     fn create(name: &str, version: u32, window: &Window) -> Self {
-        let inst = gfx_backend_vulkan::Instance::create(name, version);
-        let surf = inst.create_surface(window);
+        let inst = gfx_backend_vulkan::Instance::create(name, version).expect("unsupported backend");
+        let surf = unsafe {
+            inst.create_surface(window).expect("couldn't initialize surface")
+        };
         (inst, surf)
     }
 }
@@ -93,7 +102,7 @@ impl InstSurface for (gfx_backend_dx12::Instance, <<gfx_backend_dx12::Instance a
     }
     fn create(name: &str, version: u32, window: &Window) -> Self {
         let inst = gfx_backend_dx12::Instance::create(name, version);
-        let surf = inst.create_surface(window);
+        let surf = inst.create_surface_from_hwnd(winit::WindowExtWindows::hwnd(window));
         (inst, surf)
     }
 }
@@ -118,7 +127,7 @@ impl InstSurface for (gfx_backend_metal::Instance, <<gfx_backend_metal::Instance
     }
 }
 
-pub fn init_device<IS: InstSurface>(window: &Window) -> Result<(IS, Adapter<<IS::Instance as Instance>::Backend>, <<IS::Instance as Instance>::Backend as Backend>::Device, QueueGroup<<IS::Instance as Instance>::Backend, Graphics>), &'static str> {
+pub fn init_device<IS: InstSurface>(window: &Window) -> Result<(IS, Adapter<IS::Back>, <IS::Back as Backend>::Device, QueueGroup<IS::Back>), Error> {
     let inst_surface = IS::create(WINDOW_NAME, 1, window);
     let instance = inst_surface.get_instance();
     let surface = inst_surface.get_surface();
@@ -126,16 +135,23 @@ pub fn init_device<IS: InstSurface>(window: &Window) -> Result<(IS, Adapter<<IS:
         .filter(|a| {
 
             a.queue_families.iter()
-                .any(|qf| qf.supports_graphics() && surface.supports_queue_family(qf))
+                .any(|qf| qf.queue_type().supports_graphics() && surface.supports_queue_family(qf))
         });
     let first = adapters.next();
     let adapter = adapters.find(|a| a.info.device_type == gfx_hal::adapter::DeviceType::DiscreteGpu).or(first)
         .ok_or("Couldn't find a graphical Adapter!")?;
     println!("selected {}", adapter.info.name);
-    let (device, queue_group) =
-        adapter.open_with(1, |qf|
-            qf.supports_graphics() && surface.supports_queue_family(qf)
-        ).map_err(|e| {error!("{}", e); "Couldn't open the PhysicalDevice!"})?;
+    let family = adapter.queue_families.iter().find(|family| {
+            surface.supports_queue_family(family) && family.queue_type().supports_graphics()
+        }).unwrap(); // Already seen at least one suitable qf earlier
+    let mut gpu = unsafe {
+        adapter
+            .physical_device
+            .open(&[(family, &[1.0])], Features::empty())
+            .map_err(|e| {error!("{}", e); "Couldn't open the PhysicalDevice!"})?
+    };
+    let device = gpu.device;
+    let queue_group = gpu.queue_groups.pop().ok_or("Can't get queue group")?;
     Ok((inst_surface, adapter, device, queue_group))
 }
 /*

@@ -51,10 +51,10 @@ impl<T> std::hash::Hash for Id<T> {
     }
 }
 
-pub struct ResourceManager<B: Backend, Trans: Capability + Supports<Transfer>> {
+pub struct ResourceManager<B: Backend> {
     device: Arc<Dev<B>>,
     adapter: Arc<Adapter<B>>,
-    command_pool: ManuallyDrop<CommandPool<B, Trans>>,
+    command_pool: ManuallyDrop<B::CommandPool>,
     //   command_queue: ManuallyDrop<CommandQueue<back::Backend, Trans>>,
     textures: Vec<Option<Texture<B>>>,
     old_textures: Vec<Texture<B>>,
@@ -69,13 +69,13 @@ pub struct ResourceManager<B: Backend, Trans: Capability + Supports<Transfer>> {
 }
 
 
-impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Trans> {
+impl<B: Backend> ResourceManager<B> {
     const DELETE_DELAY : i32 = 4;
     const TEXTURES_PER_BINDING : usize = 1;
     pub fn new(
         device: Arc<Dev<B>>,
         adapter: Arc<Adapter<B>>,
-        command_pool: CommandPool<B, Trans>,
+        command_pool: B::CommandPool,
         //       command_queue: CommandQueue<back::Backend, Trans>,
     )->Result<Self, Error> {
         let pool_size = 32;
@@ -239,7 +239,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
         & mut self,
         id: Id<Tex>,
         spec: &'a TextureSpec,
-        command_queue: & mut CommandQueue<B, Trans>) -> Result<(), Error> {
+        command_queue: & mut B::CommandQueue) -> Result<(), Error> {
         if let Some(mtex) = self.textures.get_mut(id.id as usize) {
             if mtex.is_some() {
                 let mut other = LoadedTexture::from_texture_spec(
@@ -263,7 +263,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
     pub fn add_texture<'a>(
         & mut self,
         spec: &'a TextureSpec,
-        command_queue: & mut CommandQueue<B, Trans>) -> Result<Id<Tex>, Error> {
+        command_queue: & mut B::CommandQueue) -> Result<Id<Tex>, Error> {
         let id = Id::new(self.textures.len() as u32);
         let tex = LoadedTexture::from_texture_spec(
             self.adapter.deref(),
@@ -318,7 +318,7 @@ impl<B: Backend, Trans: Capability + Supports<Transfer>> ResourceManager<B, Tran
             }
         }
         unsafe {
-            self.device.destroy_command_pool(ManuallyDrop::take(& mut self.command_pool).into_raw());
+            self.device.destroy_command_pool(ManuallyDrop::take(& mut self.command_pool));
             //          ManuallyDrop::take(&mut self.command_queue)
         }
     }

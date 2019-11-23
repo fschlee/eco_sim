@@ -17,9 +17,10 @@ use core::{
     ops::Deref,
 };
 use gfx_hal::{
-    adapter::{Adapter, MemoryTypeId, PhysicalDevice},
+    adapter::{Adapter, MemoryType, PhysicalDevice},
     buffer::{IndexBufferView, Usage as BufferUsage},
-    command::{ClearColor, ClearValue, CommandBuffer, MultiShot, OneShot, Primary, Secondary, Submittable, RenderPassInlineEncoder},
+    command::{ClearColor, ClearValue, ClearDepthStencil, CommandBuffer,
+              CommandBufferFlags, CommandBufferInheritanceInfo, SubpassContents, Level},
     device::Device,
     format::{Aspects, ChannelType, Format, Swizzle},
     image::{Extent, Layout, SubresourceRange, Usage, ViewKind},
@@ -31,15 +32,17 @@ use gfx_hal::{
         ColorMask, DepthStencilDesc, DepthTest, DescriptorSetLayoutBinding, ElemOffset, ElemStride,
         Element, EntryPoint, Face, Factor, FrontFace, GraphicsPipelineDesc, GraphicsShaderSet,
         InputAssemblerDesc, LogicOp, PipelineCreationFlags, PipelineStage, PolygonMode, Rasterizer,
-        Rect, ShaderStageFlags, Specialization, StencilTest, VertexBufferDesc, Viewport,
+        Rect, ShaderStageFlags, Specialization, StencilTest, VertexBufferDesc, Viewport, DescriptorPool
     },
     queue::{
-        capability::{Capability, Supports, Transfer},
+       //  capability::{Capability, Supports, Transfer},
         family::QueueGroup,
         CommandQueue, Submission,
     },
-    window::{Extent2D, PresentMode, Swapchain, SwapchainConfig},
-    Backend, DescriptorPool, Gpu, Graphics, IndexType, Instance, Primitive, QueueFamily, Surface,
+    window::{Extent2D, PresentMode, Swapchain, SwapchainConfig, Surface, SurfaceCapabilities},
+    Backend,
+    IndexType, Instance,
+    query::Type::PipelineStatistics,
 };
 
 use winit::{
@@ -48,17 +51,14 @@ use winit::{
 use self::memory::{BufferBundle, ResourceManager, TextureSpec, Texture, Id};
 
 use init::InstSurface;
-use gfx_hal::command::{CommandBufferInheritanceInfo, SecondaryCommandBuffer, SubpassCommandBuffer};
-use gfx_hal::query::Type::PipelineStatistics;
 use crate::renderer::memory::descriptors::DescriptorPoolManager;
 use crate::error::{Error, LogError};
+use crate::renderer::con_back::UiVertex;
 
 
-
-type Back<IS> = <<IS as InstSurface>::Instance as Instance>::Backend;
 type Dev<B> = <B as Backend>::Device;
 
-const CLEAR_COLOR : [ClearValue; 1] =  [ClearValue::Color(ClearColor::Uint([0x2E, 0x34, 0x36, 0]))];
+const CLEAR_COLOR : [ClearValue; 1] =  [ClearValue{color: ClearColor{uint32: [0x2E, 0x34, 0x36, 0]}}];
 
 #[cfg(feature = "reload_shaders")]
 const UI_SHADERS : [ShaderSpec; 2] = [
@@ -84,21 +84,21 @@ const SHADERS_2D : [ShaderSpec; 2] = [
 pub struct Renderer<'a, IS : InstSurface> {
 //    type D = <IS::Backend as Backend>::Device,
 //    type B = IS::Backend,
-    pub hal_state: HalState<Back<IS>>,
-    pub texture_manager: ResourceManager<Back<IS>, Graphics>,
-    pub ui_pipeline: ui_pipeline::UiPipeline<Back<IS>>,
-    pub pipeline_2d: pipeline_2d::Pipeline2D<Back<IS>>,
-    ui_vbuff: Vec<BufferBundle<Back<IS>>>,
-    old_buffers: Vec<BufferBundle<Back<IS>>>,
+    pub hal_state: HalState<IS::Back>,
+    pub texture_manager: ResourceManager<IS::Back>,
+    pub ui_pipeline: ui_pipeline::UiPipeline<IS::Back>,
+    pub pipeline_2d: pipeline_2d::Pipeline2D<IS::Back>,
+    ui_vbuff: Vec<BufferBundle<IS::Back>>,
+    old_buffers: Vec<BufferBundle<IS::Back>>,
     old_buffer_expirations: Vec<i32>,
     pub window: &'a Window,
     //  : <back::Backend as Backend>::Surface,
     inst_surface: ManuallyDrop<IS>,
     mem_atom: usize,
-    pub adapter: Arc<Adapter<Back<IS>>>,
-    pub device: ManuallyDrop<Arc<Dev<Back<IS>>>>,
-    pub queue_group: ManuallyDrop<QueueGroup<Back<IS>, Graphics>>,
-    snd_command_pools: Vec<CommandPool<Back<IS>, Graphics>>,
+    pub adapter: Arc<Adapter<IS::Back>>,
+    pub device: ManuallyDrop<Arc<Dev<IS::Back>>>,
+    pub queue_group: ManuallyDrop<QueueGroup<IS::Back>>,
+    snd_command_pools: Vec<<IS::Back as Backend>::CommandPool>,
    // snd_command_buffers: Vec<CommandBuffer<Back<IS>, Graphics, MultiShot, Secondary>>,
 }
 
@@ -116,16 +116,19 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
 
         let primary_pool = unsafe {
             device
-                .create_command_pool_typed(&queue_group, CommandPoolCreateFlags::RESET_INDIVIDUAL)
+                .create_command_pool(queue_group.family, CommandPoolCreateFlags::RESET_INDIVIDUAL)
                 .expect("Could not create the raw draw command pool!")
         };
-
-        let hal_state = HalState::init(window, inst_surface.get_mut_surface(),  &adapter,  device.clone(), primary_pool).expect("failed to set up device for rendering");
+        let (caps, formats) = {
+            let si = inst_surface.get_surface_info();
+            (si.capabilities(&adapter.physical_device), si.supported_formats(&adapter.physical_device))
+        };
+        let hal_state = HalState::init(window,  formats, caps,inst_surface.get_mut_surface(),   &adapter,  device.clone(), primary_pool).expect("failed to set up device for rendering");
         let mut snd_command_pools = Vec::new();
         for _ in 0 ..hal_state.frames_in_flight {
             unsafe {
                 snd_command_pools.push(device
-                    .create_command_pool_typed(&queue_group, CommandPoolCreateFlags::RESET_INDIVIDUAL)
+                    .create_command_pool(queue_group.family, CommandPoolCreateFlags::RESET_INDIVIDUAL)
                     .expect("Could not create the raw draw command pool!"))
             };
         }
@@ -133,7 +136,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
 
         let transfer_pool = unsafe {
             device
-                .create_command_pool_typed(&queue_group, CommandPoolCreateFlags::TRANSIENT)
+                .create_command_pool(queue_group.family, CommandPoolCreateFlags::TRANSIENT)
                 .expect("Could not create the raw transfer command pool!")
         };
         let texture_manager = ResourceManager::new(device.clone(), adapter.clone(), transfer_pool).expect("failed to create texture manager");
@@ -257,7 +260,11 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
     fn restart(& mut self)-> Result<(), Error> {
         let pool = self.hal_state.dispose();
         info!("disposing old");
-        self.hal_state = HalState::init(& self.window, self.inst_surface.get_mut_surface(),  &mut self.adapter,  self.device.deref().clone(),   pool)?;
+        let (caps, formats) = {
+            let si = self.inst_surface.get_surface_info();
+            (si.capabilities(&self.adapter.physical_device), si.supported_formats(&self.adapter.physical_device))
+        };
+        self.hal_state = HalState::init(& self.window, formats, caps, self.inst_surface.get_mut_surface(),  &mut self.adapter,  self.device.deref().clone(),   pool)?;
         info!("disposed");
         let (vert_art, frag_art) = Self::compile_ui_shaders()?;
         let mut art_2d = complile_shaders(&SHADERS_2D)?;
@@ -281,11 +288,12 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             self.ui_vbuff.insert(0, vb);
         }
         unsafe {
-            let mut vtx_target = self.device.acquire_mapping_writer(& self.ui_vbuff[0].memory, 0..(padded_size as u64))
-                .map_err(|_| "Failed to acquire a vertex buffer mapping writer!")?;
-            vtx_target[0..(vtx.len())].copy_from_slice(&vtx[0.. vtx.len()]);
-            self.device.release_mapping_writer(vtx_target)
-                .map_err(|_| "Couldn't release the VB mapping writer!")?;
+            let range = 0..(padded_size as u64);
+            let memory = &(*self.ui_vbuff[0].memory);
+            let mut vtx_target = self.device.map_memory(memory, range.clone()).unwrap();
+            std::slice::from_raw_parts_mut(vtx_target as *mut UiVertex, vtx.len()).copy_from_slice(&vtx[0.. vtx.len()]);
+            self.device.flush_mapped_memory_ranges(Some(&(memory, range)));
+            self.device.unmap_memory(memory);
         }
         Ok(())
     }
@@ -322,6 +330,8 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             let pad = self.padded_size(size);
             let buff = BufferBundle::new(self.adapter.deref(), self.device.deref(), pad, usage)?;
             unsafe {
+                buff.write_range(&self.device,  0..(pad as u64), slice);
+                /*
                 let mut target = self.device.acquire_mapping_writer(&buff.memory, 0..(pad as u64)).map_err(|e| {
                     error!("{}", e);
                     "can't acquire mapping writer"
@@ -329,6 +339,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
                 target[0..slice.len()].copy_from_slice(slice);
                 self.device.release_mapping_writer(target)
                     .map_err(|_| "Couldn't release the mapping writer!")?;
+                    */
             }
             self.old_buffers.push(buff);
             self.old_buffer_expirations.push(4);
@@ -351,9 +362,9 @@ impl<'a, IS: InstSurface> Drop for Renderer<'a, IS>{
    //     self.queue_group.queues.push(transfer_queue);
        //  self.snd_command_buffers.drain(..);
         unsafe {
-            self.device.destroy_command_pool(pool.into_raw());
-            for pool in self.snd_command_pools.drain(..) {
-                self.device.destroy_command_pool(pool.into_raw());
+            self.device.destroy_command_pool(pool);
+            for snd_pool in self.snd_command_pools.drain(..) {
+                self.device.destroy_command_pool(snd_pool);
             }
        //     self.device.destroy_command_pool(ManuallyDrop::take(& mut self.snd_command_pool).into_raw());
             ManuallyDrop::drop(&mut self.queue_group);
@@ -384,8 +395,8 @@ pub struct HalState< B: Backend>{
     render_finished_semaphores: Vec<<B as Backend>::Semaphore>,
     image_available_semaphores: Vec<<B as Backend>::Semaphore>,
  //   command_queue: ManuallyDrop<CommandQueue<back::Backend, Graphics>>,
-    command_buffers: Vec<CommandBuffer<B, Graphics, MultiShot, Primary>>,
-    command_pool: ManuallyDrop<CommandPool<B, Graphics>>,
+    command_buffers: smallvec::SmallVec<[B::CommandBuffer;1]>,
+    command_pool: ManuallyDrop<B::CommandPool>,
     framebuffers: Vec<<B as Backend>::Framebuffer>,
     image_views: Vec<(<B as Backend>::ImageView)>,
     current_image: usize,
@@ -397,19 +408,19 @@ pub struct HalState< B: Backend>{
 
 
 impl<B: Backend> HalState<B> {
-    pub fn init(
+    pub fn init (
         window: &Window,
-        surface:&mut <B as Backend>::Surface,
+        formats : Option<Vec<Format>>,
+        capabilities: SurfaceCapabilities,
+        surface: & mut B::Surface,
         adapter: &Adapter<B>,
         device: Arc<Dev<B>>,
-        mut command_pool : CommandPool<B, Graphics>,
+        mut command_pool : B::CommandPool,
         // queue_group: Arc<QueueGroup<back::Backend, Graphics>>
     ) -> Result<Self, Error> {
         // Create A Swapchain, this is extra long
         let (swapchain, extent, images, format, frames_in_flight) = {
-            let (caps, preferred_formats, present_modes) =
-                surface.compatibility(&adapter.physical_device);
-            let format = match preferred_formats {
+            let format = match formats {
                 None => Format::Rgba8Srgb,
                 Some(formats) => match formats
                     .iter()
@@ -430,11 +441,11 @@ impl<B: Backend> HalState<B> {
                     height: window_client_area.height as u32,
                 }
             };
-            let mut swapchain_config = SwapchainConfig::from_caps(&caps, format, default_extent);
-            let image_count = if swapchain_config.present_mode == PresentMode::Mailbox {
-                (caps.image_count.end() - 1).min(3)
+            let mut swapchain_config = SwapchainConfig::from_caps(&capabilities, format, default_extent);
+            let image_count = if swapchain_config.present_mode == PresentMode::MAILBOX {
+                (capabilities.image_count.end() - 1).min(3)
             } else {
-                (caps.image_count.end() - 1).min(2)
+                (capabilities.image_count.end() - 1).min(2)
             };
             swapchain_config.image_count = image_count;
             let extent = swapchain_config.extent;
@@ -541,11 +552,9 @@ impl<B: Backend> HalState<B> {
         };
 
         // Create Our CommandBuffers
-        let command_buffers: Vec<_> = framebuffers
-            .iter()
-            .map(|_| command_pool.acquire_command_buffer())
-            .collect();
-
+        let command_buffers = unsafe {
+            command_pool.allocate_vec(framebuffers.len(), Level::Primary)
+        };
         Ok(Self {
             device,
  //           command_queue: ManuallyDrop::new(command_queue),
@@ -570,7 +579,7 @@ impl<B: Backend> HalState<B> {
     /// Draw a frame that's just cleared to the color specified.
     pub fn draw_clear_frame(
             &mut self,
-            command_queue: & mut CommandQueue<B, Graphics>,
+            command_queue: & mut B::CommandQueue,
             color: [f32; 4]) -> Result<(), Error> {
         // SETUP FOR THIS FRAME
         let image_available = &self.image_available_semaphores[self.current_frame];
@@ -597,22 +606,24 @@ impl<B: Backend> HalState<B> {
         }
 
         // RECORD COMMANDS
+        let buffer = &mut self.command_buffers[i_usize];
         unsafe {
-            let buffer = &mut self.command_buffers[i_usize];
-            let clear_values = [ClearValue::Color(ClearColor::Sfloat(color))];
-            buffer.begin(false);
-            buffer.begin_render_pass_inline(
+
+            let clear_values = [ClearValue{color: ClearColor{float32: color}}];
+            buffer.begin(CommandBufferFlags::EMPTY, CommandBufferInheritanceInfo::default());
+            buffer.begin_render_pass(
                 &self.render_pass,
                 &self.framebuffers[i_usize],
                 self.render_area,
                 clear_values.iter(),
+                SubpassContents::Inline,
             );
 
             buffer.finish();
         }
 
         // SUBMISSION AND PRESENT
-        let command_buffers = &self.command_buffers[i_usize..=i_usize];
+        let command_buffers = std::iter::once(&self.command_buffers[i_usize]);
         let wait_semaphores: ArrayVec<[_; 1]> =
             [(image_available, PipelineStage::COLOR_ATTACHMENT_OUTPUT)].into();
         let signal_semaphores: ArrayVec<[_; 1]> = [render_finished].into();
@@ -635,9 +646,9 @@ impl<B: Backend> HalState<B> {
 
     pub fn with_inline_encoder<F>(
             &mut self,
-            command_queue: & mut CommandQueue<B, Graphics>,
+            command_queue: & mut B::CommandQueue,
             draw: F) -> Result<(), Error>
-        where F : FnOnce(&mut RenderPassInlineEncoder<B>) {
+        where F : FnOnce(&mut B::CommandBuffer) {
         // SETUP FOR THIS FRAME
         let image_available = &self.image_available_semaphores[self.current_frame];
         let render_finished = &self.render_finished_semaphores[self.current_frame];
@@ -666,17 +677,18 @@ impl<B: Backend> HalState<B> {
         // RECORD COMMANDS
         unsafe {
             let buffer = &mut self.command_buffers[i_usize];
-            buffer.begin(false);
+            buffer.begin(gfx_hal::command::CommandBufferFlags::ONE_TIME_SUBMIT, CommandBufferInheritanceInfo::default());
             {
-                let mut encoder = buffer.begin_render_pass_inline(
+                buffer.begin_render_pass(
                     &self.render_pass,
                     &self.framebuffers[i_usize],
                     self.render_area,
                     CLEAR_COLOR.iter(),
+                    SubpassContents::Inline,
                 );
 
                 {
-                    draw(& mut encoder);
+                    draw(buffer);
                 }
 
                 // self.pipeline.execute(&mut encoder, memory_manager, &vertex_buffers, index_buffer_view, self.render_area, time_f32, cmds);
@@ -686,7 +698,7 @@ impl<B: Backend> HalState<B> {
 
 
         // SUBMISSION AND PRESENT
-        let command_buffers = &self.command_buffers[i_usize..=i_usize];
+        let command_buffers = std::iter::once(&self.command_buffers[i_usize]);
         let wait_semaphores: ArrayVec<[_; 1]> =
             [(image_available, PipelineStage::COLOR_ATTACHMENT_OUTPUT)].into();
         let signal_semaphores: ArrayVec<[_; 1]> = [render_finished].into();
@@ -706,8 +718,8 @@ impl<B: Backend> HalState<B> {
                 .map_err(|_| "Failed to present into the swapchain!")?;
         };
         Ok(())
-    }
-    pub fn prepare_command_buffers(& mut self)-> Result<(& mut CommandBuffer<B, Graphics, MultiShot, Primary>, gfx_hal::pass::Subpass<B>, & <B as Backend>::Framebuffer, usize) , Error> {
+    } /*
+    pub fn prepare_command_buffers(& mut self)-> Result<(& mut CommandBuffer<B>, gfx_hal::pass::Subpass<B>, & <B as Backend>::Framebuffer, usize) , Error> {
         self.next_frame = (self.current_frame + 1) % self.frames_in_flight;
         let image_available = &self.image_available_semaphores[self.current_frame];
         let (i_u32, i_usize) = unsafe {
@@ -764,10 +776,10 @@ impl<B: Backend> HalState<B> {
         Ok(())
     }
 
-
+*/
     /// We have to clean up "leaf" elements before "root" elements. Basically, we
     /// clean up in reverse of the order that we created things.
-    fn dispose(&mut self)-> (CommandPool<B, Graphics>)  {
+    fn dispose(&mut self)-> (B::CommandPool)  {
         let _ = self.device.wait_idle();
         unsafe {
             for fence in self.in_flight_fences.drain(..) {

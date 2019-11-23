@@ -37,3 +37,8 @@ impl From<std::io::Error> for Error {
         Error::Owned(format!("{}", e))
     }
 }
+impl From<gfx_hal::device::MapError> for Error {
+    fn from(e: gfx_hal::device::MapError) -> Self {
+        Error::Owned(format!("{}", e))
+    }
+}

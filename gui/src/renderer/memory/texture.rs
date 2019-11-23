@@ -1,4 +1,6 @@
 use super::*;
+use gfx_hal::MemoryTypeId;
+use gfx_hal::command::Level;
 
 pub struct LoadedTexture<B: Backend> {
     pub image: ManuallyDrop<B::Image>,
@@ -11,22 +13,22 @@ pub struct LoadedTexture<B: Backend> {
 // type Texture = LoadedImage<B: Backend, D: Device<Backend>>;
 
 impl<B: Backend> LoadedTexture<B> {
-    pub fn from_image<C: Capability + Supports<Transfer>>(
-        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut CommandPool<B, C>,
-        command_queue: &mut CommandQueue<B, C>, img: image::RgbaImage,
+    pub fn from_image(
+        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut B::CommandPool,
+        command_queue: &mut B::CommandQueue, img: image::RgbaImage,
     ) -> Result<Self, Error> {
         Self::from_buffer(adapter, device, command_pool, command_queue, &(*img), img.width(), img.height(), Format::Rgba8Srgb)
     }
-    pub fn from_texture_spec<C: Capability + Supports<Transfer>>(
-        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut CommandPool<B, C>,
-        command_queue: &mut CommandQueue<B, C>,
+    pub fn from_texture_spec(
+        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut B::CommandPool,
+        command_queue: &mut B::CommandQueue,
         spec: & TextureSpec,
     ) -> Result<Self, Error> {
         Self::from_buffer(adapter, device, command_pool, command_queue, spec.buffer, spec.width, spec.height, spec.format)
     }
-    pub fn from_buffer<C: Capability + Supports<Transfer>>(
-        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut CommandPool<B, C>,
-        command_queue: &mut CommandQueue<B, C>,
+    pub fn from_buffer(
+        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut B::CommandPool,
+        command_queue: &mut B::CommandQueue,
         buffer: &[u8],
         width: u32,
         height: u32,
@@ -48,18 +50,16 @@ impl<B: Backend> LoadedTexture<B> {
             let staging_bundle:  BufferBundle<B> =
                 BufferBundle::new(&adapter, device, required_bytes, BufferUsage::TRANSFER_SRC)?;
 
-            // 2. use mapping writer to put the image data into that buffer
-            let mut writer = device
-                .acquire_mapping_writer::<u8>(&staging_bundle.memory, 0..staging_bundle.requirements.size)
-                .map_err(|_| "Couldn't acquire a mapping writer to the staging buffer!")?;
+            let range = 0..staging_bundle.requirements.size;
+            let memory = &(*staging_bundle.memory);
+            let mut target = std::slice::from_raw_parts_mut(device.map_memory(memory, range.clone()).unwrap(), height as usize * row_pitch);
             for y in 0..height as usize {
                 let row = &buffer[y * row_size..(y + 1) * row_size];
                 let dest_base = y * row_pitch;
-                writer[dest_base..dest_base + row.len()].copy_from_slice(row);
+                target[dest_base..dest_base + row.len()].copy_from_slice(row);
             }
-            device
-                .release_mapping_writer(writer)
-                .map_err(|_| "Couldn't release the mapping writer to the staging buffer!")?;
+            device.flush_mapped_memory_ranges(Some(&(memory, range)));
+            device.unmap_memory(memory);
 
             // 3. Make an image with transfer_dst and SAMPLED usage
             let mut the_image = device
@@ -110,7 +110,7 @@ impl<B: Backend> LoadedTexture<B> {
                 )
                 .map_err(|_| "Couldn't create the image view!")?;
             let sampler = device
-                .create_sampler(gfx_hal::image::SamplerInfo::new(
+                .create_sampler(&gfx_hal::image::SamplerDesc::new(
                     gfx_hal::image::Filter::Linear,
                     gfx_hal::image::WrapMode::Clamp,
                 ))
@@ -118,8 +118,8 @@ impl<B: Backend> LoadedTexture<B> {
 
 
             // 6. create a command buffer
-            let mut cmd_buffer = command_pool.acquire_command_buffer::<gfx_hal::command::OneShot>();
-            cmd_buffer.begin();
+            let mut cmd_buffer = command_pool.allocate_one(Level::Primary);
+            cmd_buffer.begin(CommandBufferFlags::EMPTY, CommandBufferInheritanceInfo::default());
 
             // 7. Use a pipeline barrier to transition the image from empty/undefined
             //    to TRANSFER_WRITE/TransferDstOptimal

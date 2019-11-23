@@ -7,8 +7,6 @@ use conrod_winit::{convert_event, WinitWindow};
 use crate::simulation::GameState;
 use winit::{EventsLoop, Event, WindowEvent, MouseButton, ElementState, KeyboardInput, VirtualKeyCode, ModifiersState, dpi::{LogicalPosition, LogicalSize} };
 use eco_sim::entity_type::{EntityType, ENTITY_TYPE_COUNT};
-use glium::vertex::MultiVerticesSource;
-
 
 widget_ids! {
     pub struct WidgetIds {

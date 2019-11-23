@@ -1,6 +1,6 @@
 use super::*;
 use conrod_core as cc;
-use gfx_hal::{pso::{VertexInputRate}, command::RenderSubpassCommon};
+use gfx_hal::{pso::{VertexInputRate, Primitive}, command::CommandBuffer};
 use super::con_back::{Command};
 use std::ops::DerefMut;
 
@@ -162,9 +162,9 @@ impl<B: Backend> UiPipeline<B> {
             gfx_pipeline: ManuallyDrop::new(gfx_pipeline),
         })
     }
-    pub fn execute<'a, C: std::borrow::BorrowMut<B::CommandBuffer>>(& mut self,
-                          encoder: &mut impl DerefMut<Target = RenderSubpassCommon<B, C>>,
-                          texture_manager: & mut ResourceManager<B, Graphics>,
+    pub fn execute<'a>(& mut self,
+                          encoder: &mut impl CommandBuffer<B>,
+                          texture_manager: & mut ResourceManager<B>,
                           vertex_buffers: &[BufferBundle<B>],
                           render_area: Rect,
                           cmds: &[Command]) {

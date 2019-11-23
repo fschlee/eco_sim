@@ -1,4 +1,5 @@
 use super::*;
+use gfx_hal::MemoryTypeId;
 
 pub struct BufferBundle<B: Backend> {
     pub buffer: ManuallyDrop<B::Buffer>,
@@ -39,6 +40,16 @@ impl<B: Backend> BufferBundle<B> {
                 memory: ManuallyDrop::new(memory),
             })
         }
+    }
+
+    pub unsafe fn write_range<T : Copy>(&self, device: &B::Device, range: std::ops::Range<u64>, source: &[T]) -> Result<(), Error>{
+        let memory = & *(self.memory);
+        let mut target = device.map_memory(memory, range.clone())?;
+        std::slice::from_raw_parts_mut(target as *mut T, source.len()).copy_from_slice(source);
+        device.flush_mapped_memory_ranges(Some((memory, range)));
+        device.unmap_memory(memory);
+        // TODO: Error handling
+        Ok(())
     }
     pub unsafe fn manually_drop(&self, device: &Dev<B>) {
         use core::ptr::read;
