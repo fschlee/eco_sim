@@ -117,7 +117,7 @@ impl<B: Backend> UiPipeline<B> {
             blend_color: None,
             depth_bounds: None,
         };
-        let push_constants = vec![(ShaderStageFlags::VERTEX, 0..2)];
+        let push_constants = vec![(ShaderStageFlags::VERTEX, 0..8)]; //needs to be divisible by 4 for dx12?
         let layout = unsafe {
             device
                 .create_pipeline_layout(descriptor_set_layouts, push_constants)

@@ -30,10 +30,10 @@ impl<B: Backend> BufferBundle<B> {
                 .ok_or("Couldn't find a memory type to support the buffer!")?;
             let memory = device
                 .allocate_memory(memory_type_id, requirements.size)
-                .map_err(|_| "Couldn't allocate buffer memory!")?;
+                .map_err(|e| format!("Couldn't allocate buffer memory({} needed): {:?}", requirements.size,  e))?;
             device
                 .bind_buffer_memory(&memory, 0, &mut buffer)
-                .map_err(|_| "Couldn't bind the buffer memory!")?;
+                .map_err(|e| format!("Couldn't bind buffer memory: {:?}", e))?;
             Ok(Self {
                 buffer: ManuallyDrop::new(buffer),
                 requirements,

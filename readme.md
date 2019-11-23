@@ -9,7 +9,7 @@ cargo run
 
 for other backends:
 
-cargo run --feature="backend"
+cargo run --feature="backend" --no-default-features
 
 with "backend" replaced by "dx11", "dx12" or "gl".  
 

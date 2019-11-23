@@ -31,6 +31,11 @@ impl From<& 'static str> for Error {
         Error::Static(m)
     }
 }
+impl From<String> for Error {
+    fn from(m: String) -> Self {
+        Error::Owned(m)
+    }
+}
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
        // Error::IO(e)

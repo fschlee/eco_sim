@@ -5,8 +5,10 @@ use conrod_core::{widget_ids, widget, Colorable, Labelable, Positionable, Sizeab
 use conrod_winit::{convert_event, WinitWindow};
 
 use crate::simulation::GameState;
-use winit::{EventsLoop, Event, WindowEvent, MouseButton, ElementState, KeyboardInput, VirtualKeyCode, ModifiersState, dpi::{LogicalPosition, LogicalSize} };
+use winit::{event_loop::{EventLoop}, event::{Event, WindowEvent, MouseButton, ElementState, KeyboardInput, VirtualKeyCode, ModifiersState}, window::Window, dpi::{LogicalPosition, LogicalSize, PhysicalSize} };
 use eco_sim::entity_type::{EntityType, ENTITY_TYPE_COUNT};
+
+pub type Queue<T> = std::collections::VecDeque<T>;
 
 widget_ids! {
     pub struct WidgetIds {
@@ -70,7 +72,7 @@ pub fn theme() -> conrod_core::Theme {
 pub enum UIUpdate {
     // ToolTip{ pos : LogicalPosition, txt : String},
     MoveCamera { transformation: nalgebra::Translation3<f32> },
-    Resized { size : LogicalSize},
+    Resized { size : PhysicalSize},
     Refresh,
 }
 
@@ -87,8 +89,10 @@ pub enum Action {
 }
 static CAMERA_STEP : f32 = 0.05;
 
-pub struct UIState<'a> {
-    window: &'a winit::Window,
+pub struct UIState {
+    pub window: Window,
+    event_happened: bool,
+    last_draw: Instant,
     mouse_pos : LogicalPosition,
     hover_pos : Option<eco_sim::Position>,
     hover_start_time: Instant,
@@ -100,11 +104,13 @@ pub struct UIState<'a> {
     pub conrod: cc::Ui,
     pub ids: WidgetIds,
     paused: bool,
+    pub actions: Queue<Action>,
+    pub ui_updates: Queue<UIUpdate>,
 }
 
-impl<'a> UIState<'a> {
-    pub fn new<'b: 'a>(window: &'b winit::Window) -> UIState<'a>{
-        let size = window.get_inner_size().expect("window should have size");
+impl UIState {
+    pub fn new(window: Window) -> UIState{
+        let size = window.inner_size();
         let dim = [size.width, size.height];
         let mut conrod = cc::UiBuilder::new(dim).theme(theme()).build();
         let bytes: &[u8] = include_bytes!("../resources/fonts/NotoSans/NotoSans-Regular.ttf");
@@ -126,85 +132,83 @@ impl<'a> UIState<'a> {
             hover_start_time: Instant::now(),
             tooltip_index: 0,
             tooltip_active: false,
+            event_happened: false,
+            last_draw: Instant::now(),
+            actions: Queue::new(),
+            ui_updates: Queue::new(),
         }
     }
-    pub fn process(&mut self, event_loop: &mut EventsLoop, game_state : &GameState) -> (bool, Vec<UIUpdate>, Vec<Action>) {
+    pub fn process(&mut self, event: Event<()>, game_state : & GameState) -> bool {
         let mut should_close = false;
-        let mut eventful = false;
-        let mut actions = vec![];
-        let mut ui_updates = vec![];
-        let mut extend = 0;
-        event_loop.poll_events(|event| {
 
-            if let Some(event) =  crate::conrod_winit::convert_event(event.clone(), self) {
-                self.conrod.handle_event(event);
-            }
-            match event {
-                Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::CloseRequested => should_close = true,
-                    WindowEvent::Resized(logical_size) => {
-                        ui_updates.push(UIUpdate::Resized { size : logical_size});
-                        self.size = self.window.get_inner_size().expect("cannot detect new window size");
-                    },
-                    WindowEvent::CursorMoved { position, .. } => {
-                        self.mouse_pos = position;
-                        let sim_pos = game_state.logical_to_sim_position(position);
-                        if Some(sim_pos) != self.hover_pos {
-                            self.hover_pos = Some(sim_pos);
-                            self.hover_start_time = Instant::now();
-                            self.tooltip_active = false;
-                            self.tooltip_index = game_state.get_editable_index(sim_pos);
-                        }
-                        actions.push(Action::Hover(position));
-                    },
-                    WindowEvent::MouseInput {button : MouseButton::Right, state: ElementState::Pressed, modifiers,.. } =>
-                        {
-                            let entity = match self.hover_pos {
-                                Some(hover_pos) if self.tooltip_active =>
-                                game_state.get_nth_entity(self.tooltip_index, hover_pos),
-                                _ => game_state.get_editable_entity(self.mouse_pos)
-                            };
-                            if modifiers.ctrl {
-                                self.mental_model = entity;
-                            }
-                            else {
-                                self.edit_ent = entity;
-                                match self.edit_ent {
-                                    Some(ent) => actions.push(Action::HighlightVisibility(ent)),
-                                    None => actions.push(Action::ClearHighlight),
-                                }
-                            }
-                        }
-                    WindowEvent::MouseInput {button : MouseButton::Left, state: ElementState::Pressed, .. } =>
-                        {
-                            if let Some(entity) = self.edit_ent  {
-                                if game_state.is_within(self.mouse_pos) {
-                                    actions.push(Action::Move(entity, self.mouse_pos));
-                                }
-                            }
-                        }
-                    WindowEvent::KeyboardInput { input : KeyboardInput{ virtual_keycode : Some(key), modifiers, state: ElementState::Released, .. }, .. } =>
-                        {
-                            self.process_key(&mut ui_updates, &mut actions, key, modifiers);
-                        }
-                    _ => ()
-
+        if let Some(event) = crate::conrod_winit::convert_event(event.clone(), self) {
+            self.conrod.handle_event(event);
+        }
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => should_close = true,
+                WindowEvent::Resized(logical_size) => {
+                    self.ui_updates.push_back(UIUpdate::Resized { size: logical_size.to_physical(self.window.hidpi_factor()) });
+                    self.size = self.window.inner_size();
                 },
-                _ => (),
-            }
-            ()
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.mouse_pos = position;
+                    let sim_pos = game_state.logical_to_sim_position(position);
+                    if Some(sim_pos) != self.hover_pos {
+                        self.hover_pos = Some(sim_pos);
+                        self.hover_start_time = Instant::now();
+                        self.tooltip_active = false;
+                        self.tooltip_index = game_state.get_editable_index(sim_pos);
+                    }
+                    self.actions.push_back(Action::Hover(position));
+                },
+                WindowEvent::MouseInput { button: MouseButton::Right, state: ElementState::Pressed, modifiers, .. } =>
+                    {
+                        let entity = match self.hover_pos {
+                            Some(hover_pos) if self.tooltip_active =>
+                                game_state.get_nth_entity(self.tooltip_index, hover_pos),
+                            _ => game_state.get_editable_entity(self.mouse_pos)
+                        };
+                        if modifiers.ctrl {
+                            self.mental_model = entity;
+                        } else {
+                            self.edit_ent = entity;
+                            match self.edit_ent {
+                                Some(ent) => self.actions.push_back(Action::HighlightVisibility(ent)),
+                                None => self.actions.push_back(Action::ClearHighlight),
+                            }
+                        }
+                    }
+                WindowEvent::MouseInput { button: MouseButton::Left, state: ElementState::Pressed, .. } =>
+                    {
+                        if let Some(entity) = self.edit_ent {
+                            if game_state.is_within(self.mouse_pos) {
+                                self.actions.push_back(Action::Move(entity, self.mouse_pos));
+                            }
+                        }
+                    }
+                WindowEvent::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(key), modifiers, state: ElementState::Released, .. }, .. } =>
+                    {
+                        self.process_key( key, modifiers);
+                    }
+                _ => ()
+            },
+            _ => (),
         }
-        );
         if self.conrod.global_input().events().next().is_some() {
-            eventful = true;
+            self.event_happened = true;
         }
+        should_close
+    }
+    pub fn update(&mut self, game_state : & GameState) {
+        let mut extend = 0;
         {
             let now = Instant::now();
             if now.duration_since(self.hover_start_time).as_secs_f32() > HOVER_TIME {
                 self.tooltip_active = true;
             }
         }
-        if eventful || !self.paused {
+        if self.event_happened || !self.paused {
             let mouse_pos = self.logical_to_conrod(self.mouse_pos);
             let ui = & mut self.conrod.set_widgets();
 
@@ -266,7 +270,7 @@ impl<'a> UIState<'a> {
                         .set(self.ids.hunger_dialer, ui) {
                         let mut new_ms = ms.clone();
                         new_ms.hunger = eco_sim::Hunger(hunger);
-                        actions.push(Action::UpdateMentalState(new_ms));
+                        self.actions.push_back(Action::UpdateMentalState(new_ms));
                     }
                     let act_text = eco_sim::Action::fmt(&ms.current_action);
                     cc::widget::Text::new(&act_text).font_size(16)
@@ -284,7 +288,7 @@ impl<'a> UIState<'a> {
                         .set(self.ids.number_dialer, ui) {
                         let mut new_ms = ms.clone();
                         new_ms.sight_radius = sight as u32;
-                        actions.push(Action::UpdateMentalState(new_ms));
+                        self.actions.push_back(Action::UpdateMentalState(new_ms));
                     }
                     cc::widget::Canvas::new().pad(0.0)
                         .w_h(256.0, self.size.height)
@@ -309,7 +313,7 @@ impl<'a> UIState<'a> {
                         for fp in w.set(id, ui) {
                             let mut new_ms = ms.clone();
                             new_ms.food_preferences[i] = (*et, fp);
-                            actions.push(Action::UpdateMentalState(new_ms));
+                            self.actions.push_back(Action::UpdateMentalState(new_ms));
                         }
                     }
                 }
@@ -333,31 +337,30 @@ impl<'a> UIState<'a> {
                             .set(self.ids.tooltip_text, ui);
                     }
                 },
-            _ => (),
+                _ => (),
             }
         }
         if extend > 0 {
             self.ids.mental_models.resize(self.ids.mental_models.len() + extend, & mut self.conrod.widget_id_generator());
         }
-        (should_close, ui_updates, actions)
     }
-    fn process_key(&mut self, ui_updates: &mut Vec<UIUpdate>, actions: &mut Vec<Action>, key : VirtualKeyCode, modifiers : ModifiersState ) {
+    fn process_key(&mut self, key : VirtualKeyCode, modifiers : ModifiersState ) {
         use VirtualKeyCode::*;
         match key {
-            VirtualKeyCode::Up => ui_updates.push(UIUpdate::MoveCamera { transformation : nalgebra::Translation3::new(0.0, -CAMERA_STEP, 0.0)}),
-            VirtualKeyCode::Down => ui_updates.push(UIUpdate::MoveCamera { transformation : nalgebra::Translation3::new(0.0, CAMERA_STEP, 0.0)}),
-            VirtualKeyCode::Left => ui_updates.push(UIUpdate::MoveCamera { transformation : nalgebra::Translation3::new(-CAMERA_STEP, 0.0, 0.0)}),
-            VirtualKeyCode::Right => ui_updates.push(UIUpdate::MoveCamera { transformation : nalgebra::Translation3::new(CAMERA_STEP, 0.0, 0.0)}),
-            F5 => actions.push(Action::Reset(self.paused)),
-            F12 => ui_updates.push(UIUpdate::Refresh),
+            VirtualKeyCode::Up => self.ui_updates.push_back(UIUpdate::MoveCamera { transformation : nalgebra::Translation3::new(0.0, -CAMERA_STEP, 0.0)}),
+            VirtualKeyCode::Down => self.ui_updates.push_back(UIUpdate::MoveCamera { transformation : nalgebra::Translation3::new(0.0, CAMERA_STEP, 0.0)}),
+            VirtualKeyCode::Left => self.ui_updates.push_back(UIUpdate::MoveCamera { transformation : nalgebra::Translation3::new(-CAMERA_STEP, 0.0, 0.0)}),
+            VirtualKeyCode::Right => self.ui_updates.push_back(UIUpdate::MoveCamera { transformation : nalgebra::Translation3::new(CAMERA_STEP, 0.0, 0.0)}),
+            F5 => self.actions.push_back(Action::Reset(self.paused)),
+            F12 => self.ui_updates.push_back(UIUpdate::Refresh),
             VirtualKeyCode::Pause | VirtualKeyCode::Space => {
                 if self.paused {
                     self.paused = false;
-                    actions.push(Action::Unpause);
+                    self.actions.push_back(Action::Unpause);
                 }
                 else {
                     self.paused = true;
-                    actions.push(Action::Pause);
+                    self.actions.push_back(Action::Pause);
                 }
             }
             VirtualKeyCode::Tab => {
@@ -372,12 +375,12 @@ impl<'a> UIState<'a> {
     }
 }
 
-impl<'a> WinitWindow for UIState<'a> {
+impl WinitWindow for UIState {
     fn get_inner_size(&self) -> Option<(u32, u32)> {
-        self.window.get_inner_size().map(|l| l.into())
+        Some(self.window.inner_size().into())
     }
 
     fn hidpi_factor(&self) -> f32 {
-        self.window.get_hidpi_factor() as f32
+        self.window.hidpi_factor() as f32
     }
 }

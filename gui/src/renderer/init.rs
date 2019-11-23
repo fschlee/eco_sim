@@ -1,4 +1,4 @@
-use winit::{Window, EventsLoop, WindowBuilder};
+use winit::{event_loop::EventLoop, window::{WindowBuilder, Window}};
 use gfx_hal::{Backend, Instance, adapter::{Adapter, PhysicalDevice},
               queue::{QueueGroup, QueueFamily}, window::Surface, Features};
 use log::{error};
@@ -17,7 +17,7 @@ pub trait InstSurface {
     fn get_instance<'a>(&'a self) -> & 'a <<Self as InstSurface>::Back as Backend>::Instance;
     fn create(name: & str, version: u32, window: &Window) -> Self;
 }
-#[cfg(feature = "vulkan")]
+#[cfg(all(feature = "vulkan", not(macos)))]
 impl InstSurface for (gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend as Backend>::Surface)  {
     type Back = gfx_backend_vulkan::Backend;
     type SurfaceInfo = <Self::Back as Backend>::Surface;
@@ -41,105 +41,152 @@ impl InstSurface for (gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend
         (inst, surf)
     }
 }
-#[cfg(feature = "gl")]
-impl InstSurface for gfx_backend_gl::Surface  {
-    type Instance = gfx_backend_gl::Surface;
-    fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
-        self
-    }
 
-    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self::Instance as Instance>::Backend as Backend>::Surface {
-        self
-    }
-
-    fn get_instance<'a>(&'a self) -> &'a Self::Instance {
-        self
-    }
-    fn create(name: &str, version: u32, window: &Window) -> Self {
-        let wb = WindowBuilder::new()
-            .with_dimensions(LogicalSize{ width: 400.0, height: 200.0 })
-            .with_title("quad".to_string());;
-        let ev = EventsLoop::new();
-        let cb = gfx_backend_gl::config_context(gfx_backend_gl::glutin::ContextBuilder::new(), gfx_hal::format::Format::Rgba8Srgb, None).with_vsync(true);;
-        let win = gfx_backend_gl::glutin::GlWindow::new(wb, cb, &ev).expect("no gl window");
-        let surf = gfx_backend_gl::Surface::from_window(win);
-        surf
-    }
-}
 #[cfg(feature = "dx11")]
-impl InstSurface for (gfx_backend_dx11::Instance, gfx_backend_dx11::Surface)  {
-    type Instance = gfx_backend_dx11::Instance;
-    fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
+impl InstSurface for (gfx_backend_dx11::Instance, <gfx_backend_dx11::Backend as Backend>::Surface)  {
+    type Back = gfx_backend_dx11::Backend;
+    type SurfaceInfo = <Self::Back as Backend>::Surface;
+    fn get_surface<'a>(&'a self) -> &'a  <<Self as InstSurface>::Back as Backend>::Surface {
         &self.1
     }
-
-    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self::Instance as Instance>::Backend as Backend>::Surface {
+    fn get_surface_info<'a>(&'a self) -> & 'a Self::SurfaceInfo {
+        &self.1
+    }
+    fn get_mut_surface<'a>(&'a mut self) -> &'a mut  <<Self as InstSurface>::Back as Backend>::Surface {
         & mut self.1
     }
 
-    fn get_instance<'a>(&'a self) -> &'a Self::Instance {
+    fn get_instance<'a>(&'a self) -> &'a <<Self as InstSurface>::Back as Backend>::Instance {
         &self.0
     }
     fn create(name: &str, version: u32, window: &Window) -> Self {
-        let inst = gfx_backend_dx11::Instance::create(name, version);
-        let surf = inst.create_surface(window);
+        let inst = gfx_backend_dx11::Instance::create(name, version).expect("unsupported backend");
+        let surf = unsafe {
+            inst.create_surface(window).expect("couldn't create surface")
+        };
         (inst, surf)
     }
 }
 #[cfg(feature = "dx12")]
-impl InstSurface for (gfx_backend_dx12::Instance, <<gfx_backend_dx12::Instance as Instance>::Backend as Backend>::Surface)  {
-    type Instance = gfx_backend_dx12::Instance;
-    fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
+impl InstSurface for (gfx_backend_dx12::Instance, <gfx_backend_dx12::Backend as Backend>::Surface)  {
+    type Back = gfx_backend_dx12::Backend;
+    type SurfaceInfo = <Self::Back as Backend>::Surface;
+    fn get_surface<'a>(&'a self) -> &'a  <<Self as InstSurface>::Back as Backend>::Surface {
         &self.1
     }
-
-    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self::Instance as Instance>::Backend as Backend>::Surface {
+    fn get_surface_info<'a>(&'a self) -> & 'a Self::SurfaceInfo {
+        &self.1
+    }
+    fn get_mut_surface<'a>(&'a mut self) -> &'a mut  <<Self as InstSurface>::Back as Backend>::Surface {
         & mut self.1
     }
 
-    fn get_instance<'a>(&'a self) -> &'a Self::Instance {
+    fn get_instance<'a>(&'a self) -> &'a <<Self as InstSurface>::Back as Backend>::Instance {
         &self.0
     }
     fn create(name: &str, version: u32, window: &Window) -> Self {
-        let inst = gfx_backend_dx12::Instance::create(name, version);
-        let surf = inst.create_surface_from_hwnd(winit::WindowExtWindows::hwnd(window));
+        let inst = gfx_backend_dx12::Instance::create(name, version).expect("unsupported backend");
+        let surf = unsafe {
+            inst.create_surface(window).expect("couldn't create surface")
+        };
         (inst, surf)
     }
 }
-#[cfg(macos)]
-impl InstSurface for (gfx_backend_metal::Instance, <<gfx_backend_metal::Instance as Instance>::Backend as Backend>::Surface)  {
-    type Instance = gfx_backend_metal::Instance;
-    fn get_surface<'a>(&'a self) -> &'a <<Self::Instance as Instance>::Backend as Backend>::Surface {
+#[cfg(all(feature="metal", macos))]
+impl InstSurface for (gfx_backend_metal::Instance, <gfx_backend_metal::Backend as Backend>::Surface)  {
+    type Back = gfx_backend_metal::Backend;
+    type SurfaceInfo = <Self::Back as Backend>::Surface;
+    fn get_surface<'a>(&'a self) -> &'a <<Self as InstSurface>::Back as Backend>::Surface {
         &self.1
     }
-
-    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self::Instance as Instance>::Backend as Backend>::Surface {
+    fn get_surface_info<'a>(&'a self) -> & 'a Self::SurfaceInfo {
+        &self.1
+    }
+    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self as InstSurface>::Back as Backend>::Surface {
         & mut self.1
     }
 
-    fn get_instance<'a>(&'a self) -> &'a Self::Instance {
+    fn get_instance<'a>(&'a self) -> &'a <<Self as InstSurface>::Back as Backend>::Instance {
         &self.0
     }
     fn create(name: &str, version: u32, window: &Window) -> Self {
-        let inst = gfx_backend_metal::Instance::create(name, version);
-        let surf = inst.create_surface(window);
+        let inst = gfx_backend_metal::Instance::create(name, version).expect("unsupported backend");
+        let surf = unsafe {
+            inst.create_surface(window).expect("couldn't create surface")
+        };
         (inst, surf)
     }
 }
 
-pub fn init_device<IS: InstSurface>(window: &Window) -> Result<(IS, Adapter<IS::Back>, <IS::Back as Backend>::Device, QueueGroup<IS::Back>), Error> {
-    let inst_surface = IS::create(WINDOW_NAME, 1, window);
+#[cfg(feature = "gl")]
+impl InstSurface for gfx_backend_gl::Instance   {
+    type Back = gfx_backend_gl::Backend;
+    type SurfaceInfo = gfx_backend_gl::Surface;
+    fn get_surface<'a>(&'a self) -> &'a <<Self as InstSurface>::Back as Backend>::Surface {
+        match self {
+            gfx_backend_gl::Instance::Surface(surface) => & surface,
+            gfx_backend_gl::Instance::Headless(ctx) => unimplemented!()
+        }
+    }
+    fn get_surface_info<'a>(&'a self) -> & 'a Self::SurfaceInfo {
+        match self {
+            gfx_backend_gl::Instance::Surface(surface) => & surface,
+            gfx_backend_gl::Instance::Headless(ctx) => unimplemented!()
+        }
+    }
+    fn get_mut_surface<'a>(&'a mut self) -> &'a mut <<Self as InstSurface>::Back as Backend>::Surface {
+        match self {
+            gfx_backend_gl::Instance::Surface(surface) => surface,
+            gfx_backend_gl::Instance::Headless(ctx) => unimplemented!()
+        }
+    }
+
+    fn get_instance<'a>(&'a self) -> &'a <<Self as InstSurface>::Back as Backend>::Instance {
+        self
+    }
+    fn create(name: &str, version: u32, window: &Window) -> Self {
+        unimplemented!()
+        /*
+        let mut ev = gfx_backend_gl::glutin::event_loop::EventLoop::new();
+        let ctx = gfx_backend_gl::glutin::ContextBuilder::new()
+            .build_headless(&ev,
+                            gfx_backend_gl::glutin::dpi::PhysicalSize::from_logical(
+                                window.get_inner_size().unwrap(),
+                                window.get_hidpi_factor())).expect("couldn't create context");
+        let surf = gfx_backend_gl::Surface::from_context(gfx_backend_gl::glutin::ContextWrapper::from(ctx));
+        let inst = <Self::Back as Backend>::Instance::create(name, version).expect("unsupported backend");
+        (inst, surf) */
+    }
+}
+
+
+pub struct DeviceInit<IS: InstSurface>(pub IS, pub Adapter<IS::Back>, pub <IS::Back as Backend>::Device, pub QueueGroup<IS::Back>);
+
+pub fn init_device<IS: InstSurface>(window: &Window) -> Result<DeviceInit<IS>, Error> {
+    init_helper(IS::create(WINDOW_NAME, 1, window))
+}
+fn init_helper<IS: InstSurface>(inst_surface: IS) -> Result<DeviceInit<IS>, Error> {
     let instance = inst_surface.get_instance();
     let surface = inst_surface.get_surface();
-    let mut adapters  = instance.enumerate_adapters().into_iter()
+    let mut adapters : Vec<_> = instance.enumerate_adapters().into_iter()
         .filter(|a| {
-
+            println!("{}", a.info.name);
             a.queue_families.iter()
                 .any(|qf| qf.queue_type().supports_graphics() && surface.supports_queue_family(qf))
-        });
-    let first = adapters.next();
-    let adapter = adapters.find(|a| a.info.device_type == gfx_hal::adapter::DeviceType::DiscreteGpu).or(first)
-        .ok_or("Couldn't find a graphical Adapter!")?;
+        }).collect();
+    if adapters.len() < 1 {
+        return Err("couldn't find suitable graphics adapter".into())
+    }
+    let adapter_i = (0..adapters.len()).max_by_key(|i| {
+        let a = &adapters[*i];
+        let mut score = 0;
+      //  println!("{}: {:?}", a.info.name, a.physical_device.limits());
+        if a.info.device_type == gfx_hal::adapter::DeviceType::DiscreteGpu {
+            score += 1000000;
+        }
+        score
+    }).unwrap_or(0);
+    let adapter = adapters.remove(adapter_i);
     println!("selected {}", adapter.info.name);
     let family = adapter.queue_families.iter().find(|family| {
             surface.supports_queue_family(family) && family.queue_type().supports_graphics()
@@ -152,63 +199,18 @@ pub fn init_device<IS: InstSurface>(window: &Window) -> Result<(IS, Adapter<IS::
     };
     let device = gpu.device;
     let queue_group = gpu.queue_groups.pop().ok_or("Can't get queue group")?;
-    Ok((inst_surface, adapter, device, queue_group))
-}
-/*
-pub fn list_adapters<IS: Initialize>() {
-    let instance = I::create(WINDOW_NAME, 1);
-    for a in &instance.enumerate_adapters(){
-        println!("{}: {}", a.info.name, a.info.vendor);
-    }
-}*/
-/*
-pub trait ComQueueCont<B : Backend, C: Capability> : Sized + DerefMut<Target = CommandQueue<B, C>> {
-    type Container;
-    fn split(queue_group: QueueGroup<B, C>) -> (Self, Self, Self::Container);
-    fn merge(first: Self, second: Self, container: Self::Container) ->  QueueGroup<B, C>;
-    fn
+    Ok(DeviceInit(inst_surface, adapter, device, queue_group))
 }
 
-pub struct SingletonQueue<B : Backend, C: Capability> {
-    inner : Rc<RefCell<CommandQueue<B, C>>>,
-}
-impl<B : Backend, C: Capability> Deref for SingletonQueue<B, C> {
-    type Target = CommandQueue<B, C>;
-    fn deref<'a>(&'a self) -> &'a Self::Target {
-        self.inner.deref()
-    }
-}
-impl<B : Backend, C: Capability> DerefMut for SingletonQueue<B, C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.inner.deref_mut()
-    }
-}
 
-impl<B  : Backend, C: Capability> SingletonQueue<B, C> {
-    fn new(inner: Rc<RefCell<CommandQueue<B, C>>>) -> Self {
-        Self{inner}
-    }
+#[cfg(feature = "gl")]
+pub fn init_gl(window_builder: WindowBuilder, ev: &EventLoop<()>) -> Result<(DeviceInit<gfx_backend_gl::Instance>, Window), Error> {
+    let ctx = gfx_backend_gl::glutin::ContextBuilder::new()
+        .build_windowed(window_builder, ev).expect("couldn't create context");
+    let (glutin_context, window) = unsafe {
+        ctx.make_current().expect("Failed to make the context current").split()
+    };
+    let surface = gfx_backend_gl::Surface::from_context(glutin_context);
+    let di = init_helper(gfx_backend_gl::Instance::Surface(surface))?;
+    Ok((di, window))
 }
-
-impl<B: Backend, C: Capability> ComQueueCont<B, C> for SingletonQueue<B, C> {
-    type Container = QueueGroup<B, C>;
-    fn split(mut queue_group: QueueGroup<B, C>) -> (Self, Self, Self::Container) {
-        let cq = queue_group.queues.remove(0);
-        let rc = Rc::new(RefCell::new(cq));
-        (SingletonQueue::new(rc), SingletonQueue::new(rc.clone()), queue_group)
-    }
-    fn merge(first: Self, second: Self, mut container: Self::Container) -> QueueGroup<B, C> {
-        {
-            let f = first;
-        }
-        match Rc::try_unwrap(second.inner){
-            Ok(mut  m) =>
-                container.queues.insert(0, m.into_inner()),
-            Err(_) => error!("ownership violation")
-        }
-       ;
-        container
-    }
-}
-
-*/

@@ -55,8 +55,8 @@ impl GameState {
             margin: 80.0,
         }
     }
-    pub fn update(&mut self, mut actions: Vec<Action>, time_step: f32) {
-        for a in actions.drain(..) {
+    pub fn update(&mut self, actions: impl Iterator<Item=Action>, time_step: f32) {
+        for a in actions {
             match a {
                 Action::Pause => self.paused = true,
                 Action::Unpause => self.paused = false,

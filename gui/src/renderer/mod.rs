@@ -45,12 +45,11 @@ use gfx_hal::{
     query::Type::PipelineStatistics,
 };
 
-use winit::{
-    dpi::LogicalSize, Window
-};
+use winit::dpi::{LogicalSize, PhysicalSize};
+
 use self::memory::{BufferBundle, ResourceManager, TextureSpec, Texture, Id};
 
-use init::InstSurface;
+use init::{InstSurface, DeviceInit};
 use crate::renderer::memory::descriptors::DescriptorPoolManager;
 use crate::error::{Error, LogError};
 use crate::renderer::con_back::UiVertex;
@@ -81,7 +80,7 @@ const SHADERS_2D : [ShaderSpec; 2] = [
     ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/2d.frag", source: Some(include_str!("../../resources/2d.frag"))},
 ];
 
-pub struct Renderer<'a, IS : InstSurface> {
+pub struct Renderer<IS : InstSurface> {
 //    type D = <IS::Backend as Backend>::Device,
 //    type B = IS::Backend,
     pub hal_state: HalState<IS::Back>,
@@ -91,7 +90,7 @@ pub struct Renderer<'a, IS : InstSurface> {
     ui_vbuff: Vec<BufferBundle<IS::Back>>,
     old_buffers: Vec<BufferBundle<IS::Back>>,
     old_buffer_expirations: Vec<i32>,
-    pub window: &'a Window,
+    pub window_client_size: PhysicalSize,
     //  : <back::Backend as Backend>::Surface,
     inst_surface: ManuallyDrop<IS>,
     mem_atom: usize,
@@ -102,13 +101,12 @@ pub struct Renderer<'a, IS : InstSurface> {
    // snd_command_buffers: Vec<CommandBuffer<Back<IS>, Graphics, MultiShot, Secondary>>,
 }
 
-impl<'a, IS : InstSurface>  Renderer<'a, IS>
+impl<IS : InstSurface>  Renderer<IS>
 {
     const DELETE_DELAY : i32 = 4;
-    pub fn new(window: & 'a Window) -> Self {
-
-        let (mut inst_surface, adapter, mut _device, queue_group)
-            = init::init_device::<IS>(window).expect("failed to initiate 3D device");
+    pub fn new(window_client_size: PhysicalSize, device_init: DeviceInit<IS>) -> Self {
+        let DeviceInit(mut inst_surface, adapter, mut _device, queue_group)
+            = device_init;
         //debug_assert!(queue_group.queues.len() == 2);
         let device = Arc::new(_device);
         let adapter = Arc::new(adapter);
@@ -123,7 +121,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             let si = inst_surface.get_surface_info();
             (si.capabilities(&adapter.physical_device), si.supported_formats(&adapter.physical_device))
         };
-        let hal_state = HalState::init(window,  formats, caps,inst_surface.get_mut_surface(),   &adapter,  device.clone(), primary_pool).expect("failed to set up device for rendering");
+        let hal_state = HalState::init(window_client_size,  formats, caps,inst_surface.get_mut_surface(),   &adapter,  device.clone(), primary_pool).expect("failed to set up device for rendering");
         let mut snd_command_pools = Vec::new();
         for _ in 0 ..hal_state.frames_in_flight {
             unsafe {
@@ -152,7 +150,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             ui_vbuff: Vec::new(),
             old_buffers: Vec::new(),
             old_buffer_expirations: Vec::new(),
-            window,
+            window_client_size,
             inst_surface: ManuallyDrop::new(inst_surface),
             adapter,
             device: ManuallyDrop::new(device),
@@ -171,13 +169,14 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
         let l = self.queue_group.queues.len();
         & mut self.queue_group.queues[l -1]
     }*/
-    pub fn tick(&mut self, cmds: &Vec<con_back::Command>, ui_updates: Vec<crate::ui::UIUpdate>, render_data: &crate::simulation::RenderData) -> Result<(), Error>{
+    pub fn tick(&mut self, cmds: &Vec<con_back::Command>, ui_updates: impl Iterator<Item=crate::ui::UIUpdate>, render_data: &crate::simulation::RenderData) -> Result<(), Error>{
         use crate::ui::UIUpdate::*;
         let mut restart = false;
         let mut refresh = false;
         for update in ui_updates {
             match update {
-                Resized{..} => {
+                Resized{size} => {
+                    self.window_client_size = size;
                     info!("restarting render");
                     restart = true;
 
@@ -264,7 +263,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
             let si = self.inst_surface.get_surface_info();
             (si.capabilities(&self.adapter.physical_device), si.supported_formats(&self.adapter.physical_device))
         };
-        self.hal_state = HalState::init(& self.window, formats, caps, self.inst_surface.get_mut_surface(),  &mut self.adapter,  self.device.deref().clone(),   pool)?;
+        self.hal_state = HalState::init(self.window_client_size, formats, caps, self.inst_surface.get_mut_surface(),  &mut self.adapter,  self.device.deref().clone(),   pool)?;
         info!("disposed");
         let (vert_art, frag_art) = Self::compile_ui_shaders()?;
         let mut art_2d = complile_shaders(&SHADERS_2D)?;
@@ -348,7 +347,7 @@ impl<'a, IS : InstSurface>  Renderer<'a, IS>
     }
 }
 
-impl<'a, IS: InstSurface> Drop for Renderer<'a, IS>{
+impl<IS: InstSurface> Drop for Renderer<IS>{
     fn drop(&mut self) {
         while self.old_buffers.len() > 0 {
             let  draw_queue = & mut self.queue_group.queues[0];
@@ -409,7 +408,7 @@ pub struct HalState< B: Backend>{
 
 impl<B: Backend> HalState<B> {
     pub fn init (
-        window: &Window,
+        window_client_area: PhysicalSize,
         formats : Option<Vec<Format>>,
         capabilities: SurfaceCapabilities,
         surface: & mut B::Surface,
@@ -431,15 +430,9 @@ impl<B: Backend> HalState<B> {
                         None => formats.get(0).cloned().ok_or("Preferred format list was empty!")?,
                     },
             };
-            let default_extent = {
-                let window_client_area = window
-                    .get_inner_size()
-                    .ok_or("Window doesn't exist!")?
-                    .to_physical(window.get_hidpi_factor());
-                Extent2D {
+            let default_extent = Extent2D {
                     width: window_client_area.width as u32,
                     height: window_client_area.height as u32,
-                }
             };
             let mut swapchain_config = SwapchainConfig::from_caps(&capabilities, format, default_extent);
             let image_count = if swapchain_config.present_mode == PresentMode::MAILBOX {

@@ -117,7 +117,7 @@ impl<B: Backend> Pipeline2D<B> {
             blend_color: None,
             depth_bounds: None,
         };
-        let push_constants = vec![(ShaderStageFlags::VERTEX, 0..5)];
+        let push_constants = vec![(ShaderStageFlags::VERTEX, 0..20)];
         let layout = unsafe {
             device
                 .create_pipeline_layout(descriptor_set_layouts, push_constants)

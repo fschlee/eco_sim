@@ -11,7 +11,6 @@ use super::estimate::{Estimate, default_estimate};
 use super::estimator::Estimator;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
-use std::cmp::Ordering::Equal;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct PathNode {
