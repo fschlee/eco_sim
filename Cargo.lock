@@ -56,25 +56,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "arr_macro"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "arr_macro_impl 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
- "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "arr_macro_impl"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "quote 0.6.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "syn 0.15.34 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "arrayvec"
 version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -453,11 +434,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "eco_sim"
 version = "0.1.0"
 dependencies = [
- "arr_macro 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.8 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_distr 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_xorshift 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "strum 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "strum_macros 0.16.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1485,16 +1467,6 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "proc-macro-hack"
-version = "0.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-dependencies = [
- "proc-macro2 0.4.30 (registry+https://github.com/rust-lang/crates.io-index)",
- "quote 0.6.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "syn 0.15.34 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "proc-macro2"
 version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2463,8 +2435,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum android_glue 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)" = "000444226fcff248f2bc4c7625be32c63caccfecc2723a2b9f78a7487a49c407"
 "checksum anyhow 1.0.22 (registry+https://github.com/rust-lang/crates.io-index)" = "e19f23ab207147bbdbcdfa7f7e4ca5e84963d79bae3937074682177ab9150968"
 "checksum approx 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "f0e60b75072ecd4168020818c0107f2857bb6c4e64252d8d3983f6263b40a5c3"
-"checksum arr_macro 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "d262b83f2f573121554ad6e764cd444303df85d86e5fcebc81903ddcf8dd3a97"
-"checksum arr_macro_impl 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "8decbe97ffec939e44228d91e5d0829ceb1616c6ed0984c09df164b1e7ebaafc"
 "checksum arrayvec 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)" = "92c7fb76bc8826a8b33b4ee5bb07a247a81e76764ab4d55e8f73e3a4d8808c71"
 "checksum arrayvec 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "cff77d8686867eceff3105329d4698d96c2391c176d5d03adc90c7389162b5b8"
 "checksum ash 0.29.0 (registry+https://github.com/rust-lang/crates.io-index)" = "003d1fb2eb12eb06d4a03dbe02eea67a9fac910fa97932ab9e3a75b96a1ea5e5"
@@ -2613,7 +2583,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum pkg-config 0.3.14 (registry+https://github.com/rust-lang/crates.io-index)" = "676e8eb2b1b4c9043511a9b7bea0915320d7e502b0a079fb03f9635a5252b18c"
 "checksum png 0.14.1 (registry+https://github.com/rust-lang/crates.io-index)" = "63daf481fdd0defa2d1d2be15c674fbfa1b0fd71882c303a91f9a79b3252c359"
 "checksum ppv-lite86 0.2.5 (registry+https://github.com/rust-lang/crates.io-index)" = "e3cbf9f658cdb5000fcf6f362b8ea2ba154b9f146a61c7a20d647034c6b6561b"
-"checksum proc-macro-hack 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)" = "0c1dd4172a1e1f96f709341418f49b11ea6c2d95d53dca08c0f74cbd332d9cf3"
 "checksum proc-macro2 0.4.30 (registry+https://github.com/rust-lang/crates.io-index)" = "cf3d2011ab5c909338f7887f4fc896d35932e29146c12c8d01da6b22a80ba759"
 "checksum proc-macro2 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "e98a83a9f9b331f54b924e68a66acb1bb35cb01fb0a23645139967abefb697e8"
 "checksum quick-error 1.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "9274b940887ce9addde99c4eee6b5c44cc494b182b97e73dc8ffdcb3397fd3f0"

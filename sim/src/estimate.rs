@@ -1,11 +1,12 @@
 use rand::{Rng};
 use rand_distr::{Normal, StandardNormal, Distribution};
+use strum::IntoEnumIterator;
 
 use super::agent::{MentalState, Behavior, Hunger, Reward};
 use super::estimator::Estimator;
 use super::entity::{Entity, Storage};
 use super::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
-use super::entity_type::{EntityType, ENTITY_TYPES};
+use super::entity_type::{EntityType};
 
 #[derive(Clone, Debug)]
 pub struct Estimate {
@@ -94,9 +95,9 @@ pub fn default_estimate(entity: & Entity) -> Estimate {
             satiation: Satiation(0.0)
         }),
         hunger: Default::default(),
-        food_preferences: ENTITY_TYPES.iter().filter_map(|other| {
-            if entity.e_type.can_eat(other) {
-                Some((*other, 0.5))
+        food_preferences: EntityType::iter().filter_map(|other| {
+            if entity.e_type.can_eat(&other) {
+                Some((other, 0.5))
             }
             else {
                 None

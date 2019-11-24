@@ -3,10 +3,11 @@ use std::time::Instant;
 use conrod_core as cc;
 use conrod_core::{widget_ids, widget, Colorable, Labelable, Positionable, Sizeable, Widget, Borderable};
 use conrod_winit::{convert_event, WinitWindow};
+use strum::IntoEnumIterator;
 
 use crate::simulation::GameState;
 use winit::{event_loop::{EventLoop}, event::{Event, WindowEvent, MouseButton, ElementState, KeyboardInput, VirtualKeyCode, ModifiersState}, window::Window, dpi::{LogicalPosition, LogicalSize, PhysicalSize} };
-use eco_sim::entity_type::{EntityType, ENTITY_TYPE_COUNT};
+use eco_sim::entity_type::{EntityType};
 
 pub type Queue<T> = std::collections::VecDeque<T>;
 
@@ -117,7 +118,7 @@ impl UIState {
         let font = cc::text::Font::from_bytes(bytes).unwrap();
         conrod.fonts.insert(font);
         let mut ids = WidgetIds::new(conrod.widget_id_generator());
-        ids.food_prefs.resize(ENTITY_TYPE_COUNT, & mut conrod.widget_id_generator());
+        ids.food_prefs.resize(EntityType::iter().len(), & mut conrod.widget_id_generator());
         ids.mental_models.resize(10, & mut conrod.widget_id_generator());
         Self{
             mouse_pos : LogicalPosition{x: 0.0, y:0.0},

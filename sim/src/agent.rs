@@ -3,10 +3,11 @@ use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
 use log:: {error, info};
 use std::collections::BinaryHeap;
+use strum::IntoEnumIterator;
 
 use super::world::*;
 use super::entity::*;
-use super::entity_type::{EntityType, ENTITY_TYPES};
+use super::entity_type::{EntityType};
 use super::estimate::{Estimate, default_estimate};
 use super::estimator::Estimator;
 use crate::Action::Eat;
@@ -572,7 +573,7 @@ impl AgentSystem {
     pub fn init(agents: Vec<Entity>, world: &World, use_mdp: bool, mut rng: impl Rng) -> Self {
         let mut mental_states = Storage::new();
         for agent in &agents {
-            let food_prefs = ENTITY_TYPES.iter().filter(|e|agent.e_type.can_eat(e)).map(|e| (e.clone(), rng.gen_range(0.0, 1.0))).collect();
+            let food_prefs = EntityType::iter().filter(|e|agent.e_type.can_eat(e)).map(|e| (e.clone(), rng.gen_range(0.0, 1.0))).collect();
             mental_states.insert(agent, MentalState::new(agent.clone(), food_prefs, use_mdp));
 
         }

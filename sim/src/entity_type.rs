@@ -1,6 +1,9 @@
 use super::world::{PhysicalState, Health, Meat, Satiation, Attack};
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
+use strum_macros::{EnumIter, EnumCount};
+use strum::{IntoEnumIterator, EnumCount};
+
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, EnumIter, EnumCount)]
 pub enum EntityType {
     Rock,
     Tree,
@@ -13,35 +16,32 @@ pub enum EntityType {
 impl EntityType {
     pub fn can_eat(&self, other: &Self) -> bool {
         use EntityType::*;
-        match (self, other) {
-            (Rabbit, Grass) => true,
-            (Rabbit, Clover) => true,
-            (Deer, Grass) => true,
-            (Deer, Clover) => true,
-            (Deer, Tree) => true,
-            (Wolf, Rabbit) => true,
-            (Wolf, Deer) => true,
-            _ => false,
+        match self {
+            Rock | Tree | Grass | Clover => false,
+            Rabbit => match other {
+                Grass | Clover => true,
+                Rock  | Tree | Rabbit | Deer | Wolf => false
+            },
+            Deer => match other {
+                Grass | Clover | Tree => true,
+                Rock  | Rabbit | Deer | Wolf => false
+            }
+            Wolf => match other {
+                Rabbit | Deer => true,
+                Rock   | Tree | Grass | Clover | Wolf => false,
+            }
         }
     }
     pub fn can_pass(&self, other: &Self) -> bool {
         use EntityType::*;
-        match (self, other) {
-            (Rabbit, Grass) => true,
-            (Rabbit, Clover) => true,
-            (Rabbit, Tree) => true,
-            (Rabbit, Rabbit) => true,
-            (Deer, Grass) => true,
-            (Deer, Clover) => true,
-            (Deer, Tree) => true,
-            (Deer, Deer) => true,
-            (Wolf, Grass) => true,
-            (Wolf, Clover) => true,
-            (Wolf, Tree) => true,
-            (Wolf, Rabbit) => true,
-            (Wolf, Deer) => true,
-            (Wolf, Wolf) => true,
-            _ => false,
+
+        match self {
+            Rock | Grass | Clover | Tree => false,
+            Rabbit | Deer | Wolf => match other {
+                Rock => false,
+                Grass  | Clover | Tree => true,
+                Rabbit | Deer   | Wolf => true,
+            }
         }
     }
     pub fn typical_physical_state(&self)  -> Option<PhysicalState> {
@@ -68,7 +68,7 @@ impl EntityType {
                     attack: Some(Attack(60.0)),
                     satiation: Satiation(10.0)
                 }),
-            _ => None
+            Rock | Grass | Clover | Tree => None
         }
     }
 }
@@ -77,15 +77,6 @@ impl Default for EntityType {
         Self::Rock
     }
 }
-pub const ENTITY_TYPES : [EntityType; ENTITY_TYPE_COUNT] = [
-    EntityType::Rock,
-    EntityType::Tree,
-    EntityType::Grass,
-    EntityType::Clover,
-    EntityType::Rabbit,
-    EntityType::Deer,
-    EntityType::Wolf,
-];
 
 pub fn et_idx(et : EntityType) -> usize {
     match et {
