@@ -45,6 +45,7 @@ pub fn entity_type_label(et: EntityType) -> &'static  str {
         Rabbit=> "Rabbit",
         Deer=> "Deer",
         Wolf => "Wolf",
+        Burrow => "Burrow",
     }
 }
 pub fn theme() -> conrod_core::Theme {

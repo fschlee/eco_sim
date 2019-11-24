@@ -129,6 +129,7 @@ impl GameState {
             {
                 let grey = 0xff202020;
                 forms[EntityType::Rock.idx()] = block(grey, & mut vertices, & mut indices);
+                forms[EntityType::Burrow.idx()] = ball(grey, 0.75, & mut vertices, & mut indices);
             }
         }
         let mut commands = Vec::new();

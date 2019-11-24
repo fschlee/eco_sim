@@ -11,6 +11,7 @@ pub trait Count {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, EnumIter, EnumCount)]
 pub enum EntityType {
     Rock,
+    Burrow,
     Tree,
     Grass,
     Clover,
@@ -22,18 +23,18 @@ impl EntityType {
     pub fn can_eat(&self, other: &Self) -> bool {
         use EntityType::*;
         match self {
-            Rock | Tree | Grass | Clover => false,
+            Rock | Burrow | Tree | Grass | Clover => false,
             Rabbit => match other {
                 Grass | Clover => true,
-                Rock  | Tree | Rabbit | Deer | Wolf => false
+                Rock | Burrow | Tree | Rabbit | Deer | Wolf => false
             },
             Deer => match other {
                 Grass | Clover | Tree => true,
-                Rock  | Rabbit | Deer | Wolf => false
+                Rock  | Burrow | Rabbit | Deer | Wolf => false
             }
             Wolf => match other {
                 Rabbit | Deer => true,
-                Rock   | Tree | Grass | Clover | Wolf => false,
+                Rock | Burrow | Tree | Grass | Clover | Wolf => false,
             }
         }
     }
@@ -41,10 +42,15 @@ impl EntityType {
         use EntityType::*;
 
         match self {
-            Rock | Grass | Clover | Tree => false,
+            Rock | Burrow | Grass | Clover | Tree => false,
             Rabbit | Deer | Wolf => match other {
-                Rock => false,
+                Rock | Burrow => false,
                 Grass  | Clover | Tree => true,
+                Rabbit | Deer   | Wolf => true,
+            }
+            Rabbit  => match other {
+                Rock => false,
+                Grass  | Clover | Tree | Burrow => true,
                 Rabbit | Deer   | Wolf => true,
             }
         }
@@ -73,7 +79,20 @@ impl EntityType {
                     attack: Some(Attack(60.0)),
                     satiation: Satiation(10.0)
                 }),
-            Rock | Grass | Clover | Tree => None
+            Rock | Grass | Clover | Tree | Burrow  => None
+        }
+    }
+    pub fn rate(&self) -> Rarity {
+        use EntityType::*;
+        match self {
+            Rock => 16,
+            Burrow => 100,
+            Tree => 8,
+            Grass => 6,
+            Clover => 6,
+            Rabbit => 25,
+            Deer => 30,
+            Wolf => 50,
         }
     }
 }
@@ -83,4 +102,5 @@ impl Default for EntityType {
     }
 }
 
+pub type Rarity = usize;
 

@@ -140,33 +140,30 @@ impl World {
         let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
         let mut physical_states =  Storage::new();
         let mut positions = Storage::new();
-        let mut inserter = |entity_type: EntityType, count| {
+        let mut agents = Vec::new();
+        let mut inserter = |entity_type: EntityType| {
+            let count = area / entity_type.rate();
             let mut c = 0;
-            let mut inserted = Vec::new();
             while c < count {
                 let x = rng.gen_range(0, MAP_WIDTH);
                 let y = rng.gen_range(0, MAP_HEIGHT);
-                if let None = cells[y][x] {
+                let cell_v = cells[y][x].get_or_insert_with(Vec::new);
+                if cell_v.iter().all(|other| entity_type.can_pass(&other.e_type)) {
                     let entity = entity_manager.fresh(entity_type);
                     positions.insert(&entity, Position{x : x as u32, y: y as u32});
                     if let Some(phys_state) = entity_type.typical_physical_state() {
                         physical_states.insert(&entity, phys_state);
+                        agents.push(entity);
                     }
-                    cells[y][x] = Some(vec![entity]);
+                    cell_v.push(entity);
                     c+= 1;
-                    inserted.push(entity);
                 }
             }
-            inserted
         };
-        inserter(EntityType::Tree, area / 8);
-        inserter(EntityType::Rock, area / 16);
-        inserter(EntityType::Grass, area / 6);
-        inserter(EntityType::Clover, area / 6);
-        let mut agents = inserter(EntityType::Rabbit, 2);
-        agents.append(&mut inserter(EntityType::Wolf, 1));
-        agents.append( & mut inserter(EntityType::Deer, 2));
 
+        for et in EntityType::iter() {
+            inserter(et);
+        }
         (
             Self {
                 cells,
