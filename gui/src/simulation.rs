@@ -1,6 +1,6 @@
 use crate::ui::Action;
 
-use eco_sim::{SimState, Storage, Entity, MentalState, entity_type::{EntityType, et_idx, ENTITY_TYPE_COUNT}};
+use eco_sim::{SimState, Storage, Entity, MentalState, entity_type::{EntityType, Count}};
 use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
@@ -95,7 +95,7 @@ impl GameState {
     pub fn get_render_data(&mut self) -> RenderData {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
-        let mut forms = [(0, 0); ENTITY_TYPE_COUNT];
+        let mut forms = [(0, 0); EntityType::COUNT];
         {
             let v = |p0, p1, c| UiVertex {
                 pos: [p0, p1],
@@ -113,27 +113,27 @@ impl GameState {
             }
             {
                 let dg = 0xff008000;
-                forms[et_idx(EntityType::Tree)] = ball(dg, 1.0, & mut vertices, & mut indices);
-                forms[et_idx(EntityType::Clover)]  = block(dg, & mut vertices, & mut indices);
+                forms[EntityType::Tree.idx()] = ball(dg, 1.0, & mut vertices, & mut indices);
+                forms[EntityType::Clover.idx()]  = block(dg, & mut vertices, & mut indices);
             }
             let lg = 0xff00ff00;
-            forms[et_idx(EntityType::Grass)]  = block(lg, & mut vertices, & mut indices);
+            forms[EntityType::Grass.idx()]  = block(lg, & mut vertices, & mut indices);
 
             {
                 let dg = 0xff404040;
-                forms[et_idx(EntityType::Rabbit)] = ball(dg, 0.7, &mut vertices, &mut indices);
-                forms[et_idx(EntityType::Wolf)] = ball(dg, 0.9, &mut vertices, &mut indices);
+                forms[EntityType::Rabbit.idx()] = ball(dg, 0.7, &mut vertices, &mut indices);
+                forms[EntityType::Wolf.idx()] = ball(dg, 0.9, &mut vertices, &mut indices);
                 let brown = 0xff002060;
-                forms[et_idx(EntityType::Deer)] = ball(brown, 0.85, &mut vertices, &mut indices);
+                forms[EntityType::Deer.idx()] = ball(brown, 0.85, &mut vertices, &mut indices);
             }
             {
                 let grey = 0xff202020;
-                forms[et_idx(EntityType::Rock)] = block(grey, & mut vertices, & mut indices);
+                forms[EntityType::Rock.idx()] = block(grey, & mut vertices, & mut indices);
             }
         }
         let mut commands = Vec::new();
         let lookup = |et: EntityType| {
-            let (b, e) = forms[et_idx(et)];
+            let (b, e) = forms[et.idx()];
             b..e
         };
         if let Some(ent) = self.highlight_visible {

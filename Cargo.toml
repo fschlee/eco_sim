@@ -4,9 +4,11 @@
 members = [
     "sim",
     "gui",
+    "enum_macros",
 ]
 
 default-members = [
     "sim",
     "gui",
+    "enum_macros",
 ]

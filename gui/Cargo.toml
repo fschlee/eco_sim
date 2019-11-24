@@ -15,6 +15,7 @@ metal = ["gfx-backend-metal"]
 
 [dependencies]
 "eco_sim" = { path="../sim" }
+"enum_macros" = { path="../enum_macros" }
 
 #logging
 "log" = "^0.4"

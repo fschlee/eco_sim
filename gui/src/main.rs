@@ -5,8 +5,8 @@ use log::{debug, error, info, trace, warn};
 use winit::dpi::LogicalSize;
 use std::time::Instant;
 use std::str::FromStr;
-use strum_macros::{Display, EnumIter, EnumString};
-use strum::{IntoEnumIterator};
+use strum_macros::{Display, EnumString};
+use enum_macros::EnumIter;
 
 mod renderer;
 pub mod ui;
@@ -23,8 +23,8 @@ const MAX_RENDER_FAILS : u32 = 100;
 const MAX_FPS : f32 = 60.0;
 const MIN_FRAME_DELAY: f32 = 1.0/ MAX_FPS;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, EnumString, Display)]
-enum BackendSelection {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, Display, EnumString)]
+pub enum BackendSelection {
 #[cfg(all(feature = "vulkan", not(macos)))]
 #[strum(serialize="Vulkan", serialize="vulkan")]
     Vulkan,
@@ -51,7 +51,7 @@ fn main() {
     let args : Vec<String> = std::env::args().collect();
     let back = match args.get(1).map(|s| BackendSelection::from_str(s)) {
         Some(Ok(b)) => {
-            println!("{}", b);
+            println!("{:?}", b);
             b
         },
         _ => BackendSelection::iter().next().expect("No backend available")

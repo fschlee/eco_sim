@@ -3,7 +3,6 @@ use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
 use log:: {error, info};
 use std::collections::BinaryHeap;
-use strum::IntoEnumIterator;
 
 use super::world::*;
 use super::entity::*;

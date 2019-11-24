@@ -583,7 +583,6 @@ fn none_initialize<T>() -> [[Option<Vec<T>>; MAP_WIDTH]; MAP_HEIGHT] {
     unsafe {
         let bytes = std::slice::from_raw_parts(&none as * const _ as * const u8, size_of::<Option<Vec<T>>>());
         if bytes.iter().all(|b| *b == 0u8) {
-            println!("easy");
             return MaybeUninit::zeroed().assume_init();
         }
     }

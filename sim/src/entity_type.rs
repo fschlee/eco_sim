@@ -1,7 +1,12 @@
 use super::world::{PhysicalState, Health, Meat, Satiation, Attack};
 
-use strum_macros::{EnumIter, EnumCount};
-use strum::{IntoEnumIterator, EnumCount};
+use enum_macros::{EnumCount, EnumIter};
+
+
+pub trait Count {
+    const COUNT : usize;
+    fn idx(&self) -> usize;
+}
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, EnumIter, EnumCount)]
 pub enum EntityType {
@@ -78,16 +83,4 @@ impl Default for EntityType {
     }
 }
 
-pub fn et_idx(et : EntityType) -> usize {
-    match et {
-        EntityType::Rock => 0,
-        EntityType::Tree => 1,
-        EntityType::Grass => 2,
-        EntityType::Clover => 3,
-        EntityType::Rabbit => 4,
-        EntityType::Deer => 5,
-        EntityType::Wolf => 6,
-    }
-}
 
-pub const ENTITY_TYPE_COUNT: usize = 7;

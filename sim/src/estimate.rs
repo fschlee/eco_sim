@@ -1,6 +1,5 @@
 use rand::{Rng};
 use rand_distr::{Normal, StandardNormal, Distribution};
-use strum::IntoEnumIterator;
 
 use super::agent::{MentalState, Behavior, Hunger, Reward};
 use super::estimator::Estimator;
