@@ -4,7 +4,9 @@ use winit::{event_loop::EventLoop, window::{WindowBuilder, Window}};
 use log::{debug, error, info, trace, warn};
 use winit::dpi::LogicalSize;
 use std::time::Instant;
-use strum_macros::{Display, EnumIter};
+use std::str::FromStr;
+use strum_macros::{Display, EnumIter, EnumString};
+use strum::{IntoEnumIterator};
 
 mod renderer;
 pub mod ui;
@@ -12,24 +14,30 @@ pub mod conrod_winit;
 pub mod simulation;
 pub mod error;
 
-use renderer::init::{init_device};
+use renderer::init::{init_device, InstSurface, DeviceInit};
+use crate::error::Error;
 
 const MAX_RENDER_FAILS : u32 = 100;
 
 const MAX_FPS : f32 = 60.0;
 const MIN_FRAME_DELAY: f32 = 1.0/ MAX_FPS;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, Display)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, EnumString, Display)]
 enum BackendSelection {
 #[cfg(all(feature = "vulkan", not(macos)))]
-    Vulcan,
+#[strum(serialize="Vulkan", serialize="vulkan")]
+    Vulkan,
 #[cfg(all(feature = "dx12", not(macos)))]
+#[strum(serialize="DirectX12", serialize="direct_x12", serialize="Dx12", serialize="dx12", serialize="DX12", serialize="dx_12")]
     Dx12,
 #[cfg(all(feature = "dx11", not(macos)))]
+#[strum(serialize="DirectX11", serialize="direct_x11", serialize="Dx11", serialize="dx11", serialize="DX11", serialize="dx_11")]
     Dx11,
 #[cfg(all(macos, feature="metal"))]
+#[strum(serialize="metal", serialize="Metal")]
     Metal,
 #[cfg(feature = "gl")]
+#[strum(serialize="OpenGL", serialize="Open_GL", serialize="open_gl", serialize="Open-GL", serialize="GL", serialize="gl")]
     OpenGl,
 }
 
@@ -39,25 +47,67 @@ fn main() {
     let window_builder = WindowBuilder::new()
         .with_inner_size(LogicalSize { width: 1640.0, height: 1024.0 })
         .with_title("Eco sim");
+    let args : Vec<String> = std::env::args().collect();
+    let back = match args.get(1).map(|s| BackendSelection::from_str(s)) {
+        Some(Ok(b)) => {
+            println!("{}", b);
+            b
+        },
+        _ => BackendSelection::iter().next().expect("No backend available")
+    };
+    let adapter_selection = args.get(2).and_then(|s| usize::from_str(s).ok());
+    use BackendSelection::*;
+    match back {
+        #[cfg(feature = "gl")]
+        OpenGl => {
+            let (di, window) = renderer::init::init_gl(window_builder, &event_loop, adapter_selection).expect("could not initialize device");
+            game_loop(event_loop, window, di)
+        },
+        back => {
+            let window = window_builder.build(&event_loop).expect("could not create window");
+            match back {
+                #[cfg(all(feature = "vulkan", not(macos)))]
+                Vulkan => {
+                    let di =
+                        init_device::<(gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend as gfx_hal::Backend>::Surface)>(&window, adapter_selection)
+                            .expect("could not initialize device");
+                    game_loop(event_loop, window, di)
+                },
+                #[cfg(all(feature = "dx12", not(macos)))]
+                Dx12 => {
+                    let di =
+                        init_device::<(gfx_backend_dx12::Instance, <gfx_backend_dx12::Backend as gfx_hal::Backend>::Surface)>(&window, adapter_selection)
+                            .expect("could not initialize device");
+                    game_loop(event_loop, window, di)
+                },
+                #[cfg(all(feature = "dx11", not(macos)))]
+                Dx11 => {
+                    println!("dx11");
+                    let di =
+                    init_device::<(gfx_backend_dx11::Instance, <gfx_backend_dx11::Backend as gfx_hal::Backend>::Surface)>(&window, adapter_selection)
+                        .expect("could not initialize device");
+                    game_loop(event_loop, window, di)
+                },
+                #[cfg(all(macos, feature="metal"))]
+                Metal => {
+                    let di =
+                    init_device::<(gfx_backend_metal::Instance, <gfx_backend_metal::Backend as gfx_hal::Backend>::Surface)>(&window, adapter_selection)
+                        .expect("could not initialize device");
+                    game_loop(event_loop, window, di)
+                },
+                #[cfg(feature = "gl")]
+                OpenGl => unreachable!()
+            }
+        }
+    };
+}
 
-#[cfg(feature = "gl")]
-    let (di, window) = renderer::init::init_gl(window_builder, &event_loop).expect("could not initialize device");
-#[cfg(not(feature = "gl"))]
-    let window = window_builder.build(&event_loop).expect("could not create window");
-#[cfg(all(macos, feature="metal"))]
-    let di = init_device::<(gfx_backend_metal::Instance, <gfx_backend_metal::Backend as gfx_hal::Backend>::Surface)>(&window);
-#[cfg(all(feature = "vulkan", not(macos)))]
-    let di = init_device::<(gfx_backend_vulkan::Instance, <gfx_backend_vulkan::Backend as gfx_hal::Backend>::Surface)>(&window);
-#[cfg(all(feature = "dx12", not(macos)))]
-    let di = init_device::<(gfx_backend_dx12::Instance, <gfx_backend_dx12::Backend as gfx_hal::Backend>::Surface)>(&window);
-#[cfg(all(feature = "dx11", not(macos)))]
-    let di = init_device::<(gfx_backend_dx11::Instance, <gfx_backend_dx11::Backend as gfx_hal::Backend>::Surface)>(&window);
-#[cfg(not(feature = "gl"))]
-    let di = di.expect("could not initialize device");
+fn game_loop<IS: InstSurface + 'static>(event_loop: EventLoop<()>, window: Window, device_init : DeviceInit<IS>) -> Result<(), Error> {
+
     let window_client_area = window
         .inner_size()
         .to_physical(window.hidpi_factor());
-    let mut renderer = renderer::Renderer::new(window_client_area, di);
+    let mut renderer = renderer::Renderer::new(window_client_area, device_init);
     let mut ui_state = ui::UIState::new(window);
     let mut game_state = simulation::GameState::new();
     let mut fail_counter = 0;

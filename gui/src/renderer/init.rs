@@ -162,10 +162,10 @@ impl InstSurface for gfx_backend_gl::Instance   {
 
 pub struct DeviceInit<IS: InstSurface>(pub IS, pub Adapter<IS::Back>, pub <IS::Back as Backend>::Device, pub QueueGroup<IS::Back>);
 
-pub fn init_device<IS: InstSurface>(window: &Window) -> Result<DeviceInit<IS>, Error> {
-    init_helper(IS::create(WINDOW_NAME, 1, window))
+pub fn init_device<IS: InstSurface>(window: &Window, adapter_selection: Option<usize>) -> Result<DeviceInit<IS>, Error> {
+    init_helper(IS::create(WINDOW_NAME, 1, window), adapter_selection)
 }
-fn init_helper<IS: InstSurface>(inst_surface: IS) -> Result<DeviceInit<IS>, Error> {
+fn init_helper<IS: InstSurface>(inst_surface: IS, adapter_selection: Option<usize>) -> Result<DeviceInit<IS>, Error> {
     let instance = inst_surface.get_instance();
     let surface = inst_surface.get_surface();
     let mut adapters : Vec<_> = instance.enumerate_adapters().into_iter()
@@ -177,15 +177,18 @@ fn init_helper<IS: InstSurface>(inst_surface: IS) -> Result<DeviceInit<IS>, Erro
     if adapters.len() < 1 {
         return Err("couldn't find suitable graphics adapter".into())
     }
-    let adapter_i = (0..adapters.len()).max_by_key(|i| {
-        let a = &adapters[*i];
-        let mut score = 0;
-      //  println!("{}: {:?}", a.info.name, a.physical_device.limits());
-        if a.info.device_type == gfx_hal::adapter::DeviceType::DiscreteGpu {
-            score += 1000000;
-        }
-        score
-    }).unwrap_or(0);
+    let adapter_i = match adapter_selection {
+        Some(i) if i < adapters.len() => i,
+        _ => (0..adapters.len()).max_by_key(|i| {
+            let a = &adapters[*i];
+            let mut score = 0;
+        //  println!("{}: {:?}", a.info.name, a.physical_device.limits());
+            if a.info.device_type == gfx_hal::adapter::DeviceType::DiscreteGpu {
+                score += 1000000;
+            }
+            score
+        }).unwrap_or(0)
+    };
     let adapter = adapters.remove(adapter_i);
     println!("selected {}", adapter.info.name);
     let family = adapter.queue_families.iter().find(|family| {
@@ -204,13 +207,13 @@ fn init_helper<IS: InstSurface>(inst_surface: IS) -> Result<DeviceInit<IS>, Erro
 
 
 #[cfg(feature = "gl")]
-pub fn init_gl(window_builder: WindowBuilder, ev: &EventLoop<()>) -> Result<(DeviceInit<gfx_backend_gl::Instance>, Window), Error> {
+pub fn init_gl(window_builder: WindowBuilder, ev: &EventLoop<()>, adapter_selection: Option<usize>) -> Result<(DeviceInit<gfx_backend_gl::Instance>, Window), Error> {
     let ctx = gfx_backend_gl::glutin::ContextBuilder::new()
         .build_windowed(window_builder, ev).expect("couldn't create context");
     let (glutin_context, window) = unsafe {
         ctx.make_current().expect("Failed to make the context current").split()
     };
     let surface = gfx_backend_gl::Surface::from_context(glutin_context);
-    let di = init_helper(gfx_backend_gl::Instance::Surface(surface))?;
+    let di = init_helper(gfx_backend_gl::Instance::Surface(surface), adapter_selection)?;
     Ok((di, window))
 }

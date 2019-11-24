@@ -43,7 +43,6 @@ const SIM_STEP : f32 = 0.1;
 impl GameState {
     pub fn new() -> GameState{
         let eco_sim = SimState::new(SIM_STEP);
-        println!("init");
         GameState{
             eco_sim,
         //    cache: Storage::new(),
