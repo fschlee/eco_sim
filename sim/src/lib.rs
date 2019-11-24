@@ -15,7 +15,7 @@ use std::ops::Range;
 use rand::{SeedableRng};
 use rand_xorshift::XorShiftRng;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone)]
 pub struct SimState {
     world: World,
     agent_system: AgentSystem,

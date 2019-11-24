@@ -1,16 +1,16 @@
 use log::error;
 use std::ops::Range;
 use rand::{Rng};
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::mem::size_of;
+use rand_xorshift::XorShiftRng;
+
 
 use super::entity::*;
 use super::entity_type::*;
 use super::agent::AgentSystem;
 use crate::{MentalState};
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-
-
-
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Action {
@@ -127,7 +127,7 @@ pub enum Occupancy {
     Unknown,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone)]
 pub struct World {
     cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT],
     pub physical_states: Storage<PhysicalState>,
@@ -136,7 +136,8 @@ pub struct World {
 
 impl World {
     pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<Entity>) {
-        let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = Default::default();
+        let area = MAP_WIDTH * MAP_HEIGHT;
+        let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
         let mut physical_states =  Storage::new();
         let mut positions = Storage::new();
         let mut inserter = |entity_type: EntityType, count| {
@@ -158,10 +159,10 @@ impl World {
             }
             inserted
         };
-        inserter(EntityType::Tree, MAP_WIDTH * MAP_HEIGHT / 8);
-        inserter(EntityType::Rock, MAP_WIDTH * MAP_HEIGHT / 16);
-        inserter(EntityType::Grass, MAP_WIDTH * MAP_HEIGHT / 6);
-        inserter(EntityType::Clover, MAP_WIDTH * MAP_HEIGHT / 6);
+        inserter(EntityType::Tree, area / 8);
+        inserter(EntityType::Rock, area / 16);
+        inserter(EntityType::Grass, area / 6);
+        inserter(EntityType::Clover, area / 6);
         let mut agents = inserter(EntityType::Rabbit, 2);
         agents.append(&mut inserter(EntityType::Wolf, 1));
         agents.append( & mut inserter(EntityType::Deer, 2));
@@ -348,7 +349,11 @@ impl World {
                     })
             })
     }
-
+}
+impl std::fmt::Debug for World {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "World {{ cells : _, physical_states: {:?}, positions: {:?} }}", self.physical_states, self.positions)
+    }
 }
 
 pub trait Observation: Clone {
@@ -361,7 +366,7 @@ pub trait Observation: Clone {
     fn observed_position(& self, entity: &Entity) -> Option<Position>;
     fn into_expected(& self, filler: impl Fn(Position) -> Option<Vec<EntityType>>, mut rng: impl Rng) -> (EntityManager, World, AgentSystem) {
 
-        let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = Default::default();
+        let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
         let mut entity_manager = EntityManager::default();
         let mut physical_states = Storage::new();
         let mut positions = Storage::new();
@@ -572,3 +577,24 @@ impl Iterator for PositionWalker {
     }
 }
 
+fn none_initialize<T>() -> [[Option<Vec<T>>; MAP_WIDTH]; MAP_HEIGHT] {
+    use std::mem::MaybeUninit;
+    let none = None::<Vec<T>>;
+    unsafe {
+        let bytes = std::slice::from_raw_parts(&none as * const _ as * const u8, size_of::<Option<Vec<T>>>());
+        if bytes.iter().all(|b| *b == 0u8) {
+            println!("easy");
+            return MaybeUninit::zeroed().assume_init();
+        }
+    }
+    let mut a : [[MaybeUninit<Option<Vec<T>>>; MAP_WIDTH]; MAP_HEIGHT] = unsafe { MaybeUninit::uninit().assume_init() };
+    for row in &mut a[..] {
+        for elem in & mut row[..] {
+            *elem = MaybeUninit::new(None);
+        }
+    }
+    unsafe {
+        std::mem::transmute::<_ ,_>(a)
+    }
+
+}
