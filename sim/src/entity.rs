@@ -215,6 +215,20 @@ impl<T> Storage<T> {
             generations: Vec::new(),
         }
     }
+    pub fn split_out_mut<'a>(& 'a mut self, entity: &Entity) -> Option<(& 'a mut T, StorageSlice<'a, T>)> {
+        if self.get(entity).is_none() {
+            return None;
+        }
+        let idx = entity.id as usize;
+        let Self {  content, generations} = self;
+        let (con0, con_) = content.as_mut_slice().split_at_mut(idx);
+        let (gen0, gen1) = generations.as_mut_slice().split_at_mut(idx);
+        let (e, con1) = con_.split_at_mut(1);
+        if let Some(Some(elem)) = e.get_mut(0) {
+            return Some((elem, StorageSlice::<T>{con0, con1, gen0, gen1, idx }))
+        }
+        None
+    }
 }
 impl<T> Default for Storage<T> {
     fn default() -> Self {
@@ -246,5 +260,74 @@ impl<'a, T> Iterator for StorageIter<'a, T> {
             }
         }
         None
+    }
+}
+pub struct StorageSlice<'a,T> {
+    gen0: & 'a [GenID],
+    gen1: & 'a [GenID],
+    con0: & 'a [Option<T>],
+    con1: & 'a [Option<T>],
+    idx: usize,
+}
+impl<'a,T>  StorageSlice<'a,T>  {
+    pub fn get(&self, entity: &Entity) -> Option<&'a T> {
+        let idx = entity.id as usize;
+        if idx < self.idx {
+            if let Some(stored_gen) = self.gen0.get(idx) {
+                if *stored_gen == entity.gen {
+                    if let Some(opt) = self.con0.get(idx) {
+                        return opt.as_ref();
+                    }
+                }
+            }
+        }
+        else if idx > self.idx {
+            if let Some(stored_gen) = self.gen1.get(idx) {
+                if *stored_gen == entity.gen {
+                    if let Some(opt) = self.con1.get(idx) {
+                        return opt.as_ref();
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+pub struct StorageSliceIter<'a, T> {
+    slice : & 'a StorageSlice<'a, T>,
+    idx : usize,
+}
+
+impl<'a, T> Iterator for StorageSliceIter<'a, T> {
+    type Item = &'a T;
+    fn next(&mut self) -> Option<&'a T>{
+        while self.idx + 1 < self.slice.idx {
+            self.idx += 1;
+
+            if let Some(t) = &self.slice.con0[self.idx] {
+                return Some(t);
+            }
+        }
+        // skipping non-accessible element
+        if self.idx == self.slice.idx {
+            self.idx +=1;
+        }
+        while self.idx + 1  - self.slice.idx < self.slice.con1.len()  {
+            self.idx += 1;
+
+            if let Some(t) = &self.slice.con1[self.idx] {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+}
+impl<'a, T> IntoIterator for & 'a StorageSlice<'a,T> {
+    type IntoIter = StorageSliceIter<'a, T> ;
+    type Item = &'a T;
+    fn into_iter(self) -> Self::IntoIter {
+        Self::IntoIter{ slice: self, idx: 0 }
     }
 }
