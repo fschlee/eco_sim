@@ -15,6 +15,7 @@ pub use crate::agent::*;
 use std::ops::Range;
 use rand::{SeedableRng};
 use rand_xorshift::XorShiftRng;
+use crate::entity_type::EntityType;
 
 #[derive(Clone)]
 pub struct SimState {
@@ -56,16 +57,16 @@ impl SimState {
     ) -> impl Iterator<Item = (usize, usize, ViewData)> + '_ {
         self.world.get_view(x, y)
     }
-    pub fn entities_at(&self, position: Position) -> &[Entity] {
+    pub fn entities_at(&self, position: Position) -> &[WorldEntity] {
         (&self.world).entities_at(position)
     }
     pub fn update_mental_state(& mut self, mental_state: MentalState) {
         self.agent_system.mental_states.insert(&mental_state.id.clone(), mental_state);
     }
-    pub fn get_mental_state(&self, entity :&Entity) -> Option<&MentalState> {
+    pub fn get_mental_state(&self, entity :&WorldEntity) -> Option<&MentalState> {
         self.agent_system.mental_states.get(entity)
     }
-    pub fn get_visibility(& self, entity: &Entity) -> impl Iterator<Item=Position> {
+    pub fn get_visibility(& self, entity: &WorldEntity) -> impl Iterator<Item=Position> {
         let pos = self.world.positions.get(entity);
         let ms = self.agent_system.mental_states.get(entity);
         match (pos, ms) {

@@ -3,13 +3,13 @@ use rand_distr::{Normal, StandardNormal, Distribution};
 
 use super::agent::{MentalState, Behavior, Hunger, Reward};
 use super::estimator::Estimator;
-use super::entity::{Entity, Storage};
+use super::entity::{WorldEntity, Storage};
 use super::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
 use super::entity_type::{EntityType};
 
 #[derive(Clone, Debug)]
 pub struct Estimate {
-    pub id: Entity,
+    pub id: WorldEntity,
     pub physical_state: PhysicalState,
     pub hunger: Hunger,
     pub food_preferences: Vec<(EntityType, Reward)>,
@@ -37,7 +37,7 @@ impl Into<MentalState> for &Estimate {
             current_behavior: self.current_behavior.clone(),
             sight_radius: self.sight_radius,
             use_mdp: false,
-            rng: rand::SeedableRng::seed_from_u64(self.id.id as u64),
+            rng: rand::SeedableRng::seed_from_u64(self.id.id() as u64),
             estimates: Storage::new()
         }
     }
@@ -67,7 +67,7 @@ impl Estimator for Estimate {
                 self.update(&ms);
             }
             else {
-                let mut rng : rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(self.id.id as u64);
+                let mut rng : rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(self.id.id() as u64);
                 let max_tries = 255;
                 for i in 0..max_tries {
                     let scale = (1.0 + i as f32).log2() / 256f32.log2();
@@ -84,10 +84,10 @@ impl Estimator for Estimate {
     }
 }
 
-pub fn default_estimate(entity: & Entity) -> Estimate {
+pub fn default_estimate(entity: &WorldEntity) -> Estimate {
     Estimate{
         id: entity.clone(),
-        physical_state: entity.e_type.typical_physical_state().unwrap_or(PhysicalState {
+        physical_state: entity.e_type().typical_physical_state().unwrap_or(PhysicalState {
             health: Health(0.0),
             meat: Meat(0.0),
             attack: None,
@@ -95,7 +95,7 @@ pub fn default_estimate(entity: & Entity) -> Estimate {
         }),
         hunger: Default::default(),
         food_preferences: EntityType::iter().filter_map(|other| {
-            if entity.e_type.can_eat(&other) {
+            if entity.e_type().can_eat(&other) {
                 Some((other, 0.5))
             }
             else {
@@ -110,7 +110,7 @@ pub fn default_estimate(entity: & Entity) -> Estimate {
 }
 impl std::fmt::Display for Estimate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        writeln!(f, "{:?} ({})", self.id.e_type, self.id.id)?;
+        writeln!(f, "{:?} ({})", self.id.e_type(), self.id.id())?;
         writeln!(f, "Hunger: ({})", self.hunger.0)?;
         writeln!(f, "Preferences:")?;
         for (t, p) in &self.food_preferences {

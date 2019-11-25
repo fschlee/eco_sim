@@ -1,23 +1,64 @@
 use crate::entity_type::EntityType;
 
 type GenID = i16;
+type ID = u32;
 
+
+
+trait  Traits : Sized + Ord + Eq + Copy + std::fmt::Debug{}
+
+impl Traits for EntityType{}
+
+
+impl std::fmt::Display for WorldEntity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "{:?} ({})", self.e_type(), self.id())
+    }
+}
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct Entity {
-    pub id: u32,
-    pub gen: GenID,
-    pub e_type: EntityType,
+    id: ID,
+    gen: GenID,
 }
-impl std::fmt::Display for Entity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{:?} ({})", self.e_type, self.id)
+
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
+pub struct WorldEntity {
+    ent: Entity,
+    e_type: EntityType,
+}
+impl WorldEntity {
+    #[inline]
+    pub fn id(&self) -> usize {
+        self.ent.id as usize
+    }
+    #[inline]
+    pub fn e_type(&self) -> EntityType {
+        self.e_type
+    }
+    pub fn new(ent: Entity, e_type: EntityType) -> Self {
+        Self {ent, e_type}
+    }
+}
+impl Into<Entity> for WorldEntity {
+    fn into(self)-> Entity {
+        self.ent
+    }
+}
+impl<'a> Into<& 'a Entity> for & 'a WorldEntity {
+    fn into(self)-> & 'a Entity {
+        &self.ent
+    }
+}
+impl Into<Entity> for &WorldEntity {
+    fn into(self) -> Entity {
+        self.ent
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct EntityManager {
     generations: Vec<GenID>,
-    types: Vec<EntityType>,
+   //  data: Vec<T>,
     valid: Vec<bool>,
     full_to: usize,
     deleted: u32,
@@ -25,7 +66,8 @@ pub struct EntityManager {
 
 impl EntityManager {
 
-    pub fn destroy(&mut self, entity: Entity) -> Result<(), &str> {
+    pub fn destroy(&mut self, entity: impl Into< Entity>) -> Result<(), &str> {
+        let entity = entity.into();
         debug_assert!(entity.id < self.generations.len() as u32);
         let id = entity.id as usize;
         if self.valid[id] && self.generations[id] == entity.gen {
@@ -39,17 +81,16 @@ impl EntityManager {
             Err("Entity to be destroyed does not exist")
         }
     }
-    pub fn fresh(&mut self, e_type: EntityType) -> Entity {
+    pub fn fresh(&mut self) -> Entity {
         if self.deleted > 0 {
             for i in (self.full_to + 1)..self.valid.len() {
                 if !self.valid[i] {
                     let gen = self.generations[i] + 1;
                     self.generations[i] = gen;
-                    self.types[i] = e_type;
                     self.valid[i] = true;
                     self.deleted -= 1;
                     self.full_to = i;
-                    return Entity { id: i as u32, gen, e_type };
+                    return Entity { id: i as u32, gen };
                 }
             }
         }
@@ -57,32 +98,29 @@ impl EntityManager {
         let len = self.valid.len();
         let gen = 0;
         self.generations.push(gen);
-        self.types.push(e_type);
         self.valid.push(true);
         self.full_to = len;
         Entity {
             id: len as u32,
             gen,
-            e_type
         }
     }
-    pub fn put(&mut self, entity: Entity) -> Result<Entity, Entity> {
-        let Entity{gen, id, e_type} = entity;
+    pub fn put(&mut self, entity: impl Into<Entity>) -> Result<Entity, Entity> {
+        let entity = entity.into();
+        let Entity {gen, id} = entity;
         let id = id as usize;
         if id >= self.generations.len() {
             self.generations.resize(id + 1, -1);
             self.valid.resize(id + 1, false);
             self.generations[id] = gen;
-            self.types[id] = e_type;
             self.valid[id] = true;
             return Ok(entity);
         } if !self.valid[id] && self.generations[id] < gen {
             self.generations[id] = gen;
-            self.types[id] = e_type;
             self.valid[id] = true;
             return Ok(entity)
         } else {
-            return Err(self.fresh(e_type))
+            return Err(self.fresh())
         }
     }
 }
@@ -101,7 +139,6 @@ impl<'a> Iterator for EntityIter<'a> {
                 return Some(Entity {
                     id: self.idx as u32,
                     gen: self.em.generations[self.idx],
-                    e_type: self.em.types[self.idx],
                 });
             }
         }
@@ -124,11 +161,11 @@ pub struct Storage<T> {
 }
 
 impl<T> Storage<T> {
-    pub fn get(&self, entity: &Entity) -> Option<&T> {
-        let Entity { id, gen, e_type : _ } = entity;
-        let id = *id as usize;
+    pub fn get(&self, entity: impl Into<Entity>) -> Option<&T> {
+        let Entity { id, gen} = entity.into();
+        let id = id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
-            if stored_gen == gen {
+            if *stored_gen == gen {
                 if let Some(opt) = self.content.get(id) {
                     return opt.as_ref();
                 }
@@ -136,23 +173,23 @@ impl<T> Storage<T> {
         }
         None
     }
-    pub fn get_mut(&mut self, entity: &Entity) -> Option<&mut T> {
-        let Entity { id, gen, e_type : _ } = entity;
-        let id = *id as usize;
+    pub fn get_mut(&mut self, entity: impl Into<Entity>) -> Option<&mut T> {
+        let Entity { id, gen } = entity.into();
+        let id = id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
-            if stored_gen == gen {
+            if *stored_gen == gen {
                 if let Some(opt) = self.content.get_mut(id) {
                     return opt.as_mut();
                 }
             }
-            else if stored_gen < gen {
+            else if *stored_gen < gen {
                 self.content[id] = None;
             }
         }
         None
     }
-    pub fn get_or_insert_with(& mut self, entity: & Entity, inserter: impl FnOnce() -> T) -> &mut T {
-        let Entity { id, gen, e_type : _  } = entity;
+    pub fn get_or_insert_with(& mut self, entity: impl Into<Entity>, inserter: impl FnOnce() -> T) -> &mut T {
+        let Entity { id, gen  } = &entity.into();
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen > gen {
@@ -178,9 +215,9 @@ impl<T> Storage<T> {
         }
         self.content[id].get_or_insert_with(|| unreachable!())
     }
-    pub fn insert(&mut self, entity: &Entity, val: T) -> Option<(GenID, T)> {
-        let Entity { id, gen, e_type : _ } = entity;
-        let id = *id as usize;
+    pub fn insert(&mut self, entity: impl Into<Entity>, val: T) -> Option<(GenID, T)> {
+        let Entity { id, gen } = entity.into();
+        let id = id as usize;
         let end = self.generations.len();
         if id >= end {
             for _ in end..=id {
@@ -191,14 +228,14 @@ impl<T> Storage<T> {
         let old_gen = self.generations[id];
         let mut old_cont = Some(val);
         std::mem::swap(&mut self.content[id], &mut old_cont);
-        self.generations[id] = *gen;
+        self.generations[id] = gen;
         if old_gen >= 0 && old_cont.is_some() {
             return Some((old_gen, old_cont.unwrap()));
         }
         None
     }
-    pub fn remove(& mut self, entity: &Entity) -> Option<T> {
-        let Entity { id, gen, e_type : _ } = entity;
+    pub fn remove(& mut self, entity: impl Into<Entity>) -> Option<T> {
+        let Entity { id, gen } = &entity.into();
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen <= gen {
@@ -215,7 +252,8 @@ impl<T> Storage<T> {
             generations: Vec::new(),
         }
     }
-    pub fn split_out_mut<'a>(& 'a mut self, entity: &Entity) -> Option<(& 'a mut T, StorageSlice<'a, T>)> {
+    pub fn split_out_mut<'a, E>(& 'a mut self, entity: impl Into<Entity>) -> Option<(& 'a mut T, StorageSlice<'a, T>)> {
+        let entity = entity.into();
         if self.get(entity).is_none() {
             return None;
         }
@@ -270,7 +308,8 @@ pub struct StorageSlice<'a,T> {
     idx: usize,
 }
 impl<'a,T>  StorageSlice<'a,T>  {
-    pub fn get(&self, entity: &Entity) -> Option<&'a T> {
+    pub fn get<E>(&self, entity: impl Into<Entity>) -> Option<&'a T> {
+        let entity = entity.into();
         let idx = entity.id as usize;
         if idx < self.idx {
             if let Some(stored_gen) = self.gen0.get(idx) {

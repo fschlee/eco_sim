@@ -84,8 +84,8 @@ pub enum Action {
     Reset(bool),
     UpdateMentalState(eco_sim::MentalState),
     Hover(LogicalPosition),
-    Move(eco_sim::Entity, LogicalPosition),
-    HighlightVisibility(eco_sim::Entity),
+    Move(eco_sim::WorldEntity, LogicalPosition),
+    HighlightVisibility(eco_sim::WorldEntity),
     ClearHighlight,
 }
 static CAMERA_STEP : f32 = 0.05;
@@ -99,8 +99,8 @@ pub struct UIState {
     hover_start_time: Instant,
     tooltip_index: usize,
     tooltip_active: bool,
-    edit_ent : Option<eco_sim::Entity>,
-    mental_model: Option<eco_sim::Entity>,
+    edit_ent : Option<eco_sim::WorldEntity>,
+    mental_model: Option<eco_sim::WorldEntity>,
     size: LogicalSize,
     pub conrod: cc::Ui,
     pub ids: WidgetIds,
@@ -228,7 +228,7 @@ impl UIState {
                 .set(self.ids.mental_model_canvas, ui);
             if let Some(mm) = self.mental_model {
                 if let Some(ms) = game_state.get_mental_state(&mm) {
-                    let title = format!("{:?} ({})", mm.e_type, mm.id);
+                    let title = format!("{}", mm);
                     cc::widget::Text::new(&title).font_size(32).mid_top_of(self.ids.mental_model_canvas).set(self.ids.mm_title, ui);
                     let mut prev = self.ids.mm_title;
                     let mut i = 0;
@@ -258,7 +258,7 @@ impl UIState {
                     // .right(1024.0)
 
                     .set(self.ids.edit_canvas, ui);
-                let txt = format!("{:?} ({})", edit_ent.e_type, edit_ent.id);
+                let txt = format!("{}", edit_ent);
                 cc::widget::Text::new(&txt).font_size(32).mid_top_of(self.ids.edit_canvas).set(self.ids.dialer_title, ui);
                 if let Some(ms) = game_state.get_mental_state(&edit_ent) {
 

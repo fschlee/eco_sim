@@ -1,6 +1,6 @@
 use crate::ui::Action;
 
-use eco_sim::{SimState, Storage, Entity, MentalState, entity_type::{EntityType, Count}};
+use eco_sim::{SimState, Storage, WorldEntity, MentalState, entity_type::{EntityType, Count}};
 use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
@@ -32,7 +32,7 @@ pub struct GameState{
     // cache: Storage<Command>,
     paused: bool,
     highlighted: HashSet<(usize, usize)>,
-    highlight_visible: Option<Entity>,
+    highlight_visible: Option<WorldEntity>,
     cell_width: f32,
     cell_height: f32,
     margin: f32,
@@ -166,7 +166,7 @@ impl GameState {
     ) -> impl Iterator<Item = (usize, usize, eco_sim::ViewData)> + '_ {
         self.eco_sim.get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT)
     }
-    pub fn get_editable_entity(&self, position: LogicalPosition) -> Option<Entity> {
+    pub fn get_editable_entity(&self, position: LogicalPosition) -> Option<WorldEntity> {
         let sim_pos = self.logical_to_sim_position(position);
         self.eco_sim.entities_at(sim_pos).iter()
             .find(|e| { self.eco_sim.get_mental_state(*e).is_some()}).copied()
@@ -181,10 +181,10 @@ impl GameState {
             }
         }).unwrap_or(0)
     }
-    pub fn get_nth_entity(&self, n: usize, sim_pos: eco_sim::Position) -> Option<Entity> {
+    pub fn get_nth_entity(&self, n: usize, sim_pos: eco_sim::Position) -> Option<WorldEntity> {
         self.eco_sim.entities_at(sim_pos).iter().cycle().dropping(n).next().copied()
     }
-    pub fn get_mental_state(&self, entity: &Entity) -> Option<&MentalState> {
+    pub fn get_mental_state(&self, entity: &WorldEntity) -> Option<&MentalState> {
         self.eco_sim.get_mental_state(entity)
     }
     pub fn logical_to_sim_position(&self, position: LogicalPosition) -> eco_sim::Position {

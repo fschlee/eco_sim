@@ -15,17 +15,17 @@ use crate::{MentalState};
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Action {
     Move(Position),
-    Eat(Entity),
-    Attack(Entity),
+    Eat(WorldEntity),
+    Attack(WorldEntity),
 }
 impl Action {
     pub fn fmt(act: &Option<Action>) -> String {
         match act {
             None => format!("Idle"),
-            Some(Action::Eat(food)) => format!("Eating {:?}", food.e_type),
+            Some(Action::Eat(food)) => format!("Eating {:?}", food.e_type()),
             Some(Action::Move(pos)) => format!("Moving to {:?}", pos),
             Some(Action::Attack(target)) => {
-                format!("Attacking {:?}", target.e_type)
+                format!("Attacking {:?}", target.e_type())
             }
         }
     }
@@ -121,23 +121,23 @@ pub type ViewData = Option<Vec<EntityType>>;
 #[derive(Clone, Debug)]
 pub enum Occupancy {
     Empty,
-    Filled(Vec<Entity>),
-    ExpectedFilled(Vec<Entity>),
+    Filled(Vec<WorldEntity>),
+    ExpectedFilled(Vec<WorldEntity>),
     ExpectedEmpty,
     Unknown,
 }
 
 #[derive(Clone)]
 pub struct World {
-    cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT],
+    cells: [[Option<Vec<WorldEntity>>; MAP_WIDTH]; MAP_HEIGHT],
     pub physical_states: Storage<PhysicalState>,
     pub positions: Storage<Position>,
 }
 
 impl World {
-    pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<Entity>) {
+    pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<WorldEntity>) {
         let area = MAP_WIDTH * MAP_HEIGHT;
-        let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
+        let mut cells: [[Option<Vec<WorldEntity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
         let mut physical_states =  Storage::new();
         let mut positions = Storage::new();
         let mut agents = Vec::new();
@@ -148,8 +148,8 @@ impl World {
                 let x = rng.gen_range(0, MAP_WIDTH);
                 let y = rng.gen_range(0, MAP_HEIGHT);
                 let cell_v = cells[y][x].get_or_insert_with(Vec::new);
-                if cell_v.iter().all(|other| entity_type.can_pass(&other.e_type)) {
-                    let entity = entity_manager.fresh(entity_type);
+                if cell_v.iter().all(|other| entity_type.can_pass(&other.e_type())) {
+                    let entity = WorldEntity::new(entity_manager.fresh(), entity_type);
                     positions.insert(&entity, Position{x : x as u32, y: y as u32});
                     if let Some(phys_state) = entity_type.typical_physical_state() {
                         physical_states.insert(&entity, phys_state);
@@ -173,8 +173,8 @@ impl World {
             agents
         )
     }
-    pub fn respawn(&mut self, entity: &Entity, mental_state: & mut  MentalState, entity_manager: & mut EntityManager) -> Entity {
-        let new_e = entity_manager.fresh(entity.e_type);
+    pub fn respawn(&mut self, entity: &WorldEntity, mental_state: & mut  MentalState, entity_manager: & mut EntityManager) -> WorldEntity {
+        let new_e = WorldEntity::new(entity_manager.fresh(), entity.e_type());
 
 
         let mut random_pos = || {
@@ -183,18 +183,18 @@ impl World {
             Position {x: x as u32, y : y as u32}
         };
         let mut pos = random_pos();
-        while !self.type_can_pass(&entity.e_type, pos) {
+        while !self.type_can_pass(&entity.e_type(), pos) {
             pos = random_pos();
         }
         self.move_unchecked(&new_e, pos);
         mental_state.respawn_as(&new_e);
-        if let Some(phys_state) = entity.e_type.typical_physical_state() {
+        if let Some(phys_state) = entity.e_type().typical_physical_state() {
             self.physical_states.insert(&new_e, phys_state);
         }
         new_e
     }
 
-    pub fn act(&mut self, entity: &Entity, action: Action) -> Result<(), &str> {
+    pub fn act(&mut self, entity: &WorldEntity, action: Action) -> Result<(), &str> {
         if let Some(own_pos) = self.positions.get(entity) {
             match action {
                 Action::Move(pos) => {
@@ -207,7 +207,7 @@ impl World {
                 }
                 Action::Eat(target) => {
                     if self.positions.get(&target) == Some(own_pos) {
-                        if entity.e_type.can_eat(&target.e_type) {
+                        if entity.e_type().can_eat(&target.e_type()) {
                             self.eat_unchecked(entity, &target);
                             Ok(())
                         } else {
@@ -246,11 +246,11 @@ impl World {
             Err("Entity with unknown position acting")
         }
     }
-    fn can_pass(&self, entity: &Entity, position: Position) -> bool {
+    fn can_pass(&self, entity: &WorldEntity, position: Position) -> bool {
         if !position.within_bounds() {
             return false
         }
-        self.type_can_pass(&entity.e_type, position)
+        self.type_can_pass(&entity.e_type(), position)
 
     }
     pub fn type_can_pass(&self, entity_type: & EntityType, position: Position) -> bool {
@@ -259,13 +259,13 @@ impl World {
         }
         self.entities_at(position)
                 .iter()
-                .all(|e| entity_type.can_pass(&e.e_type))
+                .all(|e| entity_type.can_pass(&e.e_type()))
     }
-    pub fn observe_as(&self, entity: &Entity) -> impl Observation + '_ {
+    pub fn observe_as(&self, entity: &WorldEntity) -> impl Observation + '_ {
         let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
         self.observe_in_radius(entity, radius)
     }
-    pub fn observe_in_radius(&self, entity: &Entity, radius: u32) -> impl Observation +'_ {
+    pub fn observe_in_radius(&self, entity: &WorldEntity, radius: u32) -> impl Observation +'_ {
         let pos = match self.positions.get(entity) {
             Some(pos) => pos.clone(),
             None => Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 },
@@ -273,11 +273,11 @@ impl World {
         RadiusObservation::new(radius, pos, self)
 
     }
-    pub fn get_physical_state(&self, entity: &Entity) -> Option<&PhysicalState> {
+    pub fn get_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState> {
         self.physical_states.get(entity)
     }
     pub fn advance(&mut self) {}
-    pub fn entities_at(&self, position: Position) -> &[Entity] {
+    pub fn entities_at(&self, position: Position) -> &[WorldEntity] {
         let x = position.x as usize;
         let y = position.y as usize;
         if x < MAP_WIDTH && y < MAP_HEIGHT {
@@ -287,19 +287,19 @@ impl World {
         }
         return &[];
     }
-    fn entities_at_mut(&mut self, position: Position) -> &mut Vec<Entity> {
+    fn entities_at_mut(&mut self, position: Position) -> &mut Vec<WorldEntity> {
         let x = position.x as usize;
         let y = position.y as usize;
         let entry = &mut self.cells[y][x];
         entry.get_or_insert(Vec::new())
     }
-    fn move_unchecked(&mut self, entity: &Entity, new_position: Position) {
+    fn move_unchecked(&mut self, entity: &WorldEntity, new_position: Position) {
         if let Some((_, old_pos)) = self.positions.insert(entity, new_position) {
             self.entities_at_mut(old_pos).retain(|e| e != entity);
         }
         self.entities_at_mut(new_position).push(entity.clone());
     }
-    fn eat_unchecked(&mut self, eater: &Entity, eaten: &Entity) {
+    fn eat_unchecked(&mut self, eater: &WorldEntity, eaten: &WorldEntity) {
         let decrement = 5.0;
         self.physical_states
             .get_mut(eater)
@@ -337,7 +337,7 @@ impl World {
                         let res = match oes {
                             Some(es) => Some(
                                 es.iter()
-                                    .map(|e| e.e_type)
+                                    .map(|e| e.e_type())
                                     .collect::<Vec<_>>(),
                             ),
                             None => None,
@@ -356,14 +356,14 @@ impl std::fmt::Debug for World {
 pub trait Observation: Clone {
     type B: Observation;
     fn borrow<'a>(& 'a self) -> Self::B;
-    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a>;
-    fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool>;
-    fn entities_at(&self, position: Position) -> &[Entity];
-    fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState>;
-    fn observed_position(& self, entity: &Entity) -> Option<Position>;
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&WorldEntity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(WorldEntity, Position)> + 'a>;
+    fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool>;
+    fn entities_at(&self, position: Position) -> &[WorldEntity];
+    fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState>;
+    fn observed_position(& self, entity: &WorldEntity) -> Option<Position>;
     fn into_expected(& self, filler: impl Fn(Position) -> Option<Vec<EntityType>>, mut rng: impl Rng) -> (EntityManager, World, AgentSystem) {
 
-        let mut cells: [[Option<Vec<Entity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
+        let mut cells: [[Option<Vec<WorldEntity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
         let mut entity_manager = EntityManager::default();
         let mut physical_states = Storage::new();
         let mut positions = Storage::new();
@@ -374,10 +374,11 @@ pub trait Observation: Clone {
         let pos = Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 };
         let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
         for (e, p) in self.find_closest(pos, |_, _| true) {
-            if let Ok(new_e) = entity_manager.put(e) {
+            if let Ok(ent) = entity_manager.put(e) {
+                let new_e = WorldEntity::new(ent, e.e_type());
                 positions.insert(&new_e, p);
                 insert_cell(new_e, p);
-                if let Some(ps) = e.e_type.typical_physical_state() {
+                if let Some(ps) = e.e_type().typical_physical_state() {
                     physical_states.insert(&new_e, ps);
                     agents.push(new_e);
                 }
@@ -395,13 +396,13 @@ impl<'b> Observation for & 'b World {
     fn borrow<'a>(& 'a self) -> Self {
         self.clone()
     }
-    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, Self) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a> {
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&WorldEntity, Self) -> bool + 'a) -> Box<dyn Iterator<Item=(WorldEntity, Position)> + 'a> {
         Box::new(EntityWalker::new(self, starting_point, std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32).filter(move |(e, p)| predicate(e, self)))
     }
-    fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool> {
+    fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool> {
         Some(self.can_pass(entity, position))
     }
-    fn entities_at(&self, position: Position) -> &[Entity] {
+    fn entities_at(&self, position: Position) -> &[WorldEntity] {
         let x = position.x as usize;
         let y = position.y as usize;
         if x < MAP_WIDTH && y < MAP_HEIGHT {
@@ -411,10 +412,10 @@ impl<'b> Observation for & 'b World {
         }
         return &[];
     }
-    fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState> {
+    fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState> {
         self.get_physical_state(entity)
     }
-    fn observed_position(& self, entity: &Entity) -> Option<Position>{
+    fn observed_position(& self, entity: &WorldEntity) -> Option<Position>{
         self.positions.get(entity).copied()
     }
 
@@ -435,17 +436,17 @@ impl<'b> Observation for RadiusObservation<'b> {
     fn borrow<'a>(& 'a self) -> Self {
         self.clone()
     }
-    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&Entity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(Entity, Position)> + 'a> {
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&WorldEntity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(WorldEntity, Position)> + 'a> {
         Box::new(EntityWalker::new(self.world, starting_point, self.radius).filter(
             move |(e, p)| self.center.distance(p) <= self.radius &&  predicate(e, self.world)))
     }
-    fn known_can_pass(&self, entity: &Entity, position: Position) -> Option<bool> {
+    fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool> {
         if self.center.distance(&position) > self.radius {
             return None;
         }
         Some(self.world.can_pass(entity, position))
     }
-    fn observed_physical_state(&self, entity: &Entity) -> Option<&PhysicalState> {
+    fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState> {
         if let Some(pos)= self.world.positions.get(entity) {
             if pos.distance(&self.center) <= self.radius {
                 return self.world.get_physical_state(entity)
@@ -453,7 +454,7 @@ impl<'b> Observation for RadiusObservation<'b> {
         }
         None
     }
-    fn observed_position(&self, entity: &Entity) -> Option<Position> {
+    fn observed_position(&self, entity: &WorldEntity) -> Option<Position> {
         if let Some(pos)= self.world.positions.get(entity) {
             if pos.distance(&self.center) <= self.radius {
                 return Some(*pos)
@@ -461,7 +462,7 @@ impl<'b> Observation for RadiusObservation<'b> {
         }
         None
     }
-    fn entities_at(&self, position: Position) -> &[Entity] {
+    fn entities_at(&self, position: Position) -> &[WorldEntity] {
         if self.center.distance(&position) <= self.radius {
             return self.world.entities_at(position);
         }
@@ -471,7 +472,7 @@ impl<'b> Observation for RadiusObservation<'b> {
 struct EntityWalker<'a> {
     position_walker: PositionWalker,
     world: &'a World,
-    current: &'a [Entity],
+    current: &'a [WorldEntity],
     current_pos: Position,
     subindex: usize,
 }
@@ -488,7 +489,7 @@ impl<'a> EntityWalker<'a> {
     }
 }
 impl<'a> Iterator for EntityWalker<'a> {
-    type Item = (Entity, Position);
+    type Item = (WorldEntity, Position);
     fn next(& mut self) -> Option<Self::Item> {
         if self.subindex < self.current.len() {
             let item = self.current[self.subindex].clone();

@@ -32,17 +32,17 @@ impl PartialOrd for PathNode {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 pub enum Behavior {
     Search(Vec<EntityType>),
-    FleeFrom(Entity),
-    Hunt(Entity),
-    Partake(Entity),
+    FleeFrom(WorldEntity),
+    Hunt(WorldEntity),
+    Partake(WorldEntity),
 }
 impl Behavior {
     pub fn fmt(bhv: &std::option::Option<Behavior>) -> String {
         match bhv {
             None => format!("Undecided"),
-            Some(Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", enemy.e_type),
-            Some(Behavior::Hunt(prey)) => format!("hunting {:?} ", prey.e_type),
-            Some(Behavior::Partake(food)) => format!("partaking of  {:?} ", food.e_type),
+            Some(Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", enemy.e_type()),
+            Some(Behavior::Hunt(prey)) => format!("hunting {:?} ", prey.e_type()),
+            Some(Behavior::Partake(food)) => format!("partaking of  {:?} ", food.e_type()),
             Some(Behavior::Search(target)) => format!("searching for {:?}", target),
         }
     }
@@ -69,7 +69,7 @@ pub type Threat = f32;
 
 #[derive(Clone, Debug)]
 pub struct MentalState {
-    pub id: Entity,
+    pub id: WorldEntity,
     pub hunger: Hunger,
     pub food_preferences: Vec<(EntityType, Reward)>,
     pub current_action: Option<Action>,
@@ -81,7 +81,7 @@ pub struct MentalState {
 }
 
 impl MentalState {
-    pub fn new(entity: Entity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
+    pub fn new(entity: WorldEntity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
         assert!(food_preferences.len() > 0);
         Self{
             id: entity,
@@ -91,7 +91,7 @@ impl MentalState {
             current_behavior: None,
             sight_radius: 5,
             use_mdp,
-            rng: rand::SeedableRng::seed_from_u64(entity.id as u64),
+            rng: rand::SeedableRng::seed_from_u64(entity.id() as u64),
             estimates: Storage::new()
         }
     }
@@ -148,7 +148,7 @@ impl MentalState {
         own_position: Position,
         observation: impl Observation,
     ) {
-        let own_type = self.id.e_type.clone();
+        let own_type = self.id.e_type();
         if let Some((predator, threat)) = self.calculate_threat(own_position, observation.borrow()).iter().max_by(|(_, t1), (_, t2)| f32_cmp(t1, t2)) {
             if *threat > FLEE_THREAT {
                 self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
@@ -156,9 +156,9 @@ impl MentalState {
         }
         if self.current_behavior.is_none() && self.hunger > HUNGER_THRESHOLD {
             if let Some((reward, food, position)) = observation.find_closest(own_position, |e, w| {
-                self.id.e_type.can_eat(&e.e_type)
+                self.id.e_type().can_eat(&e.e_type())
             }).filter_map(|(e, p)| {
-                if let Some(rw) = self.lookup_preference(e.e_type) {
+                if let Some(rw) = self.lookup_preference(e.e_type()) {
                     let dist = own_position.distance(&p) as f32 * 0.05;
                     Some((rw - dist, e, p))
                 } else {
@@ -261,7 +261,7 @@ impl MentalState {
             }
             Some(Behavior::Search(list)) => {
                 if let Some(_) = observation.find_closest(own_position, |e, w| {
-                     list.contains(&e.e_type)
+                     list.contains(&e.e_type())
                 }).next() {
                     self.current_behavior = None;
                 }
@@ -286,7 +286,7 @@ impl MentalState {
                 },
                 Action::Eat(food) => {
                     if hunger > HUNGER_THRESHOLD {
-                        if let Some((_, pref)) = self.food_preferences.iter().find(|(et, pref)| et == &food.e_type) {
+                        if let Some((_, pref)) = self.food_preferences.iter().find(|(et, pref)| et == &food.e_type()) {
                             return 0.2 + pref;
                         }
                     }
@@ -395,10 +395,10 @@ impl MentalState {
       //  physical_state: &PhysicalState,
         own_position: Position,
         observation: impl Observation,
-    ) -> Vec<(Entity, Threat)>{
+    ) -> Vec<(WorldEntity, Threat)>{
         let mut rng = self.rng.clone();
         observation.find_closest(own_position, |e, w| {
-            e.e_type.can_eat(&self.id.e_type)
+            e.e_type().can_eat(&self.id.e_type())
         }).filter_map(|(entity, position)| {
             match self.path_as(position, own_position, &entity, observation.borrow()){
                 Some(v) => {
@@ -407,7 +407,7 @@ impl MentalState {
                     let mut scorer = |estimate : &Estimate| {
                         for _ in 0..10 {
                             let pred_ms = estimate.sample(0.5, &mut rng);
-                            pred_ms.lookup_preference(self.id.e_type).map(|pref| {
+                            pred_ms.lookup_preference(self.id.e_type()).map(|pref| {
                                 let mut score = pred_ms.hunger.0 * pref * inv_dist;
                                 if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
                                     if prey == self.id {
@@ -431,7 +431,7 @@ impl MentalState {
         self.path_as(current, goal, &self.id, observation)
     }
 
-    pub fn path_as(&self, start: Position, goal: Position, entity: &Entity, observation: impl Observation) -> Option<Vec<Position>> {
+    pub fn path_as(&self, start: Position, goal: Position, entity: &WorldEntity, observation: impl Observation) -> Option<Vec<Position>> {
         let mut came_from : PositionMap<Position> = PositionMap::new();
         let mut cost = PositionMap::new();
         let mut queue = BinaryHeap::new();
@@ -490,20 +490,20 @@ impl MentalState {
             }
         })
     }
-    pub fn respawn_as(&mut self, entity: &Entity) {
+    pub fn respawn_as(&mut self, entity: &WorldEntity) {
         self.id = entity.clone();
         self.hunger = Hunger::default();
         self.current_action = None;
         self.current_behavior = None;
     }
-    fn get_estimate_or_init(& mut self, entity: & Entity, observation: impl Observation) -> &mut Estimate {
+    fn get_estimate_or_init(& mut self, entity: &WorldEntity, observation: impl Observation) -> &mut Estimate {
         self.estimates.get_or_insert_with(entity, || default_estimate(entity))
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct AgentSystem {
-    agents: Vec<Entity>,
+    agents: Vec<WorldEntity>,
     pub mental_states: Storage<MentalState>,
 }
 
@@ -569,10 +569,13 @@ impl AgentSystem {
             }
         }
     }
-    pub fn init(agents: Vec<Entity>, world: &World, use_mdp: bool, mut rng: impl Rng) -> Self {
+    pub fn init(agents: Vec<WorldEntity>, world: &World, use_mdp: bool, mut rng: impl Rng) -> Self {
         let mut mental_states = Storage::new();
         for agent in &agents {
-            let food_prefs = EntityType::iter().filter(|e|agent.e_type.can_eat(e)).map(|e| (e.clone(), rng.gen_range(0.0, 1.0))).collect();
+            let food_prefs = EntityType::iter()
+                .filter(|e|agent.e_type().can_eat(e))
+                .map(|e| (e.clone(), rng.gen_range(0.0, 1.0)))
+                .collect();
             mental_states.insert(agent, MentalState::new(agent.clone(), food_prefs, use_mdp));
 
         }
