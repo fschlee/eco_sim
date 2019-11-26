@@ -9,5 +9,10 @@ layout (location = 3) flat in uint frag_mode;
 layout (location = 0) out vec4 color;
 void main()
 {
-    color = frag_color;
+    if (frag_mode == 1) {
+        color = frag_color * texture(sampler2D(tex, samp), vec2(frag_uv.s, frag_uv.t));
+    }
+    else {
+        color = frag_color;
+    }
 }
