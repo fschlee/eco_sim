@@ -1,6 +1,8 @@
 #![feature(vec_remove_item)]
 #![feature(proc_macro_hygiene)]
 
+#![feature(type_alias_impl_trait)]
+
 pub mod entity;
 pub mod entity_type;
 pub mod world;
@@ -64,6 +66,9 @@ impl SimState {
     }
     pub fn get_mental_state(&self, entity :&WorldEntity) -> Option<&MentalState> {
         self.agent_system.mental_states.get(entity)
+    }
+    pub fn get_mental_model(&  self, entity: &WorldEntity) -> Option<impl Iterator<Item = & impl agent::estimator::MentalStateRep>> {
+        self.agent_system.get_representation_source(entity.into())
     }
     pub fn get_visibility(& self, entity: &WorldEntity) -> impl Iterator<Item=Position> {
         let pos = self.world.positions.get(entity);

@@ -1,14 +1,15 @@
 use rand::{Rng};
 use rand_distr::{Normal, StandardNormal, Distribution};
+use std::borrow::Borrow;
 
 use crate::agent::{MentalState, Behavior, Hunger, Reward};
-use super::estimator::Estimator;
+use super::estimator::MentalStateRep;
 use crate::entity::{WorldEntity, Storage, Source};
 use crate::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
 use crate::entity_type::{EntityType};
 
 #[derive(Clone, Debug)]
-pub struct Estimate {
+pub struct PointEstimateRep {
     pub id: WorldEntity,
     pub physical_state: PhysicalState,
     pub hunger: Hunger,
@@ -18,7 +19,7 @@ pub struct Estimate {
     pub sight_radius: u32,
     pub use_mdp: bool,
 }
-impl Estimate {
+impl PointEstimateRep {
     pub fn update(&mut self, ms: &MentalState){
         self.hunger = ms.hunger;
         self.food_preferences = ms.food_preferences.clone();
@@ -27,23 +28,7 @@ impl Estimate {
     }
 }
 
-impl Into<MentalState> for &Estimate {
-    fn into(self) -> MentalState {
-        MentalState {
-            id: self.id,
-            hunger: self.hunger,
-            food_preferences: self.food_preferences.clone(),
-            current_action: self.current_action,
-            current_behavior: self.current_behavior.clone(),
-            sight_radius: self.sight_radius,
-            use_mdp: false,
-            rng: rand::SeedableRng::seed_from_u64(self.id.id() as u64),
-            estimates: Storage::new()
-        }
-    }
-}
-
-impl Estimator for Estimate {
+impl MentalStateRep for PointEstimateRep {
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState {
         let mut sample : MentalState = self.into();
         let mut hunger_sample = rng.sample(Normal::new(self.hunger.0, scale * 10.0).unwrap()); // can only fail if std_dev < 0 or nan;
@@ -86,35 +71,50 @@ impl Estimator for Estimate {
         //TODO
     }
     fn into_ms(&self) -> MentalState {
-        self.into()
+        MentalState {
+            id: self.id,
+            hunger: self.hunger,
+            food_preferences: self.food_preferences.clone(),
+            current_action: self.current_action,
+            current_behavior: self.current_behavior.clone(),
+            sight_radius: self.sight_radius,
+            use_mdp: false,
+            rng: rand::SeedableRng::seed_from_u64(self.id.id() as u64),
+        }
+    }
+    fn from_aggregate<B>(we: &WorldEntity, iter: impl Iterator<Item=B>) -> Self where B: Borrow<Self> {
+        Self::default(we)
+    }
+    fn default(entity: &WorldEntity) -> Self {
+        PointEstimateRep {
+            id: entity.clone(),
+            physical_state: entity.e_type().typical_physical_state().unwrap_or(PhysicalState {
+                health: Health(0.0),
+                meat: Meat(0.0),
+                attack: None,
+                satiation: Satiation(0.0)
+            }),
+            hunger: Default::default(),
+            food_preferences: EntityType::iter().filter_map(|other| {
+                if entity.e_type().can_eat(&other) {
+                    Some((other, 0.5))
+                }
+                else {
+                    None
+                }
+            }).collect(),
+            current_action: None,
+            current_behavior: None,
+            sight_radius: 5,
+            use_mdp: false
+        }
+    }
+    fn get_type(&self) -> EntityType{
+        self.id.e_type()
     }
 }
 
-pub fn default_estimate(entity: &WorldEntity) -> Estimate {
-    Estimate{
-        id: entity.clone(),
-        physical_state: entity.e_type().typical_physical_state().unwrap_or(PhysicalState {
-            health: Health(0.0),
-            meat: Meat(0.0),
-            attack: None,
-            satiation: Satiation(0.0)
-        }),
-        hunger: Default::default(),
-        food_preferences: EntityType::iter().filter_map(|other| {
-            if entity.e_type().can_eat(&other) {
-                Some((other, 0.5))
-            }
-            else {
-                None
-            }
-        }).collect(),
-        current_action: None,
-        current_behavior: None,
-        sight_radius: 5,
-        use_mdp: false
-    }
-}
-impl std::fmt::Display for Estimate {
+impl std::fmt::Display for PointEstimateRep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         writeln!(f, "{:?} ({})", self.id.e_type(), self.id.id())?;
         writeln!(f, "Hunger: ({})", self.hunger.0)?;

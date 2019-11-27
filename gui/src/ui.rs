@@ -227,27 +227,27 @@ impl UIState {
                 //                 .left_from(self.ids.edit_canvas, 60.0)
                 .set(self.ids.mental_model_canvas, ui);
             if let Some(mm) = self.mental_model {
-                if let Some(ms) = game_state.get_mental_state(&mm) {
-                    let title = format!("{}", mm);
-                    cc::widget::Text::new(&title).font_size(32).mid_top_of(self.ids.mental_model_canvas).set(self.ids.mm_title, ui);
-                    let mut prev = self.ids.mm_title;
-                    let mut i = 0;
-                    for mental_model in &ms.estimates {
+                let title = format!("{}", mm);
+                cc::widget::Text::new(&title).font_size(32).mid_top_of(self.ids.mental_model_canvas).set(self.ids.mm_title, ui);
+                let mut prev = self.ids.mm_title;
+                let mut i = 0;
+                if let Some(mental_model) = game_state.get_mental_model(&mm) {
+                    for item in mental_model  {
                         if i >= self.ids.mental_models.len() {
                             extend += 1;
                             continue;
                         }
                         let m_id =  self.ids.mental_models[i];
                         i+=1;
-                        let txt = format!("{}", mental_model);
+                        let txt = format!("{}", item);
                         cc::widget::Text::new(&txt).font_size(12)
                             .parent(self.ids.mental_model_canvas)
                             .down_from(prev, 60.0)
                             .align_left().set(m_id, ui);
                         prev = m_id;
                     }
-
                 }
+
             }
             if let Some(edit_ent) = self.edit_ent {
                 cc::widget::Canvas::new().pad(0.0)

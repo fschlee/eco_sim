@@ -4,15 +4,18 @@ pub mod estimator;
 use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
 use log:: {error, info};
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap};
 
 use super::world::*;
 use super::entity::*;
 use super::entity_type::{EntityType};
-use super::estimate::{Estimate, default_estimate};
-use super::estimator::Estimator;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
+
+use estimate::{PointEstimateRep};
+use estimator::MentalStateRep;
+use crate::agent::estimator::{ LearningEstimator, Estimator};
+use std::collections::hash_map::RandomState;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct PathNode {
@@ -79,8 +82,23 @@ pub struct MentalState {
     pub sight_radius: u32,
     pub use_mdp: bool,
     pub rng: rand_xorshift::XorShiftRng,
-    pub estimates: Storage<Estimate>
 }
+
+impl<R: MentalStateRep> From<&R> for MentalState {
+    fn from(rep: &R) -> Self {
+        rep.into_ms()
+    }
+}
+/*
+existential type TOM : TheoryOfMind;
+
+pub struct Agent<'a> {
+    ms: & 'a mut MentalState,
+    ps: & 'a PhysicalState,
+    tom: impl TOM,
+    obs: impl Observation,
+}
+*/
 
 impl MentalState {
     pub fn new(entity: WorldEntity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
@@ -94,7 +112,6 @@ impl MentalState {
             sight_radius: 5,
             use_mdp,
             rng: rand::SeedableRng::seed_from_u64(entity.id() as u64),
-            estimates: Storage::new()
         }
     }
     pub fn decide(
@@ -406,7 +423,7 @@ impl MentalState {
                 Some(v) => {
                     let mut total = 0.0;
                     let inv_dist = 1.0 / v.len() as f32;
-                    let mut scorer = |estimate : &Estimate| {
+                    let mut scorer = |estimate : &PointEstimateRep| {
                         for _ in 0..10 {
                             let pred_ms = estimate.sample(0.5, &mut rng);
                             pred_ms.lookup_preference(self.id.e_type()).map(|pref| {
@@ -422,7 +439,7 @@ impl MentalState {
                             });
                         }
                     };
-                    self.estimates.get(&entity).map(|e | scorer(e)).unwrap_or_else(  || scorer(&default_estimate(&entity)));
+                   //  self.estimates.get(&entity).map(|e | scorer(e)).unwrap_or_else(  || scorer(&default_estimate(&entity)));
                     Some((entity, total))
                 },
                 _ => None
@@ -498,15 +515,15 @@ impl MentalState {
         self.current_action = None;
         self.current_behavior = None;
     }
-    fn get_estimate_or_init(& mut self, entity: &WorldEntity, observation: impl Observation) -> &mut Estimate {
-        self.estimates.get_or_insert_with(entity, || default_estimate(entity))
-    }
 }
-
+type EstimateRep = PointEstimateRep;
+type EstimatorT = LearningEstimator<EstimateRep>;
 #[derive(Clone, Debug, Default)]
 pub struct AgentSystem {
     agents: Vec<WorldEntity>,
     pub mental_states: Storage<MentalState>,
+    pub estimators: Vec<LearningEstimator<EstimateRep>>,
+    pub estimator_map: HashMap<Entity, usize, RandomState>,
 }
 
 impl AgentSystem {
@@ -535,28 +552,8 @@ impl AgentSystem {
                 },
             };
             if let Some(other_pos) = world.positions.get(entity){
-                for agent in &self.agents {
-                    if let (Some(ms), Some(own_pos)) =
-                    (self.mental_states.get_mut(agent), world.positions.get(agent)) {
-                        let sight = ms.sight_radius;
-                        let observation = world.observe_in_radius(agent, sight); // &(*world);//
-                        let dist = own_pos.distance(other_pos);
-                        if dist <= sight {
-                            ms.get_estimate_or_init(entity, observation.borrow());
-                        }
-                        if let Some((es, sc)) = ms.estimates.split_out_mut(entity) {
-                            if dist <= sight {
-                                es.update_seen(opt_action.clone(), &sc, observation);
-                            }
-                            else {
-                                es.update_unseen(&sc, observation);
-                            }
-                        }
-
-
-
-
-                    }
+                for est in & mut self.estimators {
+                    est.learn(opt_action, *entity, *other_pos, world)
                 }
             }
             if let Some(action) = opt_action {
@@ -579,17 +576,31 @@ impl AgentSystem {
             }
         }
     }
+    pub fn get_estimator(&self, entity: Entity) -> Option<&EstimatorT> {
+        if let Some(i) = self.estimator_map.get(&entity) {
+            return self.estimators.get(*i)
+        }
+        None
+    }
+    pub fn get_representation_source<'a>(& 'a self, entity: Entity) -> Option<impl Iterator<Item = & impl MentalStateRep> + 'a> {
+        self.get_estimator(entity).map(|r| r.estimators.into_iter())
+    }
     pub fn init(agents: Vec<WorldEntity>, world: &World, use_mdp: bool, mut rng: impl Rng) -> Self {
+        let mut estimators = Vec::new();
+        let mut estimator_map = HashMap::new();
         let mut mental_states = Storage::new();
         for agent in &agents {
             let food_prefs = EntityType::iter()
                 .filter(|e|agent.e_type().can_eat(e))
                 .map(|e| (e.clone(), rng.gen_range(0.0, 1.0)))
                 .collect();
-            mental_states.insert(agent, MentalState::new(agent.clone(), food_prefs, use_mdp));
+            let ms = MentalState::new(agent.clone(), food_prefs, use_mdp);
+            estimator_map.insert(agent.into(), estimators.len());
+            estimators.push(LearningEstimator::new( vec![(*agent, ms.sight_radius)]));
+            mental_states.insert(agent, ms);
 
         }
-        Self{ agents, mental_states}
+        Self{ agents, mental_states, estimators, estimator_map}
     }
 }
 #[inline]

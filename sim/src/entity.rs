@@ -15,7 +15,7 @@ impl std::fmt::Display for WorldEntity {
         write!(f, "{:?} ({})", self.e_type(), self.id())
     }
 }
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Hash)]
 pub struct Entity {
     id: ID,
     gen: GenID,
@@ -350,11 +350,20 @@ impl<'a, T> IntoIterator for & 'a StorageSlice<'a,T> {
     }
 }
 
-pub trait Source<'a, T> {
-    fn get(&'a self,  entity: impl Into<Entity>) -> Option<T>;
+impl<'a, 'b, T> IntoIterator for &'b & 'a StorageSlice<'a,T> {
+    type IntoIter = StorageSliceIter<'a, T> ;
+    type Item = &'a T;
+    fn into_iter(self) -> Self::IntoIter {
+        Self::IntoIter{ slice: *self, idx: 0 }
+    }
 }
 
-impl<'a, T, F> Source<'a, T> for & 'a StorageSlice<'a,F> where & 'a F: Into<T> {
+pub trait Source<'a, T>  {
+    fn get(&'a self,  entity: impl Into<Entity>) -> Option<T>;
+    fn iter(&'a self) -> Box<dyn Iterator<Item=T> +'a>;
+}
+
+impl<'a, T: 'a, F: 'static> Source<'a, T> for & 'a StorageSlice<'a,F> where & 'a F: Into<T> {
     fn get(& 'a self, entity: impl Into<Entity>) -> Option<T> {
         let entity = entity.into();
         let idx = entity.id as usize;
@@ -378,6 +387,10 @@ impl<'a, T, F> Source<'a, T> for & 'a StorageSlice<'a,F> where & 'a F: Into<T> {
         }
         None
     }
+    fn iter(& 'a self) -> Box<dyn Iterator<Item=T> + 'a> {
+        Box::new(self.into_iter().map(Into::into))
+    }
+
 }
 /*
 impl<T> Source<T> for Storage<T> {
@@ -392,8 +405,12 @@ impl<'a, T, F> Source<T> for StorageSlice<'a, F> where &F: Into<T> {
         self.get( entity).map(|e | e.into())
     }
 }*/
-impl<'a, T, F: 'a> Source<'a, T> for Storage<F> where &'a F: Into<T> {
+impl<'a, T, I: 'a> Source<'a, T> for Storage<I>
+        where &'a I: Into<T>  {
     fn get(& 'a self, entity: impl Into<Entity>) -> Option<T> {
         self.get( entity).map(|e | e.into())
+    }
+    fn iter(& 'a self) -> Box<dyn Iterator<Item=T> +'a> {
+        Box::new(self.into_iter().map(|e| e.into()))
     }
 }
