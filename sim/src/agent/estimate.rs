@@ -1,11 +1,11 @@
 use rand::{Rng};
 use rand_distr::{Normal, StandardNormal, Distribution};
 
-use super::agent::{MentalState, Behavior, Hunger, Reward};
+use crate::agent::{MentalState, Behavior, Hunger, Reward};
 use super::estimator::Estimator;
-use super::entity::{WorldEntity, Storage, Source};
-use super::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
-use super::entity_type::{EntityType};
+use crate::entity::{WorldEntity, Storage, Source};
+use crate::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
+use crate::entity_type::{EntityType};
 
 #[derive(Clone, Debug)]
 pub struct Estimate {

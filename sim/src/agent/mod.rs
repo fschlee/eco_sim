@@ -1,3 +1,5 @@
+pub mod estimate;
+pub mod estimator;
 
 use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
