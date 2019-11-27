@@ -538,14 +538,22 @@ impl AgentSystem {
                     (self.mental_states.get_mut(agent), world.positions.get(agent)) {
                         let sight = ms.sight_radius;
                         let observation = world.observe_in_radius(agent, sight); // &(*world);//
-                        if own_pos.distance(other_pos) <= sight {
-                            ms.get_estimate_or_init(entity, observation.borrow())
-                                .update_seen(opt_action.clone(), observation);
+                        let dist = own_pos.distance(other_pos);
+                        if dist <= sight {
+                            ms.get_estimate_or_init(entity, observation.borrow());
+                        }
+                        if let Some((es, sc)) = ms.estimates.split_out_mut(entity) {
+                            if dist <= sight {
+                                es.update_seen(opt_action.clone(), &sc, observation);
+                            }
+                            else {
+                                es.update_unseen(&sc, observation);
+                            }
+                        }
 
-                        }
-                        else {
-                            ms.estimates.get_mut(entity).map(|e| e.update_unseen(observation));
-                        }
+
+
+
                     }
                 }
             }

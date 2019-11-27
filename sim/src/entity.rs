@@ -252,7 +252,7 @@ impl<T> Storage<T> {
             generations: Vec::new(),
         }
     }
-    pub fn split_out_mut<'a, E>(& 'a mut self, entity: impl Into<Entity>) -> Option<(& 'a mut T, StorageSlice<'a, T>)> {
+    pub fn split_out_mut<'a>(& 'a mut self, entity: impl Into<Entity>) -> Option<(& 'a mut T, StorageSlice<'a, T>)> {
         let entity = entity.into();
         if self.get(entity).is_none() {
             return None;
@@ -300,6 +300,7 @@ impl<'a, T> Iterator for StorageIter<'a, T> {
         None
     }
 }
+#[derive(Clone)]
 pub struct StorageSlice<'a,T> {
     gen0: & 'a [GenID],
     gen1: & 'a [GenID],
@@ -308,29 +309,7 @@ pub struct StorageSlice<'a,T> {
     idx: usize,
 }
 impl<'a,T>  StorageSlice<'a,T>  {
-    pub fn get<E>(&self, entity: impl Into<Entity>) -> Option<&'a T> {
-        let entity = entity.into();
-        let idx = entity.id as usize;
-        if idx < self.idx {
-            if let Some(stored_gen) = self.gen0.get(idx) {
-                if *stored_gen == entity.gen {
-                    if let Some(opt) = self.con0.get(idx) {
-                        return opt.as_ref();
-                    }
-                }
-            }
-        }
-        else if idx > self.idx {
-            if let Some(stored_gen) = self.gen1.get(idx) {
-                if *stored_gen == entity.gen {
-                    if let Some(opt) = self.con1.get(idx) {
-                        return opt.as_ref();
-                    }
-                }
-            }
-        }
-        None
-    }
+
 }
 
 pub struct StorageSliceIter<'a, T> {
@@ -368,5 +347,53 @@ impl<'a, T> IntoIterator for & 'a StorageSlice<'a,T> {
     type Item = &'a T;
     fn into_iter(self) -> Self::IntoIter {
         Self::IntoIter{ slice: self, idx: 0 }
+    }
+}
+
+pub trait Source<'a, T> {
+    fn get(&'a self,  entity: impl Into<Entity>) -> Option<T>;
+}
+
+impl<'a, T, F> Source<'a, T> for & 'a StorageSlice<'a,F> where & 'a F: Into<T> {
+    fn get(& 'a self, entity: impl Into<Entity>) -> Option<T> {
+        let entity = entity.into();
+        let idx = entity.id as usize;
+        if idx < self.idx {
+            if let Some(stored_gen) = self.gen0.get(idx) {
+                if *stored_gen == entity.gen {
+                    if let Some(opt) = self.con0.get(idx) {
+                        return opt.as_ref().map(Into::into);
+                    }
+                }
+            }
+        }
+        else if idx > self.idx {
+            if let Some(stored_gen) = self.gen1.get(idx) {
+                if *stored_gen == entity.gen {
+                    if let Some(opt) = self.con1.get(idx) {
+                        return opt.as_ref().map(Into::into);
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+/*
+impl<T> Source<T> for Storage<T> {
+    fn get(&self, entity: impl Into<Entity>) -> Option<&T> {
+        Storage::get(self, entity)
+    }
+}
+*/
+/*
+impl<'a, T, F> Source<T> for StorageSlice<'a, F> where &F: Into<T> {
+    fn get(&self, entity: impl Into<Entity>) -> Option<T> {
+        self.get( entity).map(|e | e.into())
+    }
+}*/
+impl<'a, T, F: 'a> Source<'a, T> for Storage<F> where &'a F: Into<T> {
+    fn get(& 'a self, entity: impl Into<Entity>) -> Option<T> {
+        self.get( entity).map(|e | e.into())
     }
 }

@@ -3,7 +3,7 @@ use rand_distr::{Normal, StandardNormal, Distribution};
 
 use super::agent::{MentalState, Behavior, Hunger, Reward};
 use super::estimator::Estimator;
-use super::entity::{WorldEntity, Storage};
+use super::entity::{WorldEntity, Storage, Source};
 use super::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
 use super::entity_type::{EntityType};
 
@@ -59,8 +59,9 @@ impl Estimator for Estimate {
         sample.rng = rand::SeedableRng::seed_from_u64(rng.gen());
         sample
     }
+    fn update_seen<'a>(& 'a mut self, action: Option<Action>, others: impl Source<'a, MentalState>, observation: impl Observation) {
 
-    fn update_seen(&mut self, action: Option<Action>, observation: impl Observation) {
+   // fn update_seen(&mut self, action: Option<Action>, others: impl Source<'_, MentalState>, observation: impl Observation) {
         if let Some(pos) = observation.observed_position(&self.id){
             let mut ms : MentalState= (&(*self)).into();
             if action == ms.decide( &(self.physical_state), pos, observation.borrow()){
@@ -79,8 +80,13 @@ impl Estimator for Estimate {
             }
         }
     }
-    fn update_unseen(&mut self, observation: impl Observation) {
+    fn update_unseen<'a>(& 'a mut self, others: impl Source<'a, MentalState>, observation: impl Observation){
+        // fn update_unseen(&mut self, others: impl Source<'_, MentalState>, observation: impl Observation) {
+
         //TODO
+    }
+    fn into_ms(&self) -> MentalState {
+        self.into()
     }
 }
 
