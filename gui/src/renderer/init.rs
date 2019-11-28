@@ -184,8 +184,9 @@ fn init_helper<IS: InstSurface>(inst_surface: IS, adapter_selection: Option<usiz
             let mut score = 0;
         //  println!("{}: {:?}", a.info.name, a.physical_device.limits());
             if a.info.device_type == gfx_hal::adapter::DeviceType::DiscreteGpu {
-                score += 1000000;
+                score += 4000;
             }
+            score += name_score(&a.info.name);
             score
         }).unwrap_or(0)
     };
@@ -216,4 +217,15 @@ pub fn init_gl(window_builder: WindowBuilder, ev: &EventLoop<()>, adapter_select
     let surface = gfx_backend_gl::Surface::from_context(glutin_context);
     let di = init_helper(gfx_backend_gl::Instance::Surface(surface), adapter_selection)?;
     Ok((di, window))
+}
+
+fn name_score(name: &str) -> i32 {
+    let mut score = 0;
+    let lower = name.to_lowercase();
+    for (n, s) in &[("rtx", 1000), ("rx", 500), ("vega", 500), ("gtx", 500), ("nvidia", 1000), ("geforce", 500), ("radeon", 500), ("amd", 500), ("intel", -50), ("mircosoft", -200), ("basic", -200)]{
+        if lower.matches(n).next().is_some() {
+            score += s;
+        }
+    }
+    score
 }
