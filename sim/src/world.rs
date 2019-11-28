@@ -1,5 +1,5 @@
 use log::error;
-use std::ops::Range;
+use std::ops::{Range, Sub};
 use rand::{Rng};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -49,10 +49,33 @@ pub struct Attack(pub f32);
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Satiation(pub f32);
 
+#[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
+pub struct Speed(pub f32);
+
+impl std::ops::Mul<f32> for Speed {
+    type Output = Speed;
+    fn mul(self, rhs: f32)-> Self::Output {
+        Speed(self.0 * rhs)
+    }
+}
+
+#[derive(PartialOrd, PartialEq, Copy, Clone, Debug, Default)]
+pub struct MoveProgress(pub f32);
+
+impl std::ops::AddAssign<Speed> for MoveProgress {
+    fn add_assign(&mut self, rhs: Speed) {
+        self.0 += rhs.0
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PhysicalState {
     pub health: Health,
+    pub max_health: Health,
     pub meat: Meat,
+    pub speed: Speed,
+    pub move_progress: MoveProgress,
+    pub move_target: Option<Position>,
     pub attack: Option<Attack>,
     pub satiation: Satiation,
 }
@@ -60,7 +83,27 @@ impl PhysicalState {
     pub fn is_dead(&self) -> bool {
         self.health.0 <= 0.0
     }
+    pub fn partial_move(&mut self, goal: Position) -> MoveProgress {
+        if Some(goal) != self.move_target {
+            self.move_target = Some(goal);
+        }
+        self.move_progress += self.speed * (self.health.0 / self.max_health.0);
+        self.move_progress
+    }
+    pub fn new(max_health: Health, speed: Speed, attack: Option<Attack>) -> Self {
+        Self {
+            health : max_health,
+            max_health,
+            meat: Meat(max_health.0 * 0.5),
+            speed,
+            move_progress: MoveProgress::default(),
+            move_target: None,
+            attack,
+            satiation: Satiation(10.0)
+        }
+    }
 }
+
 
 pub const MAP_HEIGHT: usize = 11;
 pub const MAP_WIDTH: usize = 11;
@@ -230,55 +273,56 @@ impl<C: Cell> World<C> {
     }
 
     pub fn act(&mut self, entity: &WorldEntity, action: Action) -> Result<(), &str> {
-        if let Some(own_pos) = self.positions.get(entity) {
-            match action {
-                Action::Move(pos) => {
-                    if own_pos.is_neighbour(&pos) && self.can_pass(entity, pos) {
+        let own_pos = self.positions.get(entity)
+            .ok_or("Entity has no known position but tries to act")?;
+
+        match action {
+            Action::Move(pos) => {
+                if own_pos.is_neighbour(&pos) && self.can_pass(entity, pos) {
+                    let phys = self.physical_states.get_mut(entity)
+                        .ok_or("Entity has no physical state but tries to move")?;
+                    if phys.partial_move(pos) >= MoveProgress(1.0) {
+                        phys.move_target = None;
+                        phys.move_progress = MoveProgress::default();
                         self.move_unchecked(entity, pos);
-                        Ok(())
-                    } else {
-                        Err("invalid move")
-                    }
-                }
-                Action::Eat(target) => {
-                    if self.positions.get(&target) == Some(own_pos) {
-                        if entity.e_type().can_eat(&target.e_type()) {
-                            self.eat_unchecked(entity, &target);
-                            Ok(())
-                        } else {
-                            Err("entity can't eat that")
-                        }
-                    } else {
-                        Err("can only eat things in the same tile")
-                    }
-                }
-                Action::Attack(opponent) => {
-                    if self.positions.get(&opponent).map_or(false, |pos|{
-                        pos == own_pos || self.can_pass(entity, *pos) && own_pos.is_neighbour(pos)
-                    })  {
-                        if let Some(attack) = self.physical_states.get(entity).and_then(|phys| phys.attack).clone() {
-                            if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
-                                phys_target.health.suffer(attack);
-                                Ok(())
-                            } else {
-                                Err("opponent has no physical state")
-                            }
-                        } else {
-                            Err("entity incapable of attacking")
-                        }
 
-
-                    }else {
-                        Err("cannot attack targets unless in the same tile")
                     }
+                    Ok(())
+                } else {
+                    Err("invalid move")
                 }
             }
-        } else {
-            error!(
-                "Entity {:?} has no known position but tries to do {:?}",
-                entity, action
-            );
-            Err("Entity with unknown position acting")
+            Action::Eat(target) => {
+                if self.positions.get(&target) == Some(own_pos) {
+                    if entity.e_type().can_eat(&target.e_type()) {
+                        self.eat_unchecked(entity, &target);
+                        Ok(())
+                    } else {
+                        Err("entity can't eat that")
+                    }
+                } else {
+                    Err("can only eat things in the same tile")
+                }
+            }
+            Action::Attack(opponent) => {
+                let pos = self.positions.get(&opponent)
+                    .ok_or("Entity tries to attack opponent with no known position")?;
+                if pos != own_pos && !(self.can_pass(entity, *pos) && own_pos.is_neighbour(pos)) {
+                    return Err("Cannot reach attacked opponent")
+                }
+                let phys = self.physical_states.get_mut(entity)
+                    .ok_or("Entity has no physical state but tries to attack")?;
+                if let Some(attack) = phys.attack {
+                    if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
+                        phys_target.health.suffer(attack);
+                        Ok(())
+                    } else {
+                        Err("opponent has no physical state")
+                    }
+                } else {
+                    Err("entity incapable of attacking")
+                }
+            }
         }
     }
     fn can_pass(&self, entity: &WorldEntity, position: Position) -> bool {

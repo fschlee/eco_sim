@@ -232,6 +232,7 @@ impl UIState {
                 let mut prev = self.ids.mm_title;
                 let mut i = 0;
                 if let Some(mental_model) = game_state.get_mental_model(&mm) {
+
                     for item in mental_model  {
                         if i >= self.ids.mental_models.len() {
                             extend += 1;

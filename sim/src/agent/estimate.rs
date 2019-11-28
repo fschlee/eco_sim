@@ -5,7 +5,7 @@ use std::borrow::Borrow;
 use crate::agent::{MentalState, Behavior, Hunger, Reward};
 use super::estimator::MentalStateRep;
 use crate::entity::{WorldEntity, Storage, Source};
-use crate::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
+use crate::world::{Action, PhysicalState, Health, Meat, Satiation, Speed, MoveProgress, Observation};
 use crate::entity_type::{EntityType};
 use crate::agent::estimator::Estimator;
 
@@ -32,7 +32,7 @@ impl PointEstimateRep {
 impl MentalStateRep for PointEstimateRep {
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState {
         let mut sample : MentalState = self.into();
-        let mut hunger_sample = rng.sample(Normal::new(self.hunger.0, scale * 10.0).unwrap()); // can only fail if std_dev < 0 or nan;
+        let hunger_sample = rng.sample(Normal::new(self.hunger.0, scale * 10.0).unwrap()); // can only fail if std_dev < 0 or nan;
         sample.hunger.0 = clip(hunger_sample, 0.0, 10.0);
         for (_, pref) in sample.food_preferences.iter_mut() {
             let pref_sample : f32 = StandardNormal.sample(rng);
@@ -89,12 +89,11 @@ impl MentalStateRep for PointEstimateRep {
     fn default(entity: &WorldEntity) -> Self {
         PointEstimateRep {
             id: entity.clone(),
-            physical_state: entity.e_type().typical_physical_state().unwrap_or(PhysicalState {
-                health: Health(0.0),
-                meat: Meat(0.0),
-                attack: None,
-                satiation: Satiation(0.0)
-            }),
+            physical_state: entity.e_type().typical_physical_state().unwrap_or(PhysicalState::new(
+                Health(50.0),
+                Speed(0.2),
+                None )
+            ),
             hunger: Default::default(),
             food_preferences: EntityType::iter().filter_map(|other| {
                 if entity.e_type().can_eat(&other) {

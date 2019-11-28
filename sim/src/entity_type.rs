@@ -1,4 +1,4 @@
-use super::world::{PhysicalState, Health, Meat, Satiation, Attack};
+use crate::world::{PhysicalState, Health, Meat, Satiation, Attack, Speed, MoveProgress};
 
 use enum_macros::{EnumCount, EnumIter};
 
@@ -59,26 +59,23 @@ impl EntityType {
         use EntityType::*;
         match self {
             Rabbit=> Some(
-                PhysicalState{
-                    health: Health(50.0),
-                    meat: Meat(40.0),
-                    attack: None,
-                    satiation: Satiation(10.0)
-                }),
+                PhysicalState::new(
+                    Health(50.0),
+                     Speed(0.2),
+                     None )
+            ),
             Deer => Some(
-                PhysicalState{
-                    health: Health(300.0),
-                    meat: Meat(100.0),
-                    attack: None,
-                    satiation: Satiation(10.0)
-                }),
+                PhysicalState::new(
+                    Health(300.0),
+                    Speed(0.4),
+                    None )
+            ),
             Wolf => Some(
-                PhysicalState{
-                    health: Health(300.0),
-                    meat: Meat(100.0),
-                    attack: Some(Attack(60.0)),
-                    satiation: Satiation(10.0)
-                }),
+                PhysicalState::new(
+                    Health(300.0),
+                    Speed(0.3),
+                    Some(Attack(60.0)))
+            ),
             Rock | Grass | Clover | Tree | Burrow  => None
         }
     }

@@ -576,6 +576,7 @@ impl AgentSystem {
                 let new_e = world.respawn(&entity, & mut ms, entity_manager);
                 self.mental_states.insert(&new_e, ms);
                 self.agents.push(new_e);
+                self.rebind_estimator(entity, new_e);
             }
         }
     }
@@ -587,6 +588,12 @@ impl AgentSystem {
     }
     pub fn get_representation_source<'a>(& 'a self, entity: Entity) -> Option<impl Iterator<Item = & impl MentalStateRep> + 'a> {
         self.get_estimator(entity).map(|r| r.estimators.into_iter())
+    }
+    pub fn rebind_estimator(& mut self, old: WorldEntity, new: WorldEntity) {
+        if let Some(idx) = self.estimator_map.remove(&old.into()){
+            self.estimators[idx].replace(old, new);
+            self.estimator_map.insert(new.into(), idx);
+        }
     }
     pub fn init<C: Cell>(agents: Vec<WorldEntity>, world: &World<C>, use_mdp: bool, mut rng: impl Rng) -> Self {
         let mut estimators = Vec::new();
