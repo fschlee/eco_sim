@@ -89,16 +89,6 @@ impl<R: MentalStateRep> From<&R> for MentalState {
         rep.into_ms()
     }
 }
-/*
-existential type TOM : TheoryOfMind;
-
-pub struct Agent<'a> {
-    ms: & 'a mut MentalState,
-    ps: & 'a PhysicalState,
-    tom: impl TOM,
-    obs: impl Observation,
-}
-*/
 
 impl MentalState {
     pub fn new(entity: WorldEntity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
@@ -118,18 +108,21 @@ impl MentalState {
         &mut self,
         physical_state: &PhysicalState,
         own_position: Position,
-        observation: impl Observation,
+        observation: &impl Observation,
+        estimator: &impl Estimator,
     ) -> Option<Action> {
-        self.update(physical_state, own_position, observation.clone());
+        {
+            self.update(physical_state, own_position, observation);
+        }
         if self.use_mdp {
-            self.decide_mdp(physical_state, own_position, observation);
+            self.decide_mdp(physical_state, own_position, observation, estimator);
         } else {
-            self.decide_simple( physical_state, own_position, observation);
+            self.decide_simple( physical_state, own_position, observation, estimator);
         }
         self.current_action
 
     }
-    fn update(& mut self, physical_state: &PhysicalState, own_position: Position, observation: impl Observation,) {
+    fn update(& mut self, physical_state: &PhysicalState, own_position: Position, observation:  &impl Observation,) {
         self.hunger.0 += (20.0 -  physical_state.satiation.0) * HUNGER_INCREMENT;
         match self.current_action {
             Some(Action::Eat(food)) => {
@@ -165,10 +158,11 @@ impl MentalState {
         &mut self,
         physical_state: &PhysicalState,
         own_position: Position,
-        observation: impl Observation,
+        observation: &impl Observation,
+        estimator: &impl Estimator,
     ) {
         let own_type = self.id.e_type();
-        if let Some((predator, threat)) = self.calculate_threat(own_position, observation.borrow()).iter().max_by(|(_, t1), (_, t2)| f32_cmp(t1, t2)) {
+        if let Some((predator, threat)) = self.calculate_threat(own_position, observation, estimator).iter().max_by(|(_, t1), (_, t2)| f32_cmp(t1, t2)) {
             if *threat > FLEE_THREAT {
                 self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
             }
@@ -251,7 +245,7 @@ impl MentalState {
                                 _ => self.current_action = Some(Action::Attack(prey)),
                             }
                         }
-                        else if let Some(path) = self.path(own_position, pos, observation.borrow()){
+                        else if let Some(path) = self.path(own_position, pos, observation){
                             self.current_action = Some(Action::Move(path[1]));
                         }
                         else {
@@ -268,7 +262,7 @@ impl MentalState {
                             self.current_action = Some(Eat(food));
 
                         }
-                        else if let Some(path) = self.path(own_position, pos, observation.borrow()){
+                        else if let Some(path) = self.path(own_position, pos, observation){
                             self.current_action = Some(Action::Move(path[1]));
                         }
                         else {
@@ -285,7 +279,7 @@ impl MentalState {
                     self.current_behavior = None;
                 }
                 else {
-                    self.random_step(own_position, observation.clone());
+                    self.random_step(own_position, observation);
                 }
             }
         }
@@ -294,7 +288,8 @@ impl MentalState {
         &mut self,
         physical_state: &PhysicalState,
         own_position: Position,
-        observation: impl Observation,
+        observation: &impl Observation,
+        estimator: &impl Estimator,
     ) {
         let (_, expected_world, _) = observation.into_expected(|_| None, thread_rng());
         let world_expectation = &expected_world;
@@ -384,9 +379,10 @@ impl MentalState {
         &mut self,
         physical_state: &PhysicalState,
         own_position: Position,
-        observation: impl Observation,
+        observation: & impl Observation,
+        estimator: &impl Estimator,
     ) {
-        let threat = self.calculate_threat( own_position, observation );
+        let threat = self.calculate_threat( own_position, observation, estimator );
 
         // todo switch behaviors
         match &self.current_behavior.clone() {
@@ -413,19 +409,19 @@ impl MentalState {
         &self,
       //  physical_state: &PhysicalState,
         own_position: Position,
-        observation: impl Observation,
+        observation: & impl Observation,
+        estimator: &impl Estimator,
     ) -> Vec<(WorldEntity, Threat)>{
         let mut rng = self.rng.clone();
         observation.find_closest(own_position, |e, w| {
             e.e_type().can_eat(&self.id.e_type())
         }).filter_map(|(entity, position)| {
-            match self.path_as(position, own_position, &entity, observation.borrow()){
+            match self.path_as(position, own_position, &entity, observation){
                 Some(v) => {
                     let mut total = 0.0;
                     let inv_dist = 1.0 / v.len() as f32;
                     let mut scorer = |estimate : &PointEstimateRep| {
-                        for _ in 0..10 {
-                            let pred_ms = estimate.sample(0.5, &mut rng);
+                        for pred_ms in estimator.invoke_sampled(entity, & mut rng, 10) {
                             pred_ms.lookup_preference(self.id.e_type()).map(|pref| {
                                 let mut score = pred_ms.hunger.0 * pref * inv_dist;
                                 if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
@@ -446,11 +442,11 @@ impl MentalState {
             }
         }).collect()
     }
-    pub fn path(&self, current: Position, goal: Position, observation: impl Observation) -> Option<Vec<Position>>  {
+    pub fn path(&self, current: Position, goal: Position, observation: & impl Observation) -> Option<Vec<Position>>  {
         self.path_as(current, goal, &self.id, observation)
     }
 
-    pub fn path_as(&self, start: Position, goal: Position, entity: &WorldEntity, observation: impl Observation) -> Option<Vec<Position>> {
+    pub fn path_as(&self, start: Position, goal: Position, entity: &WorldEntity, observation: & impl Observation) -> Option<Vec<Position>> {
         let mut came_from : PositionMap<Position> = PositionMap::new();
         let mut cost = PositionMap::new();
         let mut queue = BinaryHeap::new();
@@ -490,7 +486,7 @@ impl MentalState {
         None
     }
 
-    pub fn random_step(& mut self, current: Position, observation: impl Observation) {
+    pub fn random_step(& mut self, current: Position, observation: &impl Observation) {
         use  rand::seq::SliceRandom;
         if let Some(step) = current.neighbours().into_iter()
             .filter(|p|
@@ -534,18 +530,25 @@ impl AgentSystem {
                 self.mental_states.get_mut(entity),
                 world.get_physical_state(entity),
                 world.positions.get(entity),
+            if let Some(i) = self.estimator_map.get(entity.into()) {
+                self.estimators.get(*i)
+            }
+            else {
+                None
+            },
+
             ) {
-                (Some(mental_state), Some(physical_state),  Some(position)) => {
+                (Some(mental_state), Some(physical_state),  Some(position), Some(estimator)) => {
                     if physical_state.is_dead() {
                         killed.push(entity.clone());
                         info!("Agent {:?} died", entity);
                         None
                 }
                     else {
-                        mental_state.decide(physical_state, *position, world.observe_in_radius(entity, mental_state.sight_radius))
+                        mental_state.decide(physical_state, *position, &world.observe_in_radius(entity, mental_state.sight_radius), estimator)
                     }
                 }
-                (ms, ps, p) => {
+                (ms, ps, p, _) => {
                     killed.push(entity.clone());
                     error!("Agent {:?} killed due to incomplete data: mental state {:?}, physical state {:?}, postion {:?}", entity, ms.is_some(), ps.is_some(), p.is_some());
                     None

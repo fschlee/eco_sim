@@ -7,6 +7,7 @@ use super::estimator::MentalStateRep;
 use crate::entity::{WorldEntity, Storage, Source};
 use crate::world::{Action, PhysicalState, Health, Meat, Satiation, Observation};
 use crate::entity_type::{EntityType};
+use crate::agent::estimator::Estimator;
 
 #[derive(Clone, Debug)]
 pub struct PointEstimateRep {
@@ -44,12 +45,12 @@ impl MentalStateRep for PointEstimateRep {
         sample.rng = rand::SeedableRng::seed_from_u64(rng.gen());
         sample
     }
-    fn update_seen<'a>(& 'a mut self, action: Option<Action>, others: impl Source<'a, MentalState>, observation: impl Observation) {
+    fn update_seen<'a>(& 'a mut self, action: Option<Action>, others: &impl Estimator, observation: & impl Observation) {
 
    // fn update_seen(&mut self, action: Option<Action>, others: impl Source<'_, MentalState>, observation: impl Observation) {
         if let Some(pos) = observation.observed_position(&self.id){
             let mut ms : MentalState= (&(*self)).into();
-            if action == ms.decide( &(self.physical_state), pos, observation.borrow()){
+            if action == ms.decide( &(self.physical_state), pos, observation, others){
                 self.update(&ms);
             }
             else {
@@ -58,14 +59,14 @@ impl MentalStateRep for PointEstimateRep {
                 for i in 0..max_tries {
                     let scale = (1.0 + i as f32).log2() / 256f32.log2();
                     let mut sample = self.sample(scale, & mut rng);
-                    if action == sample.decide( &(self.physical_state), pos, observation.borrow()){
+                    if action == sample.decide( &(self.physical_state), pos, observation, others){
                         self.update(&sample);
                     }
                 }
             }
         }
     }
-    fn update_unseen<'a>(& 'a mut self, others: impl Source<'a, MentalState>, observation: impl Observation){
+    fn update_unseen<'a>(& 'a mut self, others: & impl Estimator, observation: &impl Observation){
         // fn update_unseen(&mut self, others: impl Source<'_, MentalState>, observation: impl Observation) {
 
         //TODO
