@@ -3,9 +3,9 @@ use std::ops::Range;
 use rand::{Rng};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::mem::size_of;
+use std::mem::{size_of, MaybeUninit};
 use rand_xorshift::XorShiftRng;
-
+use smallvec::SmallVec;
 
 use super::entity::*;
 use super::entity_type::*;
@@ -116,7 +116,42 @@ impl<T> PositionMap<T> {
     }
 
 }
-pub type ViewData = Option<Vec<EntityType>>;
+pub type ViewData = WorldEntity;
+
+
+
+
+pub trait Cell : std::ops::Deref<Target=[WorldEntity]> + Sized + Clone {
+    fn empty_init() ->  [[Self; MAP_WIDTH]; MAP_HEIGHT];
+    fn retain<F : FnMut(&mut WorldEntity)-> bool>(& mut self, f: F);
+    fn push(& mut self, we: WorldEntity);
+    fn unknown() -> Self;
+    fn is_empty(&self) -> bool;
+}
+
+pub type DefCell = SmallVec<[WorldEntity; 3]>;
+
+impl Cell for DefCell {
+    fn empty_init() -> [[Self; 11]; 11] {
+        empty_initialize()
+    }
+
+    fn retain<F: FnMut(&mut WorldEntity) -> bool>(&mut self, f: F) {
+        self.retain(f)
+    }
+
+    fn push(&mut self, we: WorldEntity) {
+        self.push(we)
+    }
+
+    fn unknown() -> Self {
+        SmallVec::new()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Occupancy {
@@ -128,16 +163,16 @@ pub enum Occupancy {
 }
 
 #[derive(Clone)]
-pub struct World {
-    cells: [[Option<Vec<WorldEntity>>; MAP_WIDTH]; MAP_HEIGHT],
+pub struct World<C: Cell> {
+    cells: [[C; MAP_WIDTH]; MAP_HEIGHT],
     pub physical_states: Storage<PhysicalState>,
     pub positions: Storage<Position>,
 }
 
-impl World {
+impl<C: Cell> World<C> {
     pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<WorldEntity>) {
         let area = MAP_WIDTH * MAP_HEIGHT;
-        let mut cells: [[Option<Vec<WorldEntity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
+        let mut cells = C::empty_init();
         let mut physical_states =  Storage::new();
         let mut positions = Storage::new();
         let mut agents = Vec::new();
@@ -147,8 +182,8 @@ impl World {
             while c < count {
                 let x = rng.gen_range(0, MAP_WIDTH);
                 let y = rng.gen_range(0, MAP_HEIGHT);
-                let cell_v = cells[y][x].get_or_insert_with(Vec::new);
-                if cell_v.iter().all(|other| entity_type.can_pass(&other.e_type())) {
+                let cell_v = & mut cells[y][x];
+                if cell_v.into_iter().all(|other | entity_type.can_pass(&other.e_type())) {
                     let entity = WorldEntity::new(entity_manager.fresh(), entity_type);
                     positions.insert(&entity, Position{x : x as u32, y: y as u32});
                     if let Some(phys_state) = entity_type.typical_physical_state() {
@@ -281,17 +316,14 @@ impl World {
         let x = position.x as usize;
         let y = position.y as usize;
         if x < MAP_WIDTH && y < MAP_HEIGHT {
-            if let Some(ents) = &self.cells[y][x] {
-                return ents;
-            }
+            return &self.cells[y][x][..]
         }
         return &[];
     }
-    fn entities_at_mut(&mut self, position: Position) -> &mut Vec<WorldEntity> {
+    fn entities_at_mut(&mut self, position: Position) -> &mut C{
         let x = position.x as usize;
         let y = position.y as usize;
-        let entry = &mut self.cells[y][x];
-        entry.get_or_insert(Vec::new())
+        &mut self.cells[y][x]
     }
     fn move_unchecked(&mut self, entity: &WorldEntity, new_position: Position) {
         if let Some((_, old_pos)) = self.positions.insert(entity, new_position) {
@@ -325,7 +357,7 @@ impl World {
         &self,
         x_range: Range<usize>,
         y_range: Range<usize>,
-    ) -> impl Iterator<Item = (usize, usize, ViewData)> + '_ {
+    ) -> impl Iterator<Item = (usize, usize, &[WorldEntity])> + '_ {
         self.cells[y_range.clone()]
             .iter()
             .zip(y_range.clone())
@@ -333,21 +365,14 @@ impl World {
                 v[x_range.clone()]
                     .iter()
                     .zip(x_range.clone())
-                    .map(move |(oes, x)| {
-                        let res = match oes {
-                            Some(es) => Some(
-                                es.iter()
-                                    .map(|e| e.e_type())
-                                    .collect::<Vec<_>>(),
-                            ),
-                            None => None,
-                        };
-                        (x, y.clone(), res)
+                    .map(move |(res, x)| {
+
+                        (x, y.clone(), &**res)
                     })
             })
     }
 }
-impl std::fmt::Debug for World {
+impl<C: Cell> std::fmt::Debug for World<C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(f, "World {{ cells : _, physical_states: {:?}, positions: {:?} }}", self.physical_states, self.positions)
     }
@@ -355,21 +380,22 @@ impl std::fmt::Debug for World {
 
 pub trait Observation: Clone {
     type B: Observation;
+    type CellType: Cell;
     fn borrow<'a>(& 'a self) -> Self::B;
-    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&WorldEntity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(WorldEntity, Position)> + 'a>;
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&WorldEntity, &World<Self::CellType>) -> bool + 'a) -> Box<dyn Iterator<Item=(WorldEntity, Position)> + 'a>;
     fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool>;
     fn entities_at(&self, position: Position) -> &[WorldEntity];
     fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState>;
     fn observed_position(& self, entity: &WorldEntity) -> Option<Position>;
-    fn into_expected(& self, filler: impl Fn(Position) -> Option<Vec<EntityType>>, mut rng: impl Rng) -> (EntityManager, World, AgentSystem) {
+    fn into_expected<C: Cell>(& self, filler: impl Fn(Position) -> C, mut rng: impl Rng) -> (EntityManager, World<C>, AgentSystem) {
 
-        let mut cells: [[Option<Vec<WorldEntity>>; MAP_WIDTH]; MAP_HEIGHT] = none_initialize();
+        let mut cells  = C::empty_init();
         let mut entity_manager = EntityManager::default();
         let mut physical_states = Storage::new();
         let mut positions = Storage::new();
         let mut agents = Vec::new();
         let mut insert_cell = |e, Position {x, y}| {
-            cells[y as usize][x as usize].get_or_insert(Vec::new()).push(e);
+            cells[y as usize][x as usize].push(e);
         };
         let pos = Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 };
         let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
@@ -391,8 +417,9 @@ pub trait Observation: Clone {
     }
 }
 
-impl<'b> Observation for & 'b World {
-    type B = & 'b World;
+impl<'b, C: Cell> Observation for & 'b World<C> {
+    type B = & 'b World<C>;
+    type CellType = C;
     fn borrow<'a>(& 'a self) -> Self {
         self.clone()
     }
@@ -403,14 +430,7 @@ impl<'b> Observation for & 'b World {
         Some(self.can_pass(entity, position))
     }
     fn entities_at(&self, position: Position) -> &[WorldEntity] {
-        let x = position.x as usize;
-        let y = position.y as usize;
-        if x < MAP_WIDTH && y < MAP_HEIGHT {
-            if let Some(ents) = &self.cells[y][x] {
-                return ents;
-            }
-        }
-        return &[];
+        World::entities_at(*self, position)
     }
     fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState> {
         self.get_physical_state(entity)
@@ -421,22 +441,23 @@ impl<'b> Observation for & 'b World {
 
 }
 #[derive(Clone, Debug)]
-pub struct RadiusObservation<'a> {
+pub struct RadiusObservation<'a, C: Cell> {
     radius: u32,
     center: Position,
-    world: & 'a World,
+    world: & 'a World<C>,
 }
-impl<'a> RadiusObservation<'a> {
-    pub fn new(radius: u32, center: Position, world: & 'a World) -> Self {
+impl<'a, C: Cell> RadiusObservation<'a, C> {
+    pub fn new(radius: u32, center: Position, world: & 'a World<C>) -> Self {
         Self{ radius, center, world}
     }
 }
-impl<'b> Observation for RadiusObservation<'b> {
-    type B =  RadiusObservation<'b>;
+impl<'b, C: Cell> Observation for RadiusObservation<'b, C> {
+    type B =  RadiusObservation<'b, C>;
+    type CellType = C;
     fn borrow<'a>(& 'a self) -> Self {
         self.clone()
     }
-    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&WorldEntity, &World) -> bool + 'a) -> Box<dyn Iterator<Item=(WorldEntity, Position)> + 'a> {
+    fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&WorldEntity, &World<C>) -> bool + 'a) -> Box<dyn Iterator<Item=(WorldEntity, Position)> + 'a> {
         Box::new(EntityWalker::new(self.world, starting_point, self.radius).filter(
             move |(e, p)| self.center.distance(p) <= self.radius &&  predicate(e, self.world)))
     }
@@ -469,15 +490,15 @@ impl<'b> Observation for RadiusObservation<'b> {
         &[]
     }
 }
-struct EntityWalker<'a> {
+struct EntityWalker<'a, C : Cell> {
     position_walker: PositionWalker,
-    world: &'a World,
+    world: &'a World<C>,
     current: &'a [WorldEntity],
     current_pos: Position,
     subindex: usize,
 }
-impl<'a> EntityWalker<'a> {
-    pub fn new(world: &'a World, center: Position, max_radius: u32) -> Self {
+impl<'a, C: Cell> EntityWalker<'a, C> {
+    pub fn new(world: &'a World<C>, center: Position, max_radius: u32) -> Self {
         let position_walker = PositionWalker::new(center, max_radius);
         Self{
             position_walker,
@@ -488,7 +509,7 @@ impl<'a> EntityWalker<'a> {
         }
     }
 }
-impl<'a> Iterator for EntityWalker<'a> {
+impl<'a, C: Cell> Iterator for EntityWalker<'a, C> {
     type Item = (WorldEntity, Position);
     fn next(& mut self) -> Option<Self::Item> {
         if self.subindex < self.current.len() {
@@ -591,7 +612,11 @@ fn none_initialize<T>() -> [[Option<Vec<T>>; MAP_WIDTH]; MAP_HEIGHT] {
         }
     }
     unsafe {
-        std::mem::transmute::<_ ,_>(a)
+        std::mem::transmute(a)
     }
-
+}
+fn empty_initialize<A: smallvec::Array>() -> [[SmallVec<A>; MAP_WIDTH]; MAP_HEIGHT] {
+    unsafe {
+        MaybeUninit::zeroed().assume_init()
+    }
 }

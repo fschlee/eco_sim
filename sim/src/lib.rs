@@ -1,8 +1,6 @@
 #![feature(vec_remove_item)]
 #![feature(proc_macro_hygiene)]
 
-#![feature(type_alias_impl_trait)]
-
 pub mod entity;
 pub mod entity_type;
 pub mod world;
@@ -20,7 +18,7 @@ use crate::entity_type::EntityType;
 
 #[derive(Clone)]
 pub struct SimState {
-    world: World,
+    world: World<DefCell>,
     agent_system: AgentSystem,
     entity_manager: EntityManager,
     sim_step: f32,
@@ -55,7 +53,7 @@ impl SimState {
         &self,
         x: Range<usize>,
         y: Range<usize>,
-    ) -> impl Iterator<Item = (usize, usize, ViewData)> + '_ {
+    ) -> impl Iterator<Item = (usize, usize, &[ViewData])> + '_ {
         self.world.get_view(x, y)
     }
     pub fn entities_at(&self, position: Position) -> &[WorldEntity] {

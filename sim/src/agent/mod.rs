@@ -291,7 +291,7 @@ impl MentalState {
         observation: &impl Observation,
         estimator: &impl Estimator,
     ) {
-        let (_, expected_world, _) = observation.into_expected(|_| None, thread_rng());
+        let (_, expected_world, _) = observation.into_expected(|_| DefCell::unknown(), thread_rng());
         let world_expectation = &expected_world;
         let direct_reward = | action, hunger | {
             match action {
@@ -523,7 +523,7 @@ pub struct AgentSystem {
 }
 
 impl AgentSystem {
-    pub fn advance(&mut self, world: &mut World, entity_manager: &mut EntityManager) {
+    pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
         let mut killed = Vec::new();
         for entity in &self.agents.clone() {
             let opt_action = match (
@@ -588,7 +588,7 @@ impl AgentSystem {
     pub fn get_representation_source<'a>(& 'a self, entity: Entity) -> Option<impl Iterator<Item = & impl MentalStateRep> + 'a> {
         self.get_estimator(entity).map(|r| r.estimators.into_iter())
     }
-    pub fn init(agents: Vec<WorldEntity>, world: &World, use_mdp: bool, mut rng: impl Rng) -> Self {
+    pub fn init<C: Cell>(agents: Vec<WorldEntity>, world: &World<C>, use_mdp: bool, mut rng: impl Rng) -> Self {
         let mut estimators = Vec::new();
         let mut estimator_map = HashMap::new();
         let mut mental_states = Storage::new();

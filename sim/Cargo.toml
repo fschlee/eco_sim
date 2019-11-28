@@ -12,3 +12,5 @@ edition = "2018"
 "rand" = "^0.7"
 "rand_xorshift" = "^0.2"
 "rand_distr" = "^0.2.2"
+
+"smallvec" = { version = "^0.6.9", features=["union"]}

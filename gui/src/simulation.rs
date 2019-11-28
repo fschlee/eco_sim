@@ -147,11 +147,10 @@ impl GameState {
             let x_offset = self.cell_width * i as f32;
             let y_offset = self.cell_height * j as f32;
             commands.push(Command{range: 0..6, x_offset, y_offset, highlight: self.highlighted.contains(&(i, j)) });
-            if let Some(ents) = dat {
-                for ent in ents {
-                    commands.push(Command{range: lookup(ent), x_offset, y_offset, highlight: false});
-                }
+            for ent in dat {
+                commands.push(Command{range: lookup(ent.e_type()), x_offset, y_offset, highlight: false});
             }
+
 
 
         }
@@ -163,7 +162,7 @@ impl GameState {
     }
     pub fn get_view(
         &self,
-    ) -> impl Iterator<Item = (usize, usize, eco_sim::ViewData)> + '_ {
+    ) -> impl Iterator<Item = (usize, usize, &[eco_sim::ViewData])> + '_ {
         self.eco_sim.get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT)
     }
     pub fn get_editable_entity(&self, position: LogicalPosition) -> Option<WorldEntity> {

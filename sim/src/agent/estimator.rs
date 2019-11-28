@@ -1,6 +1,6 @@
 use rand::{Rng};
 use super::MentalState;
-use crate::{World, Action, Observation, WorldEntity, Position, StorageSlice};
+use crate::{World, Action, Observation, WorldEntity, Position, StorageSlice, Cell};
 use crate::entity::{Entity, Storage, Source};
 use crate::entity_type::EntityType;
 
@@ -23,7 +23,7 @@ pub trait Estimator {
     fn invoke(&self, we: WorldEntity) -> Option<MentalState>;
     type Rep: MentalStateRep;
     fn invoke_sampled<'a, R: rand::Rng + Sized>(& 'a self, we: WorldEntity,rng: & 'a mut R, n: usize) -> InvokeIter<'a, Self::Rep, R>;
-    fn learn(& mut self, action: Option<Action>, other: WorldEntity, other_pos: Position, world: & World);
+    fn learn<C: Cell>(& mut self, action: Option<Action>, other: WorldEntity, other_pos: Position, world: & World<C>);
 }
 
 #[derive(Clone, Debug)]
@@ -96,7 +96,7 @@ impl<E: MentalStateRep + 'static> Estimator for LearningEstimator<E> {
 
         // self.estimators.get(entity).iter().flat_map(|e| e.sample(1.0, rng)).fuse()
     }
-    fn learn(& mut self, action: Option<Action>, other: WorldEntity, other_pos: Position, world: & World) {
+    fn learn<C: Cell>(& mut self, action: Option<Action>, other: WorldEntity, other_pos: Position, world: & World<C>) {
         for (agent, sight) in self.agents.clone() {
             if let (Some(ms), Some(own_pos)) =
             (self.estimators.get_mut(agent), world.positions.get(agent)) {
@@ -129,7 +129,7 @@ impl<'a, T: MentalStateRep + Sized + 'static> Estimator for StorageSlice<'a, T> 
         InvokeIter::Empty
         // self.get(we).iter().flat_map(|e: &T| e.sample(1.0, rng)).fuse()
     }
-    fn learn(& mut self, action: Option<Action>, other: WorldEntity, other_pos: Position, world: & World) {
+    fn learn<C: Cell>(& mut self, action: Option<Action>, other: WorldEntity, other_pos: Position, world: & World<C>) {
         unimplemented!()
     }
 }

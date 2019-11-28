@@ -34,7 +34,7 @@ metal = ["gfx-backend-metal"]
 
 #graphics data etc
 "arrayvec" = "*"
-"smallvec" = "*"
+"smallvec" = "^0.6"
 "image" = "*"
 "shaderc" = "0.6"
 "lazy_static" = "^1"
@@ -44,9 +44,11 @@ metal = ["gfx-backend-metal"]
 "glium" = "*"
 "gfx-hal" = "0.4"
 
+"gfx-backend-gl" = { version = "0.4", features=["glutin"], optional = true }
+
+[target.'cfg(windows)'.dependencies]
 "gfx-backend-dx11" = { version = "0.4", optional = true }
 "gfx-backend-dx12" = { version = "0.4", optional = true }
-"gfx-backend-gl" = { version = "0.4", features=["glutin"], optional = true }
 
 [target.'cfg(macos)'.dependencies]
 "gfx-backend-metal" = { version = "0.4", optional = true }
