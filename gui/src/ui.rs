@@ -29,6 +29,7 @@ widget_ids! {
         mental_models[],
         mm_title,
         tooltip,
+        tooltip_head,
         tooltip_text,
     }
 }
@@ -324,19 +325,43 @@ impl UIState {
             match self.hover_pos {
                 Some(pos) if self.tooltip_active => {
                     if let Some(tt) = game_state.get_nth_entity(self.tooltip_index, pos) {
-                        let (w, h) = (90.0, 30.0);
-                        cc::widget::Canvas::new()
-                            .pad(1.0).w_h(w, h)
-                            .x_y(mouse_pos.0 + 0.5 * w, mouse_pos.1 - 0.5 * h)
-                            .rgb(0.0, 0.0, 0.0)
-                            .border_color(cc::color::WHITE)
-                            .parent(self.ids.canvas)
-                            .set(self.ids.tooltip, ui);
-                        let txt = format!("{}", tt);
-                        cc::widget::Text::new(&txt)
-                            .font_size(16)
-                            .mid_top_of(self.ids.tooltip)
-                            .set(self.ids.tooltip_text, ui);
+                        if let Some(ps) = game_state.get_physical_state(&tt) {
+                            let (w, h) = (130.0, 90.0);
+                            cc::widget::Canvas::new()
+                                .pad(1.0).w_h(w, h)
+                                .x_y(mouse_pos.0 + 0.5 * w, mouse_pos.1 - 0.5 * h)
+                                .rgb(0.0, 0.0, 0.0)
+                                .border_color(cc::color::WHITE)
+                                .parent(self.ids.canvas)
+                                .set(self.ids.tooltip, ui);
+                            let head = format!("{}", tt);
+                            cc::widget::Text::new(&head)
+                                .font_size(16)
+                                .mid_top_of(self.ids.tooltip)
+                                .set(self.ids.tooltip_head, ui);
+                            let txt = format!("{}", ps);
+                            cc::widget::Text::new(&txt)
+                                .font_size(12)
+                                .align_middle_x_of(self.ids.tooltip)
+                                .down_from(self.ids.tooltip_head, 20.0)
+                                .set(self.ids.tooltip_text, ui);
+                        }
+                        else {
+                            let (w, h) = (90.0, 30.0);
+                            cc::widget::Canvas::new()
+                                .pad(1.0).w_h(w, h)
+                                .x_y(mouse_pos.0 + 0.5 * w, mouse_pos.1 - 0.5 * h)
+                                .rgb(0.0, 0.0, 0.0)
+                                .border_color(cc::color::WHITE)
+                                .parent(self.ids.canvas)
+                                .set(self.ids.tooltip, ui);
+                            let head = format!("{}", tt);
+                            cc::widget::Text::new(&head)
+                                .font_size(16)
+                                .mid_top_of(self.ids.tooltip)
+                                .set(self.ids.tooltip_head, ui);
+                        }
+
                     }
                 },
                 _ => (),

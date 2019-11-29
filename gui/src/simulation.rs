@@ -189,6 +189,9 @@ impl GameState {
     pub fn get_mental_model(&self, entity: &WorldEntity) -> Option<impl Iterator<Item = & impl std::fmt::Display>> {
         self.eco_sim.get_mental_model(entity)
     }
+    pub fn get_physical_state(&self, entity: &WorldEntity) -> Option<&eco_sim::PhysicalState> {
+        self.eco_sim.get_physical_state(entity)
+    }
     pub fn logical_to_sim_position(&self, position: LogicalPosition) -> eco_sim::Position {
         let (x, y) = self.logical_position_to_coords(position);
         eco_sim::Position{ x: x as u32, y: y as u32}

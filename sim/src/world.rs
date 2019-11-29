@@ -80,6 +80,23 @@ pub struct PhysicalState {
     pub attack: Option<Attack>,
     pub satiation: Satiation,
 }
+
+impl std::fmt::Display for PhysicalState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        if self.is_dead() {
+            writeln!(f, "{:.2} meat remaining", self.meat.0)?;
+        }
+        else {
+            writeln!(f, "Health: {:.2}/{:.2}", self.health.0, self.max_health.0)?;
+            writeln!(f, "Speed : {:.}", self.speed.0)?;
+            if let Some(att) = self.attack {
+                writeln!(f, "Attack: {:.}", att.0)?;
+            }
+        }
+        Ok(())
+    }
+}
+
 impl PhysicalState {
     pub fn is_dead(&self) -> bool {
         self.health.0 <= 0.0

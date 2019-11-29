@@ -68,6 +68,9 @@ impl SimState {
     pub fn get_mental_model(&  self, entity: &WorldEntity) -> Option<impl Iterator<Item = & impl agent::estimator::MentalStateRep>> {
         self.agent_system.get_representation_source(entity.into())
     }
+    pub fn get_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState> {
+        self.world.physical_states.get(entity)
+    }
     pub fn get_visibility(& self, entity: &WorldEntity) -> impl Iterator<Item=Position> {
         let pos = self.world.positions.get(entity);
         let ms = self.agent_system.mental_states.get(entity);
