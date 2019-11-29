@@ -11,6 +11,7 @@ use super::entity::*;
 use super::entity_type::*;
 use super::agent::AgentSystem;
 use crate::{MentalState};
+use crate::Occupancy::Empty;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Action {
@@ -166,7 +167,7 @@ pub type ViewData = WorldEntity;
 
 pub trait Cell : std::ops::Deref<Target=[WorldEntity]> + Sized + Clone {
     fn empty_init() ->  [[Self; MAP_WIDTH]; MAP_HEIGHT];
-    fn retain<F : FnMut(&mut WorldEntity)-> bool>(& mut self, f: F);
+    fn retain<F : FnMut(&WorldEntity)-> bool>(& mut self, f: F);
     fn push(& mut self, we: WorldEntity);
     fn unknown() -> Self;
     fn is_empty(&self) -> bool;
@@ -179,8 +180,8 @@ impl Cell for DefCell {
         empty_initialize()
     }
 
-    fn retain<F: FnMut(&mut WorldEntity) -> bool>(&mut self, f: F) {
-        self.retain(f)
+    fn retain<F: FnMut(&WorldEntity) -> bool>(&mut self, mut f: F) {
+        self.retain(|we| f(&*we))
     }
 
     fn push(&mut self, we: WorldEntity) {
@@ -200,9 +201,91 @@ impl Cell for DefCell {
 pub enum Occupancy {
     Empty,
     Filled(Vec<WorldEntity>),
-    ExpectedFilled(Vec<WorldEntity>),
+    ExpectedFilled(Vec<WorldEntity>, Vec<f32>),
     ExpectedEmpty,
     Unknown,
+}
+impl std::ops::Deref for Occupancy {
+    type Target = [WorldEntity];
+
+    fn deref(&self) -> &Self::Target {
+        use Occupancy::*;
+        match self {
+            Empty | ExpectedEmpty | Unknown => &[],
+            Filled(v) => &*v,
+            ExpectedFilled(wes, probs) => &*wes,
+        }
+    }
+}
+impl Cell for Occupancy {
+    fn empty_init() -> [[Self; 11]; 11] {
+        Occupancy::initialize(Occupancy::Empty)
+    }
+
+    fn retain<F: FnMut(&WorldEntity) -> bool>(&mut self, mut f: F) {
+        use Occupancy::*;
+        match self {
+            Empty | ExpectedEmpty | Unknown => (),
+            ExpectedFilled(wes, probs ) => {
+                let mut i = 0;
+                wes.retain(|we : & WorldEntity | {
+                    i += 1;
+                    if f(we) {
+                        probs.remove(i);
+                        true
+                    }
+                    else {
+                        false
+                    }
+                })
+            }
+            Filled(v) => v.retain(f),
+
+        }
+    }
+
+    fn push(&mut self, we: WorldEntity) {
+        use Occupancy::*;
+        match self {
+            Empty | ExpectedEmpty | Unknown | ExpectedFilled(_, _) => {
+                *self = Filled(vec![we]);
+            }
+            Filled(v) => v.push(we),
+
+        }
+    }
+
+    fn unknown() -> Self {
+        Occupancy::Unknown
+    }
+
+    fn is_empty(&self) -> bool {
+        use Occupancy::*;
+        match self {
+            Empty | ExpectedEmpty => true,
+            _ => false,
+        }
+    }
+}
+impl Occupancy {
+    fn initialize(none: Occupancy) -> [[Occupancy; MAP_WIDTH]; MAP_HEIGHT] {
+        use std::mem::MaybeUninit;
+        unsafe {
+            let bytes = std::slice::from_raw_parts(&none as * const _ as * const u8, size_of::<Occupancy>());
+            if bytes.iter().all(|b| *b == 0u8) {
+                return MaybeUninit::zeroed().assume_init();
+            }
+        }
+        let mut a : [[MaybeUninit<Occupancy>; MAP_WIDTH]; MAP_HEIGHT] = unsafe { MaybeUninit::uninit().assume_init() };
+        for row in &mut a[..] {
+            for elem in & mut row[..] {
+                *elem = MaybeUninit::new(none.clone());
+            }
+        }
+        unsafe {
+            std::mem::transmute(a)
+        }
+    }
 }
 
 #[derive(Clone)]

@@ -291,7 +291,7 @@ impl MentalState {
         observation: &impl Observation,
         estimator: &impl Estimator,
     ) {
-        let (_, expected_world, _) = observation.into_expected(|_| DefCell::unknown(), thread_rng());
+        let (_, expected_world, _) = observation.into_expected(|_| Occupancy::unknown(), thread_rng());
         let world_expectation = &expected_world;
         let direct_reward = | action, hunger | {
             match action {
