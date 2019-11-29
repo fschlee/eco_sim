@@ -7,6 +7,7 @@ edition = "2018"
 [features]
 default=["metal", "vulkan"]
 reload_shaders = []
+debug_panic = []
 vulkan = ["gfx-backend-vulkan"]
 dx11 = ["gfx-backend-dx11"]
 dx12 = ["gfx-backend-dx12"]
@@ -41,7 +42,6 @@ metal = ["gfx-backend-metal"]
 "nalgebra" = "^0.19.*"
 
 #graphics
-"glium" = "*"
 "gfx-hal" = "0.4"
 
 "gfx-backend-gl" = { version = "0.4", features=["glutin"], optional = true }

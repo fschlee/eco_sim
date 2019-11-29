@@ -10,7 +10,7 @@ pub struct UiPipeline<B: Backend>{
     pub gfx_pipeline: ManuallyDrop<<B as Backend>::GraphicsPipeline>,
 }
 
-impl<B: Backend> UiPipeline<B> {
+impl<B: Backend + BackendExt> UiPipeline<B> {
 
     pub fn create(
         device: Arc<Dev<B>>, render_area: Rect,
@@ -166,6 +166,7 @@ impl<B: Backend> UiPipeline<B> {
                           encoder: &mut impl CommandBuffer<B>,
                           texture_manager: & mut ResourceManager<B>,
                           vertex_buffers: &[BufferBundle<B>],
+                          uniform_buffer: &Option<&mut BufferBundle<B>>,
                           render_area: Rect,
                           cmds: &[Command]) {
         unsafe {

@@ -3,6 +3,7 @@ pub mod ui_pipeline;
 pub mod pipeline_2d;
 pub mod memory;
 pub mod init;
+pub mod backend;
 
 use memory::*;
 use std::{sync::{Arc, Mutex}, ops::DerefMut};
@@ -50,6 +51,7 @@ use winit::dpi::{LogicalSize, PhysicalSize};
 use self::memory::{BufferBundle, ResourceManager, TextureSpec, Texture, Id};
 
 use init::{InstSurface, DeviceInit};
+use backend::BackendExt;
 use crate::renderer::memory::descriptors::DescriptorPoolManager;
 use crate::error::{Error, LogError};
 use crate::renderer::con_back::UiVertex;
@@ -89,6 +91,7 @@ pub struct Renderer<IS : InstSurface> {
     pub pipeline_2d: pipeline_2d::Pipeline2D<IS::Back>,
     ui_vbuff: Vec<BufferBundle<IS::Back>>,
     old_buffers: Vec<BufferBundle<IS::Back>>,
+    uniform_buff : Option<BufferBundle<IS::Back>>,
     old_buffer_expirations: Vec<i32>,
     pub window_client_size: PhysicalSize,
     //  : <back::Backend as Backend>::Surface,
@@ -144,12 +147,13 @@ impl<IS : InstSurface>  Renderer<IS>
         let vert_2d = art_2d.remove(0);
         let pipeline_2d = pipeline_2d::Pipeline2D::create(device.clone(), hal_state.render_area, hal_state.render_pass.deref(), vert_2d, frag_2d, &texture_manager.descriptor_set_layouts).expect("failed to create pipeline");
         let queue_group = ManuallyDrop::new(queue_group);
-        Self{ hal_state,
+        let mut res = Self{ hal_state,
             ui_pipeline,
             pipeline_2d,
             ui_vbuff: Vec::new(),
             old_buffers: Vec::new(),
             old_buffer_expirations: Vec::new(),
+            uniform_buff: None,
             window_client_size,
             inst_surface: ManuallyDrop::new(inst_surface),
             adapter,
@@ -159,7 +163,12 @@ impl<IS : InstSurface>  Renderer<IS>
             mem_atom,
             snd_command_pools, // : ManuallyDrop::new(snd_command_pool),
            // snd_command_buffers,
+        };
+        if !IS::Back::can_push_graphics_constants() {
+            let size = res.padded_size(128);
+            res.uniform_buff = Some(BufferBundle::new(res.adapter.deref(), res.device.deref(), size, BufferUsage::UNIFORM).expect("Failed creating uniform buffer"));
         }
+        res
     }
     /*
     fn draw_queue(& self) ->  & mut CommandQueue<back::Backend, Graphics> {
@@ -209,13 +218,14 @@ impl<IS : InstSurface>  Renderer<IS>
         let mm = & mut self.texture_manager;
         let vbuffs = &self.ui_vbuff;
         let  draw_queue = & mut self.queue_group.queues[0];
+        let uniform = &self.uniform_buff.as_mut();
         self.hal_state.with_inline_encoder( draw_queue, |enc| {
 
             {
-                pipeline_2d.execute(enc, mm, sim_vtx_buff, sim_idx_buff, render_area, &render_data.commands);
+                pipeline_2d.execute(enc, mm, sim_vtx_buff, sim_idx_buff, uniform, render_area, &render_data.commands);
             }
             {
-                pipeline.execute(enc, mm, vbuffs, render_area, cmds)
+                pipeline.execute(enc, mm, vbuffs, uniform, render_area, cmds)
             }
 
         })

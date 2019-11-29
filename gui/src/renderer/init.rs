@@ -9,7 +9,7 @@ use crate::error::Error;
 pub const WINDOW_NAME: &str = "Textures";
 
 pub trait InstSurface {
-    type Back : Backend;
+    type Back : Backend + super::backend::BackendExt;
     type SurfaceInfo : Surface<Self::Back>;
     fn get_surface<'a>(&'a self) -> & 'a <<Self as InstSurface>::Back as Backend>::Surface;
     fn get_surface_info<'a>(& 'a self) -> & 'a Self::SurfaceInfo;

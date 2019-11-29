@@ -1,7 +1,9 @@
-use super::*;
 use conrod_core as cc;
 use gfx_hal::{pso::{VertexInputRate, Primitive}, command::CommandBuffer};
 use std::ops::DerefMut;
+
+use super::*;
+use super::backend::BackendExt;
 
 pub struct Pipeline2D<B: Backend>{
     device: Arc<Dev<B>>,
@@ -9,7 +11,7 @@ pub struct Pipeline2D<B: Backend>{
     pub gfx_pipeline: ManuallyDrop<<B as Backend>::GraphicsPipeline>,
 }
 
-impl<B: Backend> Pipeline2D<B> {
+impl<B: Backend + BackendExt> Pipeline2D<B> {
 
     pub fn create(
         device: Arc<Dev<B>>,
@@ -167,6 +169,7 @@ impl<B: Backend> Pipeline2D<B> {
                            texture_manager: & mut ResourceManager<B>,
                            vertex_buffers: &[BufferBundle<B>],
                            index_buffer: &BufferBundle<B>,
+                           uniform_buffer: &Option<&mut BufferBundle<B>>,
                            render_area: Rect,
                            cmds: &[crate::simulation::Command]) {
         unsafe {
@@ -185,13 +188,19 @@ impl<B: Backend> Pipeline2D<B> {
 
             let device = self.device.deref();
             for cmd in cmds.iter() {
-                encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &[
+                let push = [
                     (render_area.w as f32).to_bits(),
                     (render_area.h as f32).to_bits(),
                     cmd.x_offset.to_bits(),
                     cmd.y_offset.to_bits(),
                     cmd.highlight as u32
-                ]);
+                ];
+                if B::can_push_graphics_constants() {
+                    encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &push);
+                }
+                else {
+                    uniform_buffer.as_ref().unwrap().write_range(&self.device,  0..((push.len() * 4) as u64) , &push);
+                }
                 let scissor = render_area;
                 encoder.set_scissors(0, Some(scissor));
                 encoder.draw_indexed(cmd.range.clone(), 0, 0..1);

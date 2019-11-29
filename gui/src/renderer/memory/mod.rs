@@ -69,7 +69,7 @@ pub struct ResourceManager<B: Backend> {
 }
 
 
-impl<B: Backend> ResourceManager<B> {
+impl<B: Backend + BackendExt> ResourceManager<B> {
     const DELETE_DELAY : i32 = 4;
     const TEXTURES_PER_BINDING : usize = 1;
     pub fn new(
@@ -80,26 +80,38 @@ impl<B: Backend> ResourceManager<B> {
     )->Result<Self, Error> {
         let pool_size = 32;
         let mut descriptor_set_layouts: Vec<<B as Backend>::DescriptorSetLayout> = Vec::new();
+        let mut descs = vec![
+            DescriptorSetLayoutBinding {
+                binding: 0,
+                ty: gfx_hal::pso::DescriptorType::SampledImage,
+                count: 1,
+                stage_flags: ShaderStageFlags::FRAGMENT,
+                immutable_samplers: false,
+            },
+            DescriptorSetLayoutBinding {
+                binding: 1,
+                ty: gfx_hal::pso::DescriptorType::Sampler,
+                count: 1,
+                stage_flags: ShaderStageFlags::FRAGMENT,
+                immutable_samplers: false,
+            },
+        ];
+        if !B::can_push_graphics_constants() {
+            descs.push(
+                DescriptorSetLayoutBinding {
+                    binding: 0,
+                    ty: gfx_hal::pso::DescriptorType::UniformBuffer,
+                    count: 1,
+                    stage_flags: ShaderStageFlags::VERTEX,
+                    immutable_samplers: false,
+                }
+            )
+        }
 
         unsafe {
             descriptor_set_layouts.push(device
                 .create_descriptor_set_layout(
-                    &[
-                        DescriptorSetLayoutBinding {
-                            binding: 0,
-                            ty: gfx_hal::pso::DescriptorType::SampledImage,
-                            count: 1,
-                            stage_flags: ShaderStageFlags::FRAGMENT,
-                            immutable_samplers: false,
-                        },
-                        DescriptorSetLayoutBinding {
-                            binding: 1,
-                            ty: gfx_hal::pso::DescriptorType::Sampler,
-                            count: 1,
-                            stage_flags: ShaderStageFlags::FRAGMENT,
-                            immutable_samplers: false,
-                        },
-                    ],
+                    &descs,
                     &[],
                 ).map_err(|_| "Couldn't make a DescriptorSetLayout")?)
         }
