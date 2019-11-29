@@ -66,11 +66,14 @@ impl<'a, E: MentalStateRep, R: Rng>  Iterator for InvokeIter<'a, E, R> {
 }
 
 impl<E: MentalStateRep> LearningEstimator<E> {
-    fn get_estimate_or_init(& mut self, entity: &WorldEntity, observation: impl Observation) -> &mut E {
-        self.estimators.get_or_insert_with(entity, ||
-            MentalStateRep::default(entity)
-         //   MentalStateRep::from_aggregate(entity, self.estimators.into_iter().filter(|e| e.get_type() == entity.e_type()))
-        )
+    fn assure_init(& mut self, entity: &WorldEntity, observation: &impl Observation) {
+        if self.estimators.get(entity).is_some() {
+           return;
+        }
+        {
+            let rep = MentalStateRep::from_aggregate(entity, self.estimators.into_iter().filter(|e| e.get_type() == entity.e_type()));
+            self.estimators.insert(entity, rep);
+        }
     }
     pub fn new(agents: Vec<(WorldEntity, u32)>) -> Self {
         Self {
@@ -103,11 +106,10 @@ impl<E: MentalStateRep + 'static> Estimator for LearningEstimator<E> {
     fn learn<C: Cell>(& mut self, action: Option<Action>, other: WorldEntity, other_pos: Position, world: & World<C>) {
         for (agent, sight) in self.agents.clone() {
             if let Some(own_pos) = world.positions.get(agent) {
-                let es = self.get_estimate_or_init(&other, world);
                 let observation = world.observe_in_radius(&agent, sight); // &(*world);//
                 let dist = own_pos.distance(&other_pos);
                 if dist <= sight {
-                    self.get_estimate_or_init(&other, observation.borrow());
+                    self.assure_init(&other, &observation);
                 }
                 if let Some((es, sc)) = self.estimators.split_out_mut(other) {
                     if dist <= sight {

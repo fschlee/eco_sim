@@ -8,6 +8,8 @@ pub trait Count {
     fn idx(&self) -> usize;
 }
 
+pub type Rarity = usize;
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, EnumIter, EnumCount)]
 pub enum EntityType {
     Rock,
@@ -98,6 +100,4 @@ impl Default for EntityType {
         Self::Rock
     }
 }
-
-pub type Rarity = usize;
 

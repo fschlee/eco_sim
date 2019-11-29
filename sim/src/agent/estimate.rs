@@ -47,9 +47,9 @@ impl MentalStateRep for PointEstimateRep {
     }
     fn update_seen<'a>(& 'a mut self, action: Option<Action>, others: &impl Estimator, observation: & impl Observation) {
 
-   // fn update_seen(&mut self, action: Option<Action>, others: impl Source<'_, MentalState>, observation: impl Observation) {
-        if let Some(pos) = observation.observed_position(&self.id){
+        if let Some(pos) = observation.observed_position(&self.id) {
             let mut ms : MentalState= (&(*self)).into();
+
             if action == ms.decide( &(self.physical_state), pos, observation, others){
                 self.update(&ms);
             }
@@ -84,7 +84,22 @@ impl MentalStateRep for PointEstimateRep {
         }
     }
     fn from_aggregate<B>(we: &WorldEntity, iter: impl Iterator<Item=B>) -> Self where B: Borrow<Self> {
-        Self::default(we)
+
+        let mut def = Self::default(we);
+        let mut c = 1;
+        for pe in iter {
+            let pe : &Self = pe.borrow();
+            c += 1;
+            def.hunger.0 += pe.hunger.0;
+            for i in 0..def.food_preferences.len() {
+                def.food_preferences[i].1 += pe.food_preferences[i].1;
+            }
+        }
+        def.hunger.0 = def.hunger.0 / c as f32;
+        for (_, p) in & mut def.food_preferences {
+            *p = *p / c as f32;
+        }
+        def
     }
     fn default(entity: &WorldEntity) -> Self {
         PointEstimateRep {
