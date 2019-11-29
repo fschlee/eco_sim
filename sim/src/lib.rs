@@ -81,6 +81,8 @@ impl SimState {
             }
             _ => PositionWalker::empty()
         }
-
+    }
+    pub fn threat_map(&self, we: &WorldEntity) -> Vec<f32> {
+        self.agent_system.threat_map(we, &self.world)
     }
 }

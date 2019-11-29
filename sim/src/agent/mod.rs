@@ -420,13 +420,13 @@ impl MentalState {
                 Some(v) => {
                     let mut total = 0.0;
                     let inv_dist = 1.0 / v.len() as f32;
-                    let mut scorer = |estimate : &PointEstimateRep| {
+
                         for pred_ms in estimator.invoke_sampled(entity, & mut rng, 10) {
                             pred_ms.lookup_preference(self.id.e_type()).map(|pref| {
-                                let mut score = pred_ms.hunger.0 * pref * inv_dist;
+                                let mut score = 5.0 * pred_ms.hunger.0 * pref * inv_dist;
                                 if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
                                     if prey == self.id {
-                                        score += 10.0;
+                                        score += 100.0 * inv_dist;
                                     } else {
                                         score *= 0.5;
                                     }
@@ -434,8 +434,7 @@ impl MentalState {
                                 total += score;
                             });
                         }
-                    };
-                   //  self.estimates.get(&entity).map(|e | scorer(e)).unwrap_or_else(  || scorer(&default_estimate(&entity)));
+
                     Some((entity, total))
                 },
                 _ => None
@@ -447,6 +446,9 @@ impl MentalState {
     }
 
     pub fn path_as(&self, start: Position, goal: Position, entity: &WorldEntity, observation: & impl Observation) -> Option<Vec<Position>> {
+        if observation.known_can_pass(entity, goal) == Some(false) {
+            return None
+        }
         let mut came_from : PositionMap<Position> = PositionMap::new();
         let mut cost = PositionMap::new();
         let mut queue = BinaryHeap::new();
@@ -611,6 +613,24 @@ impl AgentSystem {
 
         }
         Self{ agents, mental_states, estimators, estimator_map}
+    }
+    pub fn threat_map<C: Cell>(&self, we: &WorldEntity, world: &World<C>) -> Vec<f32> {
+        let mut vec = Vec::with_capacity(MAP_HEIGHT * MAP_WIDTH);
+        if let (Some(ms), Some(est), Some(current_pos))
+            = (self.mental_states.get(we), self.get_estimator(we.into()), world.positions.get(we)){
+            let observation = RadiusObservation::new(ms.sight_radius, *current_pos, world);
+            for y in 0..MAP_HEIGHT as u32 {
+                for x in 0..MAP_WIDTH as u32 {
+                    let mut sum = 0.0;
+                    for (_, threat) in &ms.calculate_threat(Position{ x: x as u32, y: y as u32}, &observation, est){
+                        sum += *threat;
+                    }
+                    vec.push(sum);
+                }
+            }
+
+        }
+        vec
     }
 }
 #[inline]

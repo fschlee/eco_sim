@@ -4,7 +4,7 @@ use eco_sim::{SimState, Storage, WorldEntity, MentalState, entity_type::{EntityT
 use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use itertools::Itertools;
 
 pub struct RenderData{
@@ -17,7 +17,7 @@ pub struct Command {
     pub range: Range<u32>,
     pub x_offset: f32,
     pub y_offset: f32,
-    pub highlight: bool,
+    pub highlight: u32,
 }
 
 pub enum RenderUpdate{
@@ -33,6 +33,7 @@ pub struct GameState{
     paused: bool,
     highlighted: HashSet<(usize, usize)>,
     highlight_visible: Option<WorldEntity>,
+    threat_mode: bool,
     cell_width: f32,
     cell_height: f32,
     margin: f32,
@@ -52,6 +53,7 @@ impl GameState {
             cell_width : 80.0,
             cell_height: 80.0,
             margin: 80.0,
+            threat_mode: false,
         }
     }
     pub fn update(&mut self, actions: impl Iterator<Item=Action>, time_step: f32) {
@@ -85,6 +87,7 @@ impl GameState {
                 }
                 Action::ClearHighlight => self.highlight_visible = None,
                 Action::HighlightVisibility(ent) => self.highlight_visible = Some(ent),
+                Action::ToggleThreatMode => self.threat_mode = !self.threat_mode,
             }
         }
         if !self.paused {
@@ -137,22 +140,32 @@ impl GameState {
             let (b, e) = forms[et.idx()];
             b..e
         };
-        if let Some(ent) = self.highlight_visible {
+        let danger =  if let Some(ent) = self.highlight_visible {
             self.highlighted.clear();
             for eco_sim::Position{x, y} in  self.eco_sim.get_visibility(&ent) {
                 self.highlighted.insert((x as usize, y as usize));
             }
-        }
+            if self.threat_mode && self.highlight_visible.is_some() {
+                self.eco_sim.threat_map(&ent)
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
         for (i, j, dat) in self.eco_sim.get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT){
             let x_offset = self.cell_width * i as f32;
             let y_offset = self.cell_height * j as f32;
-            commands.push(Command{range: 0..6, x_offset, y_offset, highlight: self.highlighted.contains(&(i, j)) });
+            let idx = eco_sim::MAP_WIDTH * j + i;
+            let col = match self.highlighted.contains(&(i, j)){
+                x if danger.len() > idx && self.threat_mode => x as u32 * 256 | 512 | ((danger[idx] * 10.0).floor() as u32).min(255),
+                true => 256,
+                false => 0,
+            };
+            commands.push(Command{range: 0..6, x_offset, y_offset, highlight:  col });
             for ent in dat {
-                commands.push(Command{range: lookup(ent.e_type()), x_offset, y_offset, highlight: false});
+                commands.push(Command{range: lookup(ent.e_type()), x_offset, y_offset, highlight: 0});
             }
-
-
-
         }
          RenderData{
              vertices,

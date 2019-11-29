@@ -13,6 +13,8 @@ use super::agent::AgentSystem;
 use crate::{MentalState};
 use crate::Occupancy::Empty;
 
+use enum_macros::{EnumIter};
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Action {
     Move(Position),
@@ -139,23 +141,58 @@ impl Position {
             && ((self.y as i64) - (other.y as i64)).abs() <= 1
     }
     pub fn neighbours(&self) -> impl IntoIterator<Item=Position> {
-        let mut neighbours = vec![
-            Position{ x: self.x + 1, y: self.y },
-            Position{ x: self.x, y: self.y + 1 },
-        ];
-        if self.x > 0 {
-            neighbours.push(Position{x: self.x -1, y: self.y});
-        }
-        if self.y > 0 {
-            neighbours.push(Position{x: self.x, y: self.y -1});
-        }
-        neighbours
+        NeighborIter { pos: *self, dir: Some(Dir::R)}
     }
     pub fn distance(&self, other: & Position) -> u32 {
         ((self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()) as u32
     }
     pub fn within_bounds(& self) -> bool {
         self.x < MAP_WIDTH as u32 && self.y < MAP_HEIGHT as u32
+    }
+    fn step(&self, dir: Dir)-> Option<Position>{
+        use Dir::*;
+        match dir {
+            R if self.x +1 < MAP_WIDTH as u32  => Some(Position { x: self.x+1, y: self.y }),
+            L if self.x > 0  => Some(Position { x: self.x - 1, y: self.y }),
+            D if self.y +1 < MAP_HEIGHT as u32 => Some(Position { x: self.x, y: self.y +1 }),
+            U if self.y > 0 as u32 => Some(Position { x: self.x, y: self.y  - 1 }),
+            R | L | D | U => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]
+enum Dir {
+    R = 1,
+    L = 2,
+    U = 3,
+    D = 4,
+}
+impl Dir {
+    fn next(self) -> Option<Dir>{
+        use Dir::*;
+        match self {
+            R => Some(U),
+            U => Some(L),
+            L => Some(D),
+            D => None,
+        }
+    }
+}
+
+struct NeighborIter {
+    pos : Position,
+    dir : Option<Dir>,
+}
+impl Iterator for NeighborIter{
+    type Item = Position;
+    fn next(&mut self) -> Option<Self::Item>{
+        while let Some(dir) = self.dir {
+            self.dir = dir.next();
+            if let p@Some(_) = self.pos.step(dir){
+                return p
+            }
+        }
+        None
     }
 }
 

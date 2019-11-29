@@ -88,6 +88,7 @@ pub enum Action {
     Move(eco_sim::WorldEntity, LogicalPosition),
     HighlightVisibility(eco_sim::WorldEntity),
     ClearHighlight,
+    ToggleThreatMode,
 }
 static CAMERA_STEP : f32 = 0.05;
 
@@ -393,6 +394,7 @@ impl UIState {
             VirtualKeyCode::Tab => {
                 self.tooltip_index += 1;
             }
+            VirtualKeyCode::T => self.actions.push_back(Action::ToggleThreatMode),
             _ => ()
         }
     }

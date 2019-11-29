@@ -45,21 +45,19 @@ impl<'a, E: MentalStateRep, R: Rng>  Iterator for InvokeIter<'a, E, R> {
     type Item = MentalState;
     fn next(&mut self) -> Option<Self::Item> {
         let ms = match self {
-            Self::Empty => return None,
-            Self::Rep{ mut count, rep, rng} => {
-                if count == 0 {
+            Self::Empty => None,
+            Self::Rep{ ref mut count, rep, rng} => {
+                if *count == 0 {
                     None
 
                 } else {
-                    count -= 1;
+                    *count -= 1;
                     Some(rep.sample(1.0, rng))
                 }
             }
         };
         if ms.is_none() {
-            let mut empty = Self::Empty;
-            std::mem::swap(self, &mut empty);
-            return None;
+            *self = Self::Empty;;
         }
         ms
     }

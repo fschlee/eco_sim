@@ -31,13 +31,24 @@ void main()
         (margin + 80.0 * position.y + push.y_offset - 0.5 * height) * width,
         0.0,
         0.5 * height * width);
-    if (push.highlighted != 0)
-    {
-        frag_color = vec4(high(color.r) ,high(color.g), high(color.b), color.a);
+    uint low = push.highlighted & 255;
+    uint highlight = (push.highlighted & 256) >> 8;
+    uint threat = (push.highlighted & 512) >> 9;
+
+    if (threat == 1) {
+        float red = max(0.0, (low -2.0) /256.0);
+        float green = 1.0 - red;
+        float mix = 0.5 * max(red * red, green * green);
+        frag_color = (1.0 - mix) * color + vec4(red, green, 0.0, mix);
     }
     else {
         frag_color = color;
     }
+    if (highlight == 1)
+    {
+        frag_color = vec4(high(frag_color.r) ,high(frag_color.g), high(frag_color.b), frag_color.a);
+    }
+
     frag_uv = vert_uv;
     frag_mode = mode;
 }
