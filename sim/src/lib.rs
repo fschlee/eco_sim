@@ -5,7 +5,7 @@ pub mod entity;
 pub mod entity_type;
 pub mod world;
 pub mod agent;
-
+pub mod util;
 
 pub use entity::*;
 pub use world::*;

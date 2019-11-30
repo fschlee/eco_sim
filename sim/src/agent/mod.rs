@@ -1,5 +1,6 @@
 pub mod estimate;
 pub mod estimator;
+pub mod emotion;
 
 use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
@@ -15,6 +16,8 @@ use crate::Behavior::Partake;
 use estimate::{PointEstimateRep};
 use estimator::MentalStateRep;
 use crate::agent::estimator::{ LearningEstimator, Estimator};
+pub use emotion::{Hunger, EmotionalState};
+
 use std::collections::hash_map::RandomState;
 
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -53,18 +56,11 @@ impl Behavior {
     }
 }
 
-#[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
-pub struct Hunger(pub f32);
 
-impl Default for Hunger {
-    fn default() -> Self {
-        Self(3.9)
-    }
-}
 
-const HUNGER_THRESHOLD : Hunger = Hunger(1.0);
+const HUNGER_THRESHOLD : Hunger = Hunger(0.2);
 
-const HUNGER_INCREMENT : f32 = 0.0001;
+const HUNGER_INCREMENT : f32 = 0.00001;
 
 const FLEE_THREAT : f32 = 5.0;
 
@@ -75,8 +71,7 @@ pub type Threat = f32;
 #[derive(Clone, Debug)]
 pub struct MentalState {
     pub id: WorldEntity,
-    pub hunger: Hunger,
-    pub food_preferences: Vec<(EntityType, Reward)>,
+    pub emotional_state: EmotionalState,
     pub current_action: Option<Action>,
     pub current_behavior: Option<Behavior>,
     pub sight_radius: u32,
@@ -93,10 +88,10 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 impl MentalState {
     pub fn new(entity: WorldEntity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
         assert!(food_preferences.len() > 0);
+        let emotional_state = EmotionalState::new(food_preferences);
         Self{
             id: entity,
-            hunger: Hunger::default(),
-            food_preferences,
+            emotional_state,
             current_action: None,
             current_behavior: None,
             sight_radius: 5,
@@ -123,10 +118,10 @@ impl MentalState {
 
     }
     fn update(& mut self, physical_state: &PhysicalState, own_position: Position, observation:  &impl Observation,) {
-        self.hunger.0 += (20.0 -  physical_state.satiation.0) * HUNGER_INCREMENT;
+        self.emotional_state += Hunger((20.0 -  physical_state.satiation.0) * HUNGER_INCREMENT);
         match self.current_action {
             Some(Action::Eat(food)) => {
-                if self.hunger.0 <= 0.0 || !observation.entities_at(own_position).contains(&food) {
+                if self.emotional_state.hunger().0 <= 0.0 || !observation.entities_at(own_position).contains(&food) {
                     self.current_action = None;
                 }
             },
@@ -167,7 +162,7 @@ impl MentalState {
                 self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
             }
         }
-        if self.current_behavior.is_none() && self.hunger > HUNGER_THRESHOLD {
+        if self.current_behavior.is_none() && self.emotional_state.hunger() > HUNGER_THRESHOLD {
             if let Some((reward, food, position)) = observation.find_closest(own_position, |e, w| {
                 self.id.e_type().can_eat(&e.e_type())
             }).filter_map(|(e, p)| {
@@ -188,7 +183,7 @@ impl MentalState {
                 }
             }
             else {
-                self.current_behavior = Some(Behavior::Search(self.food_preferences.iter().map(|(f, r)| f.clone()).collect()));
+                self.current_behavior = Some(Behavior::Search(self.food_preferences().map(|(f, r)| f.clone()).collect()));
             }
         }
         match self.current_behavior.clone() {
@@ -300,7 +295,7 @@ impl MentalState {
                 },
                 Action::Eat(food) => {
                     if hunger > HUNGER_THRESHOLD {
-                        if let Some((_, pref)) = self.food_preferences.iter().find(|(et, pref)| et == &food.e_type()) {
+                        if let Some((_, pref)) = self.food_preferences().find(|(et, pref)| et == &food.e_type()) {
                             return 0.2 + pref;
                         }
                     }
@@ -320,7 +315,7 @@ impl MentalState {
             let mut max_reward : f32 = reward_expectations[depth][y as usize][x as usize];
 
             for food in  world_expectation.entities_at(pos).iter(){
-                let mut reward = direct_reward(Action::Eat(*food), ms.hunger);
+                let mut reward = direct_reward(Action::Eat(*food), ms.emotional_state.hunger());
                 if depth < TIME_DEPTH - 1 {
                     reward += reward_expectations[depth+1][y as usize][x as usize];
                 }
@@ -333,7 +328,7 @@ impl MentalState {
             for neighbor in pos.neighbours() {
                 let Position{x, y} = neighbor;
                 if neighbor.within_bounds() && world_expectation.known_can_pass(&id, neighbor) != Some(false) {
-                    let mut reward = direct_reward(Action::Move(neighbor), ms.hunger);
+                    let mut reward = direct_reward(Action::Move(neighbor), ms.emotional_state.hunger());
                     if depth < TIME_DEPTH - 1 {
                         reward += reward_expectations[depth + 1][y as usize][x as usize];
                     }
@@ -423,7 +418,7 @@ impl MentalState {
 
                         for pred_ms in estimator.invoke_sampled(entity, & mut rng, 10) {
                             pred_ms.lookup_preference(self.id.e_type()).map(|pref| {
-                                let mut score = 5.0 * pred_ms.hunger.0 * pref * inv_dist;
+                                let mut score = 50.0 * pred_ms.emotional_state.hunger().0 * pref * inv_dist;
                                 if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
                                     if prey == self.id {
                                         score += 100.0 * inv_dist;
@@ -498,21 +493,30 @@ impl MentalState {
         }
     }
     pub fn lookup_preference(&self, entity_type: EntityType) -> Option<Reward> {
-        self.food_preferences.iter().find_map(|(et, rw)| {
-            if et == &entity_type
-            {
-                Some(*rw)
-            } else {
-                None
-            }
-        })
+        if !self.id.e_type().can_eat(&entity_type){
+            return None;
+        }
+        Some(self.emotional_state.pref(entity_type).0)
     }
     pub fn respawn_as(&mut self, entity: &WorldEntity) {
         self.id = entity.clone();
-        self.hunger = Hunger::default();
+        let fp = self.food_preferences().collect();
+        self.emotional_state = EmotionalState::new(fp);
         self.current_action = None;
         self.current_behavior = None;
     }
+    pub fn food_preferences<'a>(& 'a self) -> impl Iterator<Item=(EntityType, f32)> + 'a {
+        let own_et = self.id.e_type();
+        EntityType::iter().zip(self.emotional_state.preferences())
+            .filter_map(move |(et, r)|
+                if own_et.can_eat(&et) {
+                    Some((et, (*r).0))
+                } else {
+                    None
+                })
+
+    }
+    // pub fn set_preference()
 }
 type EstimateRep = PointEstimateRep;
 type EstimatorT = LearningEstimator<EstimateRep>;

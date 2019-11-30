@@ -8,13 +8,14 @@ use crate::entity::{WorldEntity, Storage, Source};
 use crate::world::{Action, PhysicalState, Health, Meat, Satiation, Speed, MoveProgress, Observation};
 use crate::entity_type::{EntityType};
 use crate::agent::estimator::Estimator;
+use crate::util::clip;
+use crate::EmotionalState;
 
 #[derive(Clone, Debug)]
 pub struct PointEstimateRep {
     pub id: WorldEntity,
     pub physical_state: PhysicalState,
-    pub hunger: Hunger,
-    pub food_preferences: Vec<(EntityType, Reward)>,
+    pub emotional_state: EmotionalState,
     pub current_action: Option<Action>,
     pub current_behavior: Option<Behavior>,
     pub sight_radius: u32,
@@ -22,8 +23,7 @@ pub struct PointEstimateRep {
 }
 impl PointEstimateRep {
     pub fn update(&mut self, ms: &MentalState){
-        self.hunger = ms.hunger;
-        self.food_preferences = ms.food_preferences.clone();
+        self.emotional_state = ms.emotional_state.clone();
         self.current_behavior = ms.current_behavior.clone();
         self.current_action = ms.current_action;
     }
@@ -32,11 +32,13 @@ impl PointEstimateRep {
 impl MentalStateRep for PointEstimateRep {
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState {
         let mut sample : MentalState = self.into();
-        let hunger_sample = rng.sample(Normal::new(self.hunger.0, scale * 10.0).unwrap()); // can only fail if std_dev < 0 or nan;
-        sample.hunger.0 = clip(hunger_sample, 0.0, 10.0);
-        for (_, pref) in sample.food_preferences.iter_mut() {
-            let pref_sample : f32 = StandardNormal.sample(rng);
-            *pref = clip(*pref +  pref_sample * scale, 0.0, 1.0);
+        let hunger_sample : f32 = StandardNormal.sample(rng);
+        sample.emotional_state += Hunger(hunger_sample * scale);
+        for et in EntityType::iter() {
+            if self.id.e_type().can_eat(&et) {
+                let pref_sample : f32 = StandardNormal.sample(rng);
+                sample.emotional_state.set_preference(et, sample.emotional_state.pref(et).0 + pref_sample * scale)
+            }
         }
         let bhv_sample : f32  = StandardNormal.sample(rng);
         if  bhv_sample * scale > 0.25f32 {
@@ -74,8 +76,7 @@ impl MentalStateRep for PointEstimateRep {
     fn into_ms(&self) -> MentalState {
         MentalState {
             id: self.id,
-            hunger: self.hunger,
-            food_preferences: self.food_preferences.clone(),
+            emotional_state: self.emotional_state.clone(),
             current_action: self.current_action,
             current_behavior: self.current_behavior.clone(),
             sight_radius: self.sight_radius,
@@ -86,18 +87,8 @@ impl MentalStateRep for PointEstimateRep {
     fn from_aggregate<B>(we: &WorldEntity, iter: impl Iterator<Item=B>) -> Self where B: Borrow<Self> {
 
         let mut def = Self::default(we);
-        let mut c = 1;
-        for pe in iter {
-            let pe : &Self = pe.borrow();
-            c += 1;
-            def.hunger.0 += pe.hunger.0;
-            for i in 0..def.food_preferences.len() {
-                def.food_preferences[i].1 += pe.food_preferences[i].1;
-            }
-        }
-        def.hunger.0 = def.hunger.0 / c as f32;
-        for (_, p) in & mut def.food_preferences {
-            *p = *p / c as f32;
+        {
+            def.emotional_state = EmotionalState::average(iter.map(|b | b.borrow().emotional_state.clone()));
         }
         def
     }
@@ -109,15 +100,14 @@ impl MentalStateRep for PointEstimateRep {
                 Speed(0.2),
                 None )
             ),
-            hunger: Default::default(),
-            food_preferences: EntityType::iter().filter_map(|other| {
+            emotional_state: EmotionalState::new(EntityType::iter().filter_map(|other| {
                 if entity.e_type().can_eat(&other) {
                     Some((other, 0.5))
                 }
                 else {
                     None
                 }
-            }).collect(),
+            }).collect()),
             current_action: None,
             current_behavior: None,
             sight_radius: 5,
@@ -131,10 +121,11 @@ impl MentalStateRep for PointEstimateRep {
 
 impl std::fmt::Display for PointEstimateRep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let ms : MentalState = self.into();
         writeln!(f, "{:?} ({})", self.id.e_type(), self.id.id())?;
-        writeln!(f, "Hunger: ({})", self.hunger.0)?;
+        writeln!(f, "Hunger: ({})", self.emotional_state.hunger().0)?;
         writeln!(f, "Preferences:")?;
-        for (t, p) in &self.food_preferences {
+        for (t, p) in ms.food_preferences() {
             writeln!(f, "{:?}: {}", t, p)?;
         }
         writeln!(f, "Behavior:")?;
@@ -144,6 +135,8 @@ impl std::fmt::Display for PointEstimateRep {
     }
 }
 
-fn clip(val: f32, min: f32, max: f32) -> f32 {
-    max.min(min.max(val))
+impl Borrow<EmotionalState> for PointEstimateRep {
+    fn borrow(&self) -> &EmotionalState {
+        &self.emotional_state
+    }
 }
