@@ -79,9 +79,10 @@ impl GameState {
                     if let Some(ms) = self.eco_sim.get_mental_state(&entity) {
                         let (x, y) = self.logical_position_to_coords(pos);
                         let sim_pos = eco_sim::Position { x: x as u32, y: y as u32 };
+
                         let mut new_ms = ms.clone();
-                        new_ms.current_action = Some(eco_sim::Action::Move(sim_pos));
-                        new_ms.current_behavior = None;
+                        new_ms.current_action = eco_sim::Action::Idle;
+                        new_ms.current_behavior = Some(eco_sim::Behavior::Travel(sim_pos));
                         self.eco_sim.update_mental_state(new_ms);
                     }
                 }

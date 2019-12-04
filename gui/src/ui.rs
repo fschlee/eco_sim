@@ -276,7 +276,7 @@ impl UIState {
                         new_ms.emotional_state.set_hunger(eco_sim::Hunger(hunger));
                         self.actions.push_back(Action::UpdateMentalState(new_ms));
                     }
-                    let act_text = eco_sim::Action::fmt(&ms.current_action);
+                    let act_text = format!("{}", ms.current_action);
                     cc::widget::Text::new(&act_text).font_size(16)
                         .down_from(self.ids.hunger_dialer, 60.0)
                         .align_middle_x_of(self.ids.edit_canvas).set(self.ids.action_text, ui);

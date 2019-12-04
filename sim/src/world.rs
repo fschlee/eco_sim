@@ -14,32 +14,52 @@ use crate::{MentalState};
 use crate::Occupancy::Empty;
 
 use enum_macros::{EnumIter};
+use crate::Outcome::Incomplete;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Action {
-    Move(Position),
+    Idle,
+    Move(Dir),
     Eat(WorldEntity),
     Attack(WorldEntity),
 }
-impl Action {
-    pub fn fmt(act: &Option<Action>) -> String {
-        match act {
-            None => format!("Idle"),
-            Some(Action::Eat(food)) => format!("Eating {:?}", food.e_type()),
-            Some(Action::Move(pos)) => format!("Moving to {:?}", pos),
-            Some(Action::Attack(target)) => {
-                format!("Attacking {:?}", target.e_type())
+impl std::fmt::Display for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error>  {
+        use Action::*;
+        match self {
+            Idle => write!(f, "Idle"),
+            Eat(food) => write!(f, "Eating {:?}", food.e_type()),
+            Move(dir) => write!(f, "Moving {}", dir),
+            Attack(target) => {
+                write!(f, "Attacking {:?}", target.e_type())
             }
         }
     }
+}
+impl Default for Action {
+    fn default() -> Self {
+        Action::Idle
+    }
+}
+
+
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum Outcome {
+    Incomplete,
+    Moved(Dir),
+    Consumed(Meat, EntityType),
+    Hurt{ damage: Damage, target: EntityType, lethal: bool},
+    Rested,
 }
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Health(pub f32);
 
+type Damage = Health;
 impl Health {
-    pub fn suffer(&mut self, attack: Attack) {
-        self.0 -= attack.0
+    pub fn suffer(&mut self, attack: Attack) -> Damage {
+        self.0 -= attack.0;
+        Health(attack.0)
     }
 }
 
@@ -159,9 +179,27 @@ impl Position {
             R | L | D | U => None,
         }
     }
+    pub fn dir(&self, other: &Position) -> Dir {
+        let x_diff = self.x as i32 - other.x as i32;
+        let y_diff = self.y as i32 - other.y as i32;
+        if x_diff.abs() > y_diff.abs() {
+            if x_diff > 0 {
+                Dir::L
+            }
+            else {
+                Dir::R
+            }
+        }
+        else if y_diff > 0 {
+            Dir::U
+        }
+        else {
+            Dir::D
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]
-enum Dir {
+pub enum Dir {
     R = 1,
     L = 2,
     U = 3,
@@ -175,6 +213,18 @@ impl Dir {
             U => Some(L),
             L => Some(D),
             D => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Dir {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error>  {
+        use Dir::*;
+        match self {
+            R => write!(f, "right"),
+            L => write!(f, "left"),
+            U => write!(f, "up"),
+            D => write!(f, "down")
         }
     }
 }
@@ -409,38 +459,41 @@ impl<C: Cell> World<C> {
         new_e
     }
 
-    pub fn act(&mut self, entity: &WorldEntity, action: Action) -> Result<(), &str> {
+    pub fn act(&mut self, entity: &WorldEntity, action: Action) -> Result<Outcome, &str> {
         let own_pos = self.positions.get(entity)
             .ok_or("Entity has no known position but tries to act")?;
 
         match action {
-            Action::Move(pos) => {
-                if own_pos.is_neighbour(&pos) && self.can_pass(entity, pos) {
-                    let phys = self.physical_states.get_mut(entity)
-                        .ok_or("Entity has no physical state but tries to move")?;
-                    if phys.partial_move(pos) >= MoveProgress(1.0) {
-                        phys.move_target = None;
-                        phys.move_progress = MoveProgress::default();
-                        self.move_unchecked(entity, pos);
+            Action::Move(dir) => {
+                match own_pos.step(dir) {
+                    Some(pos) if self.can_pass(entity, pos) => {
+                        let phys = self.physical_states.get_mut(entity)
+                            .ok_or("Entity has no physical state but tries to move")?;
+                        if phys.partial_move(pos) >= MoveProgress(1.0) {
+                            phys.move_target = None;
+                            phys.move_progress = MoveProgress::default();
+                            self.move_unchecked(entity, pos);
+                            Ok(Outcome::Moved(dir))
 
-                    }
-                    Ok(())
-                } else {
-                    Err("invalid move")
+                        } else {
+                            Ok(Outcome::Incomplete)
+                        }
+                    },
+                    Some(_) => Err("blocked move"),
+                    None => Err("Invalid move"),
                 }
             }
             Action::Eat(target) => {
                 if self.positions.get(&target) == Some(own_pos) {
                     if entity.e_type().can_eat(&target.e_type()) {
-                        self.eat_unchecked(entity, &target);
-                        Ok(())
+                        Ok(self.eat_unchecked(entity, &target))
                     } else {
                         Err("entity can't eat that")
                     }
                 } else {
                     Err("can only eat things in the same tile")
                 }
-            }
+            },
             Action::Attack(opponent) => {
                 let pos = self.positions.get(&opponent)
                     .ok_or("Entity tries to attack opponent with no known position")?;
@@ -451,15 +504,16 @@ impl<C: Cell> World<C> {
                     .ok_or("Entity has no physical state but tries to attack")?;
                 if let Some(attack) = phys.attack {
                     if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
-                        phys_target.health.suffer(attack);
-                        Ok(())
+                        let damage = phys_target.health.suffer(attack);
+                        Ok(Outcome::Hurt { damage, target: opponent.e_type(), lethal: phys_target.is_dead() })
                     } else {
                         Err("opponent has no physical state")
                     }
                 } else {
                     Err("entity incapable of attacking")
                 }
-            }
+            },
+            Action::Idle => Ok(Outcome::Rested),
         }
     }
     fn can_pass(&self, entity: &WorldEntity, position: Position) -> bool {
@@ -512,27 +566,28 @@ impl<C: Cell> World<C> {
         }
         self.entities_at_mut(new_position).push(entity.clone());
     }
-    fn eat_unchecked(&mut self, eater: &WorldEntity, eaten: &WorldEntity) {
-        let decrement = 5.0;
+    fn eat_unchecked(&mut self, eater: &WorldEntity, eaten: &WorldEntity) -> Outcome {
+        let mut decrement = 5.0;
+        let mut remove = false;
+
+        if let Some(phys) = self.physical_states.get_mut(eaten) {
+            if phys.meat.0 <= decrement {
+                    remove =  true;
+                    decrement = phys.meat.0;
+
+            }
+            phys.meat.0 -= decrement;
+        }
         self.physical_states
             .get_mut(eater)
             .map(|ps| ps.satiation.0 += decrement);
-        let remove = {
-            if let Some(phys) = self.physical_states.get_mut(eaten) {
-                phys.meat.0 -= decrement;
-                phys.meat.0 <= 0.0
-            }
-            else {
-                false
-            }
-        };
         if remove {
             self.physical_states.remove(eaten);
             if let Some(pos) = self.positions.remove(eaten) {
                 self.entities_at_mut(pos).retain(|e| e!= eaten)
             }
-
         }
+        Outcome::Consumed(Meat(decrement), eaten.e_type())
     }
     pub fn get_view(
         &self,

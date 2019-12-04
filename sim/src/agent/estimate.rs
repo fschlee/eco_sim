@@ -16,7 +16,7 @@ pub struct PointEstimateRep {
     pub id: WorldEntity,
     pub physical_state: PhysicalState,
     pub emotional_state: EmotionalState,
-    pub current_action: Option<Action>,
+    pub current_action: Action,
     pub current_behavior: Option<Behavior>,
     pub sight_radius: u32,
     pub use_mdp: bool,
@@ -47,7 +47,7 @@ impl MentalStateRep for PointEstimateRep {
         sample.rng = rand::SeedableRng::seed_from_u64(rng.gen());
         sample
     }
-    fn update_seen<'a>(& 'a mut self, action: Option<Action>, others: &impl Estimator, observation: & impl Observation) {
+    fn update_seen<'a>(& 'a mut self, action: Action, others: &impl Estimator, observation: & impl Observation) {
 
         if let Some(pos) = observation.observed_position(&self.id) {
             let mut ms : MentalState= (&(*self)).into();
@@ -108,7 +108,7 @@ impl MentalStateRep for PointEstimateRep {
                     None
                 }
             }).collect()),
-            current_action: None,
+            current_action: Action::default(),
             current_behavior: None,
             sight_radius: 5,
             use_mdp: false
@@ -131,7 +131,7 @@ impl std::fmt::Display for PointEstimateRep {
         writeln!(f, "Behavior:")?;
         writeln!(f, "{}", Behavior::fmt(&self.current_behavior))?;
         writeln!(f, "Action:")?;
-        writeln!(f, "{}", Action::fmt(&self.current_action))
+        self.current_action.fmt(f)
     }
 }
 
