@@ -255,7 +255,7 @@ impl MentalState {
                             }
                         }
                         else if let Some(path) = self.path(own_position, pos, observation){
-                            self.current_action = Action::Move(own_position.dir(&path[1]));
+                            self.current_action = Action::Move(path[0]);
                         }
                         else {
                             self.current_behavior = None;
@@ -272,7 +272,7 @@ impl MentalState {
 
                         }
                         else if let Some(path) = self.path(own_position, pos, observation){
-                            self.current_action = Action::Move(own_position.dir(&path[1]));
+                            self.current_action = Action::Move(path[0]);
                         }
                         else {
                             self.current_behavior = None;
@@ -295,7 +295,7 @@ impl MentalState {
                 if let Action::Move(_) = self.current_action {}
                 else {
                     if let Some(path) = self.path(own_position, goal, observation){
-                        self.current_action = Action::Move(own_position.dir(&path[1]));
+                        self.current_action = Action::Move(path[0]);
                     }
                     else {
                         self.current_behavior = None;
@@ -464,7 +464,7 @@ impl MentalState {
             }
         }).collect()
     }
-    pub fn path(&self, current: Position, goal: Position, observation: & impl Observation) -> Option<Vec<Position>>  {
+    pub fn path(&self, current: Position, goal: Position, observation: & impl Observation) -> Option<Vec<Dir>>  {
         observation.path_as(current, goal, &self.id)
     }
 

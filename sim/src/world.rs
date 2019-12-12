@@ -670,7 +670,7 @@ pub trait Observation: Clone {
         let agent_system = AgentSystem::init(agents, &world, false, rng);
         (entity_manager, world, agent_system)
     }
-    fn path_as(&self, start: Position, goal: Position, entity: &WorldEntity) -> Option<Vec<Position>> {
+    fn path_as(&self, start: Position, goal: Position, entity: &WorldEntity) -> Option<Vec<Dir>> {
         if self.known_can_pass(entity, goal) == Some(false) {
             return None
         }
@@ -681,33 +681,36 @@ pub trait Observation: Clone {
         queue.push(PathNode { pos: start, exp_cost: start.distance(&goal)});
         while let Some(PathNode{pos, exp_cost}) = queue.pop() {
             let base_cost = *cost.get(&pos).unwrap();
-            for n in pos.possible_steps(&goal) {
-                if self.known_can_pass(entity, n) == Some(false) {
-                    continue;
-                }
-                if n == goal {
-                    let mut v = vec![n, pos];
-                    let mut current = pos;
-                    while let Some(from) = came_from.get(&current) {
-                        v.push(from.clone());
-                        current = *from;
+            for d in &CLOSEST_DIRS[pos.dir(&goal) as usize] {
+                if let Some(n) = pos.step(*d) {
+                    if self.known_can_pass(entity, n) == Some(false) {
+                        continue;
                     }
-                    v.reverse();
-                    return Some(v);
-                }
-                else {
-                    let mut insert = true;
-                    if let Some(c) =cost.get(&n) {
-                        if *c <= base_cost + 1 {
-                            insert = false;
+                    if n == goal {
+                        let mut v = vec![*d];
+                        let mut current = pos;
+                        while let Some(from) = came_from.get(&current) {
+                            v.push(from.dir(&current));
+                            current = *from;
+                        }
+                        v.reverse();
+                        return Some(v);
+                    }
+                    else {
+                        let mut insert = true;
+                        if let Some(c) =cost.get(&n) {
+                            if *c <= base_cost + 1 {
+                                insert = false;
+                            }
+                        }
+                        if insert {
+                            cost.insert(n,base_cost + 1);
+                            came_from.insert(n, pos);
+                            queue.push(PathNode{pos: n, exp_cost : base_cost + 1 + n.distance(&goal) })
                         }
                     }
-                    if insert {
-                        cost.insert(n,base_cost + 1);
-                        came_from.insert(n, pos);
-                        queue.push(PathNode{pos: n, exp_cost : base_cost + 1 + n.distance(&goal) })
-                    }
                 }
+
             }
         }
         None
