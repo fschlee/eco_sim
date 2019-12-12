@@ -154,6 +154,12 @@ pub struct Position {
     pub y: u32,
 }
 
+pub const CLOSEST_DIRS : [[Dir; 4]; 4] = [
+    [Dir::R, Dir::D, Dir::U, Dir::L],
+    [Dir::L, Dir::U, Dir::D, Dir::R],
+    [Dir::U, Dir::L, Dir::R, Dir::D],
+    [Dir::D, Dir::R, Dir::L, Dir::U],
+];
 impl Position {
     pub fn is_neighbour(&self, other: &Position) -> bool {
         self != other
@@ -178,6 +184,10 @@ impl Position {
             U if self.y > 0 as u32 => Some(Position { x: self.x, y: self.y  - 1 }),
             R | L | D | U => None,
         }
+    }
+    fn possible_steps(&self, goal: &Position) -> impl Iterator<Item=Position> + '_ {
+        (&CLOSEST_DIRS[self.dir(goal) as usize]).iter().filter_map(move|dir|
+        self.step(*dir))
     }
     pub fn dir(&self, other: &Position) -> Dir {
         let x_diff = self.x as i32 - other.x as i32;
@@ -204,10 +214,10 @@ impl Position {
 }
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Dir {
-    R = 1,
-    L = 2,
-    U = 3,
-    D = 4,
+    R = 0,
+    L = 1,
+    U = 2,
+    D = 3,
 }
 impl Dir {
     fn next(self) -> Option<Dir>{
@@ -671,7 +681,7 @@ pub trait Observation: Clone {
         queue.push(PathNode { pos: start, exp_cost: start.distance(&goal)});
         while let Some(PathNode{pos, exp_cost}) = queue.pop() {
             let base_cost = *cost.get(&pos).unwrap();
-            for n in pos.neighbours() {
+            for n in pos.possible_steps(&goal) {
                 if self.known_can_pass(entity, n) == Some(false) {
                     continue;
                 }
