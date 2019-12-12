@@ -229,6 +229,15 @@ impl Dir {
             D => None,
         }
     }
+    fn opposite(self) -> Dir {
+        use Dir::*;
+        match self {
+            R => L,
+            U => D,
+            L => R,
+            D => U,
+        }
+    }
 }
 
 impl std::fmt::Display for Dir {
@@ -260,23 +269,53 @@ impl Iterator for NeighborIter{
     }
 }
 
-pub struct PositionMap<T> {
-    map : HashMap<Position, T>
+pub enum PositionMap<T: Sized> {
+    Vec(Vec<(Position, T)>),
+    Map(HashMap<Position, T>),
 }
-impl<T> PositionMap<T> {
+impl<T: Sized> PositionMap<T> {
     pub fn new() -> Self {
-        Self{map: HashMap::new()}
+        Self::Vec(Vec::new())
     }
     pub fn get(&self, k: &Position) -> Option<&T> {
-        self.map.get(k)
+        match self {
+            Self::Vec(vec) => vec.iter().find_map(|(p, t)| {
+                if *p == *k {
+                    Some(t)
+                }
+                else {
+                    None
+                }
+            }),
+            Self::Map(m) => m.get(k)
+        }
     }
     pub fn insert(&mut self, k: Position, v: T) -> Option<T> {
-        self.map.insert(k, v)
+        match self {
+            Self::Vec(vec) => {
+                if MAP_HEIGHT * MAP_WIDTH > 200 && vec.len() > 100 {
+                    let mut map = HashMap::new();
+                    for (p, t) in vec.drain(..) {
+                        map.insert(p, t);
+                    }
+                    *self = Self::Map(map);
+                    return self.insert(k, v)
+                }
+                match vec.iter_mut().find(|(p, t)| *p == k ) {
+                    Some((p, t)) => {
+                        let mut r = v;
+                        std::mem::swap(t, & mut r);
+                        Some(r)
+                    },
+                    None => {
+                        vec.push((k, v));
+                        None
+                    }
+                }
+            }
+            Self::Map(m) => m.insert(k, v)
+        }
     }
-    pub fn entry(&mut self, k: Position) -> Entry<Position, T> {
-        self.map.entry(k)
-    }
-
 }
 pub type ViewData = WorldEntity;
 
@@ -674,7 +713,7 @@ pub trait Observation: Clone {
         if self.known_can_pass(entity, goal) == Some(false) {
             return None
         }
-        let mut came_from : PositionMap<Position> = PositionMap::new();
+        let mut came_from : PositionMap<Dir> = PositionMap::new();
         let mut cost = PositionMap::new();
         let mut queue = BinaryHeap::new();
         cost.insert(start, 0u32);
@@ -690,8 +729,8 @@ pub trait Observation: Clone {
                         let mut v = vec![*d];
                         let mut current = pos;
                         while let Some(from) = came_from.get(&current) {
-                            v.push(from.dir(&current));
-                            current = *from;
+                            v.push(*from);
+                            current = current.step(from.opposite()).unwrap();
                         }
                         v.reverse();
                         return Some(v);
@@ -705,7 +744,7 @@ pub trait Observation: Clone {
                         }
                         if insert {
                             cost.insert(n,base_cost + 1);
-                            came_from.insert(n, pos);
+                            came_from.insert(n, *d);
                             queue.push(PathNode{pos: n, exp_cost : base_cost + 1 + n.distance(&goal) })
                         }
                     }
