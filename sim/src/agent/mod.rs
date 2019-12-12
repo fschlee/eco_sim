@@ -85,7 +85,7 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 
 impl MentalState {
     pub fn new(entity: WorldEntity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
-        assert!(food_preferences.len() > 0);
+        debug_assert!(food_preferences.len() > 0);
         let emotional_state = EmotionalState::new(food_preferences);
         Self{
             id: entity,
@@ -442,6 +442,7 @@ impl MentalState {
                 Some(v) => {
                     let mut total = 0.0;
                     let inv_dist = 1.0 / v.len() as f32;
+                    debug_assert!(!inv_dist.is_nan());
 
                         for pred_ms in estimator.invoke_sampled(entity, & mut rng, 10) {
                             pred_ms.lookup_preference(self.id.e_type()).map(|pref| {
@@ -482,7 +483,9 @@ impl MentalState {
         if !self.id.e_type().can_eat(&entity_type){
             return None;
         }
-        Some(self.emotional_state.pref(entity_type).0)
+        let pref = self.emotional_state.pref(entity_type).0;
+        debug_assert!(!pref.is_nan(), "{} pref for {:?} is NaN", self.id, entity_type);
+        Some(pref)
     }
     pub fn respawn_as(&mut self, entity: &WorldEntity) {
         self.id = entity.clone();
@@ -508,7 +511,7 @@ type EstimateRep = PointEstimateRep;
 type EstimatorT = LearningEstimator<EstimateRep>;
 #[derive(Clone, Debug, Default)]
 pub struct AgentSystem {
-    agents: Vec<WorldEntity>,
+    pub agents: Vec<WorldEntity>,
     pub mental_states: Storage<MentalState>,
     pub estimators: Vec<LearningEstimator<EstimateRep>>,
     pub estimator_map: HashMap<Entity, usize, RandomState>,

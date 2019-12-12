@@ -18,8 +18,8 @@ use crate::entity_type::EntityType;
 
 #[derive(Clone)]
 pub struct SimState {
-    world: World<DefCell>,
-    agent_system: AgentSystem,
+    pub world: World<DefCell>,
+    pub agent_system: AgentSystem,
     entity_manager: EntityManager,
     sim_step: f32,
     time_acc: f32,

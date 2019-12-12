@@ -14,3 +14,11 @@ edition = "2018"
 "rand_distr" = "^0.2.2"
 
 "smallvec" = { version = "^0.6.9", features=["union"]}
+
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "bench"
+harness = false

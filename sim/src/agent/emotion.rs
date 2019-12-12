@@ -40,7 +40,7 @@ impl EmotionalState {
         *self += hunger;
     }
     pub fn average<B>(iter: impl Iterator<Item=B>) -> Self where B: Borrow<Self> {
-        let c = 0;
+        let c = 1;
         let mut start = Self { arr : Default::default() };
         for b in iter {
             let em = b.borrow();

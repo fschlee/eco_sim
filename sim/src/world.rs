@@ -197,6 +197,10 @@ impl Position {
             Dir::D
         }
     }
+    pub fn iter() -> impl Iterator<Item=Position> {
+        (0.. MAP_WIDTH).into_iter().zip((0..MAP_HEIGHT).into_iter())
+            .map(move |(x, y)| Position{x : x as u32, y: y as u32})
+    }
 }
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Dir {
