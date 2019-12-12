@@ -12,6 +12,8 @@ use super::entity::*;
 use super::entity_type::{EntityType};
 use crate::Action::Eat;
 use crate::Behavior::Partake;
+use crate::util::f32_cmp;
+use crate::position::{Position, Dir};
 
 use estimate::{PointEstimateRep};
 use estimator::MentalStateRep;
@@ -19,7 +21,7 @@ use crate::agent::estimator::{ LearningEstimator, Estimator};
 pub use emotion::{Hunger, EmotionalState};
 
 use std::collections::hash_map::RandomState;
-use std::sync::atomic::Ordering::AcqRel;
+
 
 
 impl Ord for PathNode {
@@ -628,8 +630,4 @@ impl AgentSystem {
         }
         vec
     }
-}
-#[inline]
-fn f32_cmp(f1: &f32, f2: &f32) -> Ordering {
-    f32::partial_cmp(f1,f2).expect("NaN")
 }

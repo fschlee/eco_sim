@@ -1,5 +1,6 @@
 
-use eco_sim::world::{World, Observation, Position, Occupancy};
+use eco_sim::world::{World, Observation, Occupancy};
+use eco_sim::position::Position;
 use eco_sim::entity::{WorldEntity, EntityManager};
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;

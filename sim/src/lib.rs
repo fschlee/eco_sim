@@ -4,11 +4,13 @@
 pub mod entity;
 pub mod entity_type;
 pub mod world;
+pub mod position;
 pub mod agent;
 pub mod util;
 
 pub use entity::*;
 pub use world::*;
+pub use position::*;
 pub use crate::agent::*;
 
 use std::ops::Range;
