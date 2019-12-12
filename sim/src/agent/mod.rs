@@ -5,7 +5,7 @@ pub mod emotion;
 use rand::{Rng, thread_rng};
 use std::cmp::Ordering;
 use log:: {error, info};
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{HashMap};
 
 use super::world::*;
 use super::entity::*;
@@ -21,11 +21,6 @@ pub use emotion::{Hunger, EmotionalState};
 use std::collections::hash_map::RandomState;
 use std::sync::atomic::Ordering::AcqRel;
 
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub struct PathNode {
-    pub pos : Position,
-    pub exp_cost: u32,
-}
 
 impl Ord for PathNode {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -443,7 +438,7 @@ impl MentalState {
         observation.find_closest(own_position, |e, w| {
             e.e_type().can_eat(&self.id.e_type())
         }).filter_map(|(entity, position)| {
-            match self.path_as(position, own_position, &entity, observation){
+            match observation.path_as(position, own_position, &entity){
                 Some(v) => {
                     let mut total = 0.0;
                     let inv_dist = 1.0 / v.len() as f32;
@@ -469,51 +464,10 @@ impl MentalState {
         }).collect()
     }
     pub fn path(&self, current: Position, goal: Position, observation: & impl Observation) -> Option<Vec<Position>>  {
-        self.path_as(current, goal, &self.id, observation)
+        observation.path_as(current, goal, &self.id)
     }
 
-    pub fn path_as(&self, start: Position, goal: Position, entity: &WorldEntity, observation: & impl Observation) -> Option<Vec<Position>> {
-        if observation.known_can_pass(entity, goal) == Some(false) {
-            return None
-        }
-        let mut came_from : PositionMap<Position> = PositionMap::new();
-        let mut cost = PositionMap::new();
-        let mut queue = BinaryHeap::new();
-        cost.insert(start, 0u32);
-        queue.push(PathNode { pos: start, exp_cost: start.distance(&goal)});
-        while let Some(PathNode{pos, exp_cost}) = queue.pop() {
-            let base_cost = *cost.get(&pos).unwrap();
-            for n in pos.neighbours() {
-                if observation.known_can_pass(entity, n) == Some(false) {
-                    continue;
-                }
-                if n == goal {
-                    let mut v = vec![n, pos];
-                    let mut current = pos;
-                    while let Some(from) = came_from.get(&current) {
-                        v.push(from.clone());
-                        current = *from;
-                    }
-                    v.reverse();
-                    return Some(v);
-                }
-                else {
-                    let mut insert = true;
-                    if let Some(c) =cost.get(&n) {
-                        if *c <= base_cost + 1 {
-                            insert = false;
-                        }
-                    }
-                    if insert {
-                        cost.insert(n,base_cost + 1);
-                        came_from.insert(n, pos);
-                        queue.push(PathNode{pos: n, exp_cost : base_cost + 1 + n.distance(&goal) })
-                    }
-                }
-            }
-        }
-        None
-    }
+
 
     pub fn random_step(& mut self, current: Position, observation: &impl Observation) {
         use  rand::seq::SliceRandom;

@@ -1,7 +1,7 @@
 use log::error;
 use std::ops::{Range, Sub};
 use rand::{Rng};
-use std::collections::HashMap;
+use std::collections::{HashMap, BinaryHeap};
 use std::collections::hash_map::Entry;
 use std::mem::{size_of, MaybeUninit};
 use rand_xorshift::XorShiftRng;
@@ -614,6 +614,12 @@ impl<C: Cell> std::fmt::Debug for World<C> {
     }
 }
 
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct PathNode {
+    pub pos : Position,
+    pub exp_cost: u32,
+}
+
 pub trait Observation: Clone {
     type B: Observation;
     type CellType: Cell;
@@ -649,7 +655,48 @@ pub trait Observation: Clone {
         let world = World{cells, physical_states, positions };
         let agent_system = AgentSystem::init(agents, &world, false, rng);
         (entity_manager, world, agent_system)
-
+    }
+    fn path_as(&self, start: Position, goal: Position, entity: &WorldEntity) -> Option<Vec<Position>> {
+        if self.known_can_pass(entity, goal) == Some(false) {
+            return None
+        }
+        let mut came_from : PositionMap<Position> = PositionMap::new();
+        let mut cost = PositionMap::new();
+        let mut queue = BinaryHeap::new();
+        cost.insert(start, 0u32);
+        queue.push(PathNode { pos: start, exp_cost: start.distance(&goal)});
+        while let Some(PathNode{pos, exp_cost}) = queue.pop() {
+            let base_cost = *cost.get(&pos).unwrap();
+            for n in pos.neighbours() {
+                if self.known_can_pass(entity, n) == Some(false) {
+                    continue;
+                }
+                if n == goal {
+                    let mut v = vec![n, pos];
+                    let mut current = pos;
+                    while let Some(from) = came_from.get(&current) {
+                        v.push(from.clone());
+                        current = *from;
+                    }
+                    v.reverse();
+                    return Some(v);
+                }
+                else {
+                    let mut insert = true;
+                    if let Some(c) =cost.get(&n) {
+                        if *c <= base_cost + 1 {
+                            insert = false;
+                        }
+                    }
+                    if insert {
+                        cost.insert(n,base_cost + 1);
+                        came_from.insert(n, pos);
+                        queue.push(PathNode{pos: n, exp_cost : base_cost + 1 + n.distance(&goal) })
+                    }
+                }
+            }
+        }
+        None
     }
 }
 
