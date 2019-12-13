@@ -267,6 +267,9 @@ impl<T> Storage<T> {
         }
         None
     }
+    pub fn iter_mut<'a>(& 'a mut self) -> impl Iterator<Item=&'a mut T> + 'a {
+        self.content.iter_mut().filter_map(|t| t.as_mut())
+    }
 }
 impl<T> Default for Storage<T> {
     fn default() -> Self {
@@ -287,6 +290,8 @@ pub struct StorageIter<'a, T> {
     idx: usize,
 }
 
+
+
 impl<'a, T> Iterator for StorageIter<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
@@ -300,6 +305,13 @@ impl<'a, T> Iterator for StorageIter<'a, T> {
         None
     }
 }
+
+pub struct StorageIterMut<'a, T> {
+    content: &'a mut [Option<T>],
+    // gens: & 'a mut [GenID],
+    idx: usize,
+}
+
 #[derive(Clone)]
 pub struct StorageSlice<'a,T> {
     gen0: & 'a [GenID],

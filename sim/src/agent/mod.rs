@@ -130,23 +130,41 @@ impl MentalState {
             Action::Idle | Action::Move(_) => (),
         }
     }
-    fn update_on_outcome(&mut self, outcome: Outcome) -> Reward {
+    fn update_on_events(&mut self, events: &[Event]) -> Reward {
         use Outcome::*;
+
         let mut score = 0.0;
-        match outcome {
-            Rested | Incomplete => (),
-            Moved(dir) => { self.current_action = Action::Idle }
-            Consumed(food, tp) => {
-                if let Some(r) = self.lookup_preference(tp) {
-                    score += r * food.0 * self.emotional_state.hunger().0
+        for Event{ actor, outcome} in events {
+            if *actor == self.id {
+                match outcome {
+                    Rested | Incomplete => (),
+                    Moved(dir) => { self.current_action = Action::Idle }
+                    Consumed(food, tp) => {
+                        if let Some(r) = self.lookup_preference(*tp) {
+                            score += r * food.0 * self.emotional_state.hunger().0
+                        }
+                    }
+                    Hurt { damage, target, lethal } => {
+                        if *lethal {
+                            self.current_action = Action::Idle
+                        }
+                    }
                 }
             }
-            Hurt { damage, target, lethal } => {
-                if lethal {
-                    self.current_action = Action::Idle
+            else {
+                match outcome {
+                    Hurt { damage, target, lethal}
+                            if *target == self.id => {
+                        score -= damage.0 * 100.0;
+                        if *lethal {
+                            score -= 10e5;
+                        }
+                    }
+                    _ => (),
                 }
             }
         }
+
         return score
     }
     fn  decide_simple(
@@ -504,57 +522,49 @@ pub struct AgentSystem {
     pub mental_states: Storage<MentalState>,
     pub estimators: Vec<LearningEstimator<EstimateRep>>,
     pub estimator_map: HashMap<Entity, usize, RandomState>,
+    actions: Vec<(WorldEntity, Action)>,
 }
 
 impl AgentSystem {
     pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
         let mut killed = Vec::new();
-        for entity in &self.agents.clone() {
-            let opt_action = match (
+        for entity in &self.agents {
+            match (
                 self.mental_states.get_mut(entity),
                 world.get_physical_state(entity),
                 world.positions.get(entity),
-            if let Some(i) = self.estimator_map.get(entity.into()) {
-                self.estimators.get(*i)
-            }
-            else {
-                None
-            },
-
+                if let Some(i) = self.estimator_map.get(entity.into()) {
+                    self.estimators.get(*i)
+                } else {
+                    None
+                },
             ) {
-                (Some(mental_state), Some(physical_state),  Some(position), Some(estimator)) => {
+                (Some(mental_state), Some(physical_state), Some(position), Some(estimator)) => {
                     if physical_state.is_dead() {
                         killed.push(entity.clone());
                         info!("Agent {:?} died", entity);
-                        None
-                }
-                    else {
+                    } else {
                         let action = mental_state.decide(physical_state, *position, &world.observe_in_radius(entity, mental_state.sight_radius), estimator);
-                        match  world.act(entity, action) {
-                            Err(err) =>
-                                error!("Action of agent {:?} failed: {}", entity, err),
-                            Ok(outcome) => {
-                                mental_state.update_on_outcome(outcome);
-                            },
-
-                        }
-                        Some(action)
+                        self.actions.push((*entity, action));
                     }
                 }
                 (ms, ps, p, _) => {
                     killed.push(entity.clone());
                     error!("Agent {:?} killed due to incomplete data: mental state {:?}, physical state {:?}, postion {:?}", entity, ms.is_some(), ps.is_some(), p.is_some());
-                    None
                 },
-            };
-            if let (Some(action)) = opt_action {
-                if let Some(other_pos) = world.positions.get(entity){
-                    for est in & mut self.estimators {
-                        est.learn(action, *entity, *other_pos, world)
-                    }
+            }
+        }
+
+        for est in & mut self.estimators {
+            for (entity, action) in &self.actions {
+                if let Some(other_pos) = world.positions.get(entity) {
+                    est.learn(*action, *entity, *other_pos, world);
                 }
             }
-
+        }
+        world.act(self.actions.drain(..));
+        for ms in self.mental_states.iter_mut() {
+            ms.update_on_events(&world.events);
         }
         for entity in killed {
             self.agents.remove_item(&entity);
@@ -597,7 +607,7 @@ impl AgentSystem {
             mental_states.insert(agent, ms);
 
         }
-        Self{ agents, mental_states, estimators, estimator_map}
+        Self{ agents, mental_states, estimators, estimator_map, actions: Vec::new() }
     }
     pub fn threat_map<C: Cell>(&self, we: &WorldEntity, world: &World<C>) -> Vec<f32> {
         let mut vec = Vec::with_capacity(MAP_HEIGHT * MAP_WIDTH);
@@ -613,7 +623,6 @@ impl AgentSystem {
                     vec.push(sum);
                 }
             }
-
         }
         vec
     }

@@ -50,10 +50,14 @@ pub enum Outcome {
     Incomplete,
     Moved(Dir),
     Consumed(Meat, EntityType),
-    Hurt{ damage: Damage, target: EntityType, lethal: bool},
+    Hurt{ damage: Damage, target: WorldEntity, lethal: bool},
     Rested,
 }
-
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub struct Event {
+    pub actor: WorldEntity,
+    pub outcome: Outcome,
+}
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Health(pub f32);
 
@@ -151,9 +155,6 @@ pub const MAP_HEIGHT: usize = 11;
 pub const MAP_WIDTH: usize = 11;
 
 pub type ViewData = WorldEntity;
-
-
-
 
 pub trait Cell : std::ops::Deref<Target=[WorldEntity]> + Sized + Clone {
     fn empty_init() ->  [[Self; MAP_WIDTH]; MAP_HEIGHT];
@@ -283,6 +284,7 @@ pub struct World<C: Cell> {
     cells: [[C; MAP_WIDTH]; MAP_HEIGHT],
     pub physical_states: Storage<PhysicalState>,
     pub positions: Storage<Position>,
+    pub events: Vec<Event>,
 }
 
 impl<C: Cell> World<C> {
@@ -320,6 +322,7 @@ impl<C: Cell> World<C> {
                 cells,
                 physical_states,
                 positions,
+                events: Vec::new(),
             },
             agents
         )
@@ -344,8 +347,15 @@ impl<C: Cell> World<C> {
         }
         new_e
     }
-
-    pub fn act(&mut self, entity: &WorldEntity, action: Action) -> Result<Outcome, &str> {
+    pub fn act(&mut self, actions: impl Iterator<Item=(WorldEntity, Action)>) {
+        for (actor, action) in actions {
+            match self.act_one(&actor, action) {
+                Err(err) => error!("Action of {} failed: {}", actor, err),
+                Ok(outcome) => self.events.push(Event{ actor, outcome }),
+            }
+        }
+    }
+    fn act_one(&mut self, entity: &WorldEntity, action: Action) -> Result<Outcome, &str> {
         let own_pos = self.positions.get(entity)
             .ok_or("Entity has no known position but tries to act")?;
 
@@ -391,7 +401,7 @@ impl<C: Cell> World<C> {
                 if let Some(attack) = phys.attack {
                     if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
                         let damage = phys_target.health.suffer(attack);
-                        Ok(Outcome::Hurt { damage, target: opponent.e_type(), lethal: phys_target.is_dead() })
+                        Ok(Outcome::Hurt { damage, target: opponent, lethal: phys_target.is_dead() })
                     } else {
                         Err("opponent has no physical state")
                     }
@@ -549,7 +559,7 @@ pub trait Observation: Clone {
                 }
             }
         }
-        let world = World{cells, physical_states, positions };
+        let world = World{cells, physical_states, positions, events: Vec::new() };
         let agent_system = AgentSystem::init(agents, &world, false, rng);
         (entity_manager, world, agent_system)
     }
