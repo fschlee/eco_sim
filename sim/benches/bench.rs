@@ -2,13 +2,12 @@
 use eco_sim::world::{World, Observation, Occupancy};
 use eco_sim::position::Position;
 use eco_sim::entity::{WorldEntity, EntityManager};
-use rand::SeedableRng;
-use rand_xorshift::XorShiftRng;
+use rand::{thread_rng, Rng, RngCore};
 use criterion::{Criterion, criterion_group, criterion_main, black_box};
 
 
 fn sim(c: &mut Criterion) {
-    let mut sim = eco_sim::SimState::new(1.0);
+    let mut sim = eco_sim::SimState::new_with_seed(1.0, 0);
     c.bench_function("sim", |b| b.iter(|| {
         sim.advance(1.0);
     }));

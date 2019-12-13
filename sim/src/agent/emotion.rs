@@ -64,6 +64,15 @@ impl std::ops::AddAssign<Hunger> for EmotionalState {
         self.arr[Self::HUNGER] += rhs.0;
     }
 }
+impl std::ops::AddAssign<&EmotionalState> for EmotionalState {
+    fn add_assign(& mut self, rhs: &Self) {
+        for i in 0..self.arr.len() {
+            self.arr[i].0 = 0.5 * (self.arr[i].0 + rhs.arr[i].0)
+        }
+    }
+}
+
+
 impl std::ops::AddAssign<f32> for Wrapper {
     fn add_assign(& mut self, rhs: f32) {
         self.0 = clip(self.0 + rhs, 0.0, 1.0);

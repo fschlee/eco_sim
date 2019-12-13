@@ -6,6 +6,7 @@ use crate::agent::{MentalState, Behavior, Hunger, Reward};
 use super::estimator::MentalStateRep;
 use crate::entity::{WorldEntity, Storage, Source};
 use crate::world::{Action, PhysicalState, Health, Meat, Satiation, Speed, MoveProgress, Observation};
+use crate::position::Coord;
 use crate::entity_type::{EntityType};
 use crate::agent::estimator::Estimator;
 use crate::util::clip;
@@ -18,12 +19,12 @@ pub struct PointEstimateRep {
     pub emotional_state: EmotionalState,
     pub current_action: Action,
     pub current_behavior: Option<Behavior>,
-    pub sight_radius: u32,
+    pub sight_radius: Coord,
     pub use_mdp: bool,
 }
 impl PointEstimateRep {
     pub fn update(&mut self, ms: &MentalState){
-        self.emotional_state = ms.emotional_state.clone();
+        self.emotional_state += &ms.emotional_state;
         self.current_behavior = ms.current_behavior.clone();
         self.current_action = ms.current_action;
     }
@@ -48,7 +49,7 @@ impl MentalStateRep for PointEstimateRep {
         sample
     }
     fn update_seen<'a>(& 'a mut self, action: Action, others: &impl Estimator, observation: & impl Observation) {
-
+        // let mut valid = Vec::new();
         if let Some(pos) = observation.observed_position(&self.id) {
             let mut ms : MentalState= (&(*self)).into();
 
@@ -58,18 +59,27 @@ impl MentalStateRep for PointEstimateRep {
             else {
                 let mut rng : rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(self.id.id() as u64);
                 let max_tries = 255;
-                for i in 0..max_tries {
-                    let scale = (1.0 + i as f32).log2() / 256f32.log2();
+                // let mut valid = Vec::new();
+                for i in (0..max_tries).rev() {
+                    let scale = (1.0 + i as f32).log2() / (max_tries as f32).log2();
                     let mut sample = self.sample(scale, & mut rng);
                     if action == sample.decide( &(self.physical_state), pos, observation, others){
+                        // valid.push(sample);
                         self.update(&sample);
+                        break;
                     }
                 }
+/*
+                if valid.len() > 0 {
+                    self.update(&valid[0]);
+                    self.emotional_state = EmotionalState::average(valid.drain(..).map(|ms| ms.emotional_state))
+                }
+                */
             }
         }
     }
     fn update_unseen<'a>(& 'a mut self, others: & impl Estimator, observation: &impl Observation){
-        // fn update_unseen(&mut self, others: impl Source<'_, MentalState>, observation: impl Observation) {
+
 
         //TODO
     }
