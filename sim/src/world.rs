@@ -3,6 +3,7 @@ use std::ops::{Range, Sub};
 use rand::{Rng};
 use std::collections::{HashMap, BinaryHeap};
 use std::collections::hash_map::Entry;
+use std::cmp::Ordering;
 use std::mem::{size_of, MaybeUninit};
 use rand_xorshift::XorShiftRng;
 use smallvec::SmallVec;
@@ -12,7 +13,7 @@ use super::entity_type::*;
 use super::agent::AgentSystem;
 use crate::{MentalState};
 use crate::Occupancy::Empty;
-use crate::position::{Position, Dir, PositionMap};
+use crate::position::{Position, Dir, PositionMap, Coord};
 
 use enum_macros::{EnumIter};
 use crate::Outcome::Incomplete;
@@ -300,7 +301,7 @@ impl<C: Cell> World<C> {
                 let cell_v = & mut cells[y][x];
                 if cell_v.into_iter().all(|other | entity_type.can_pass(&other.e_type())) {
                     let entity = WorldEntity::new(entity_manager.fresh(), entity_type);
-                    positions.insert(&entity, Position{x : x as u32, y: y as u32});
+                    positions.insert(&entity, Position{x : x as Coord, y: y as Coord});
                     if let Some(phys_state) = entity_type.typical_physical_state() {
                         physical_states.insert(&entity, phys_state);
                         agents.push(entity);
@@ -330,7 +331,7 @@ impl<C: Cell> World<C> {
         let mut random_pos = || {
             let x = mental_state.rng.gen_range(0, MAP_WIDTH);
             let y = mental_state.rng.gen_range(0, MAP_HEIGHT);
-            Position {x: x as u32, y : y as u32}
+            Position {x: x as Coord, y : y as Coord}
         };
         let mut pos = random_pos();
         while !self.type_can_pass(&entity.e_type(), pos) {
@@ -417,13 +418,13 @@ impl<C: Cell> World<C> {
                 .all(|e| entity_type.can_pass(&e.e_type()))
     }
     pub fn observe_as(&self, entity: &WorldEntity) -> impl Observation + '_ {
-        let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
+        let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as Coord;
         self.observe_in_radius(entity, radius)
     }
-    pub fn observe_in_radius(&self, entity: &WorldEntity, radius: u32) -> impl Observation +'_ {
+    pub fn observe_in_radius(&self, entity: &WorldEntity, radius: Coord) -> impl Observation +'_ {
         let pos = match self.positions.get(entity) {
             Some(pos) => pos.clone(),
-            None => Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 },
+            None => Position { x: (MAP_WIDTH / 2) as Coord, y: (MAP_HEIGHT / 2) as Coord },
         };
         RadiusObservation::new(radius, pos, self)
 
@@ -499,12 +500,23 @@ impl<C: Cell> std::fmt::Debug for World<C> {
     }
 }
 
+type Cost = i32;
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct PathNode {
     pub pos : Position,
-    pub exp_cost: u32,
+    pub exp_cost: Cost,
 }
 
+impl Ord for PathNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other.exp_cost.cmp(&self.exp_cost)
+    }
+}
+impl PartialOrd for PathNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        other.exp_cost.partial_cmp(&self.exp_cost)
+    }
+}
 pub trait Observation: Clone {
     type B: Observation;
     type CellType: Cell;
@@ -524,7 +536,7 @@ pub trait Observation: Clone {
         let mut insert_cell = |e, Position {x, y}| {
             cells[y as usize][x as usize].push(e);
         };
-        let pos = Position { x: (MAP_WIDTH / 2) as u32, y: (MAP_HEIGHT / 2) as u32 };
+        let pos = Position { x: (MAP_WIDTH / 2) as Coord, y: (MAP_HEIGHT / 2) as Coord };
         let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
         for (e, p) in self.find_closest(pos, |_, _| true) {
             if let Ok(ent) = entity_manager.put(e) {
@@ -548,8 +560,8 @@ pub trait Observation: Clone {
         let mut came_from : PositionMap<Dir> = PositionMap::new();
         let mut cost = PositionMap::new();
         let mut queue = BinaryHeap::new();
-        cost.insert(start, 0u32);
-        queue.push(PathNode { pos: start, exp_cost: start.distance(&goal)});
+        cost.insert(start, 0 as Cost);
+        queue.push(PathNode { pos: start, exp_cost: start.distance(&goal) as Cost });
         while let Some(PathNode{pos, exp_cost}) = queue.pop() {
             let base_cost = *cost.get(&pos).unwrap();
             for d in pos.dir(&goal).closest() {
@@ -577,7 +589,7 @@ pub trait Observation: Clone {
                         if insert {
                             cost.insert(n,base_cost + 1);
                             came_from.insert(n, *d);
-                            queue.push(PathNode{pos: n, exp_cost : base_cost + 1 + n.distance(&goal) })
+                            queue.push(PathNode{pos: n, exp_cost : base_cost + 1 + n.distance(&goal) as Cost })
                         }
                     }
                 }
@@ -595,7 +607,7 @@ impl<'b, C: Cell> Observation for & 'b World<C> {
         self.clone()
     }
     fn find_closest<'a>(& 'a self, starting_point: Position, predicate: impl Fn(&WorldEntity, Self) -> bool + 'a) -> Box<dyn Iterator<Item=(WorldEntity, Position)> + 'a> {
-        Box::new(EntityWalker::new(self, starting_point, std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32).filter(move |(e, p)| predicate(e, self)))
+        Box::new(EntityWalker::new(self, starting_point, std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as Coord).filter(move |(e, p)| predicate(e, self)))
     }
     fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool> {
         Some(self.can_pass(entity, position))
@@ -613,12 +625,12 @@ impl<'b, C: Cell> Observation for & 'b World<C> {
 }
 #[derive(Clone, Debug)]
 pub struct RadiusObservation<'a, C: Cell> {
-    radius: u32,
+    radius: Coord,
     center: Position,
     world: & 'a World<C>,
 }
 impl<'a, C: Cell> RadiusObservation<'a, C> {
-    pub fn new(radius: u32, center: Position, world: & 'a World<C>) -> Self {
+    pub fn new(radius: Coord, center: Position, world: & 'a World<C>) -> Self {
         Self{ radius, center, world}
     }
 }
@@ -669,7 +681,7 @@ struct EntityWalker<'a, C : Cell> {
     subindex: usize,
 }
 impl<'a, C: Cell> EntityWalker<'a, C> {
-    pub fn new(world: &'a World<C>, center: Position, max_radius: u32) -> Self {
+    pub fn new(world: &'a World<C>, center: Position, max_radius: Coord) -> Self {
         let position_walker = PositionWalker::new(center, max_radius);
         Self{
             position_walker,
@@ -701,12 +713,12 @@ impl<'a, C: Cell> Iterator for EntityWalker<'a, C> {
 pub struct PositionWalker {
     center: Position,
     current_pos: Option<Position>,
-    radius: u32,
-    max_radius: u32,
-    delta: u32,
+    radius: Coord,
+    max_radius: Coord,
+    delta: Coord,
 }
 impl PositionWalker {
-    pub fn new(center: Position, max_radius: u32) -> Self {
+    pub fn new(center: Position, max_radius: Coord) -> Self {
         Self{
             center,
             current_pos: Some(center.clone()),
@@ -734,18 +746,18 @@ impl Iterator for PositionWalker {
         if let Some(current) = self.current_pos {
 
             if current.x > self.center.x {
-                let x = self.center.x as i32 + self.delta as i32 - self.radius as i32;
+                let x = self.center.x  + self.delta  - self.radius ;
                 if x >= 0 {
-                    self.current_pos = Some(Position{x: x as u32, y : current.y});
+                    self.current_pos = Some(Position{x: x , y : current.y});
                     return Some(current);
                 }
 
             }
             if current.y > self.center.y {
-                let x = self.center.x as i32 + self.radius as i32 - self.delta as i32;
-                let y = self.center.y as i32 - self.delta as i32;
+                let x = self.center.x  + self.radius  - self.delta ;
+                let y = self.center.y  - self.delta;
                 if x >= 0 && y >= 0 {
-                    self.current_pos = Some(Position{x: x as u32, y: y as u32 });
+                    self.current_pos = Some(Position{x, y });
                     return Some(current);
                 }
 
@@ -756,7 +768,7 @@ impl Iterator for PositionWalker {
                 return Some(current);
             }
             let v = self.center.x + self.center.y;
-            if self.radius < self.max_radius && (self.radius < v || self.radius < (MAP_WIDTH + MAP_HEIGHT) as u32 - v) {
+            if self.radius < self.max_radius && (self.radius < v || self.radius < (MAP_WIDTH + MAP_HEIGHT) as Coord - v) {
                 self.radius += 1;
                 self.delta = 0;
                 self.current_pos = Some(Position{ x : self.center.x + self.radius, y: self.center.y });

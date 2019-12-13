@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use crate::world::{MAP_WIDTH, MAP_HEIGHT};
 
+pub type Coord = i16; // Needs to be signed and to be able to store values of at least 2 * max(MAP_WIDTH, MAP_HEIGHT)
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Hash, Copy, Clone, Debug)]
 pub struct Position {
-    pub x: u32,
-    pub y: u32,
+    pub x: Coord,
+    pub y: Coord,
 }
 
 const CLOSEST_DIRS : [[Dir; 4]; 4] = [
@@ -22,19 +24,21 @@ impl Position {
     pub fn neighbours(&self) -> impl IntoIterator<Item=Position> {
         NeighborIter { pos: *self, dir: Some(Dir::R)}
     }
-    pub fn distance(&self, other: & Position) -> u32 {
-        ((self.x as i32 - other.x as i32).abs() + (self.y as i32 - other.y as i32).abs()) as u32
+    pub fn distance(&self, other: & Position) -> Coord {
+        let dist = ((self.x  - other.x).abs() + (self.y - other.y).abs());
+        debug_assert!(dist >= 0);
+        dist
     }
     pub fn within_bounds(& self) -> bool {
-        self.x < MAP_WIDTH as u32 && self.y < MAP_HEIGHT as u32
+        self.x < MAP_WIDTH as Coord && self.y < MAP_HEIGHT as Coord
     }
     pub fn step(&self, dir: Dir)-> Option<Position>{
         use Dir::*;
         match dir {
-            R if self.x +1 < MAP_WIDTH as u32  => Some(Position { x: self.x+1, y: self.y }),
+            R if self.x +1 < MAP_WIDTH as Coord  => Some(Position { x: self.x+1, y: self.y }),
             L if self.x > 0  => Some(Position { x: self.x - 1, y: self.y }),
-            D if self.y +1 < MAP_HEIGHT as u32 => Some(Position { x: self.x, y: self.y +1 }),
-            U if self.y > 0 as u32 => Some(Position { x: self.x, y: self.y  - 1 }),
+            D if self.y +1 < MAP_HEIGHT as Coord => Some(Position { x: self.x, y: self.y +1 }),
+            U if self.y > 0 as Coord => Some(Position { x: self.x, y: self.y  - 1 }),
             R | L | D | U => None,
         }
     }
@@ -43,8 +47,8 @@ impl Position {
             self.step(*dir))
     }
     pub fn dir(&self, other: &Position) -> Dir {
-        let x_diff = self.x as i32 - other.x as i32;
-        let y_diff = self.y as i32 - other.y as i32;
+        let x_diff = self.x  - other.x;
+        let y_diff = self.y  - other.y;
         if x_diff.abs() > y_diff.abs() {
             if x_diff > 0 {
                 Dir::L
@@ -62,7 +66,7 @@ impl Position {
     }
     pub fn iter() -> impl Iterator<Item=Position> {
         (0.. MAP_WIDTH).into_iter().zip((0..MAP_HEIGHT).into_iter())
-            .map(move |(x, y)| Position{x : x as u32, y: y as u32})
+            .map(move |(x, y)| Position{x : x as Coord, y: y as Coord})
     }
 }
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]

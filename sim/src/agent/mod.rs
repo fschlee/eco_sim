@@ -13,7 +13,7 @@ use super::entity_type::{EntityType};
 use crate::Action::Eat;
 use crate::Behavior::Partake;
 use crate::util::f32_cmp;
-use crate::position::{Position, Dir};
+use crate::position::{Position, Dir, Coord};
 
 use estimate::{PointEstimateRep};
 use estimator::MentalStateRep;
@@ -21,19 +21,6 @@ use crate::agent::estimator::{ LearningEstimator, Estimator};
 pub use emotion::{Hunger, EmotionalState};
 
 use std::collections::hash_map::RandomState;
-
-
-
-impl Ord for PathNode {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other.exp_cost.cmp(&self.exp_cost)
-    }
-}
-impl PartialOrd for PathNode {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        other.exp_cost.partial_cmp(&self.exp_cost)
-    }
-}
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 pub enum Behavior {
@@ -74,7 +61,7 @@ pub struct MentalState {
     pub emotional_state: EmotionalState,
     pub current_action: Action,
     pub current_behavior: Option<Behavior>,
-    pub sight_radius: u32,
+    pub sight_radius: Coord,
     pub use_mdp: bool,
     pub rng: rand_xorshift::XorShiftRng,
 }
@@ -617,10 +604,10 @@ impl AgentSystem {
         if let (Some(ms), Some(est), Some(current_pos))
             = (self.mental_states.get(we), self.get_estimator(we.into()), world.positions.get(we)){
             let observation = RadiusObservation::new(ms.sight_radius, *current_pos, world);
-            for y in 0..MAP_HEIGHT as u32 {
-                for x in 0..MAP_WIDTH as u32 {
+            for y in 0..MAP_HEIGHT as Coord {
+                for x in 0..MAP_WIDTH as Coord {
                     let mut sum = 0.0;
-                    for (_, threat) in &ms.calculate_threat(Position{ x: x as u32, y: y as u32}, &observation, est){
+                    for (_, threat) in &ms.calculate_threat(Position{ x, y}, &observation, est){
                         sum += *threat;
                     }
                     vec.push(sum);

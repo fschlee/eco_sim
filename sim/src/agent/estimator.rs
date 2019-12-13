@@ -1,6 +1,7 @@
 use rand::{Rng};
 use super::MentalState;
 use crate::{World, Action, Observation, WorldEntity, Position, StorageSlice, Cell};
+use crate::position::Coord;
 use crate::entity::{Entity, Storage, Source};
 use crate::entity_type::EntityType;
 
@@ -28,7 +29,7 @@ pub trait Estimator {
 
 #[derive(Clone, Debug)]
 pub struct LearningEstimator<E : MentalStateRep> {
-    pub agents: Vec<(WorldEntity, u32)>,
+    pub agents: Vec<(WorldEntity, Coord)>,
     pub estimators: Storage<E>,
 }
 
@@ -73,7 +74,7 @@ impl<E: MentalStateRep> LearningEstimator<E> {
             self.estimators.insert(entity, rep);
         }
     }
-    pub fn new(agents: Vec<(WorldEntity, u32)>) -> Self {
+    pub fn new(agents: Vec<(WorldEntity, Coord)>) -> Self {
         Self {
             agents,
             estimators: Storage::new(),

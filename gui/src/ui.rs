@@ -291,7 +291,7 @@ impl UIState {
                         .label("Sight")
                         .set(self.ids.number_dialer, ui) {
                         let mut new_ms = ms.clone();
-                        new_ms.sight_radius = sight as u32;
+                        new_ms.sight_radius = sight as eco_sim::Coord;
                         self.actions.push_back(Action::UpdateMentalState(new_ms));
                     }
                     cc::widget::Canvas::new().pad(0.0)
