@@ -522,12 +522,13 @@ pub struct AgentSystem {
     pub mental_states: Storage<MentalState>,
     pub estimators: Vec<LearningEstimator<EstimateRep>>,
     pub estimator_map: HashMap<Entity, usize, RandomState>,
-    actions: Vec<(WorldEntity, Action)>,
+    // actions: Vec<(WorldEntity, Action)>,
 }
 
 impl AgentSystem {
     pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
         let mut killed = Vec::new();
+        let mut actions = Vec::with_capacity(self.agents.len());
         for entity in &self.agents {
             match (
                 self.mental_states.get_mut(entity),
@@ -545,7 +546,7 @@ impl AgentSystem {
                         info!("Agent {:?} died", entity);
                     } else {
                         let action = mental_state.decide(physical_state, *position, &world.observe_in_radius(entity, mental_state.sight_radius), estimator);
-                        self.actions.push((*entity, action));
+                        actions.push((*entity, action));
                     }
                 }
                 (ms, ps, p, _) => {
@@ -554,15 +555,15 @@ impl AgentSystem {
                 },
             }
         }
-
-        for est in & mut self.estimators {
-            for (entity, action) in &self.actions {
+        use rayon::prelude::*;
+        self.estimators.par_iter_mut().for_each( |est| {
+            for (entity, action) in &actions {
                 if let Some(other_pos) = world.positions.get(entity) {
                     est.learn(*action, *entity, *other_pos, world);
                 }
             }
-        }
-        world.act(self.actions.drain(..));
+        });
+        world.act(actions.drain(..));
         for ms in self.mental_states.iter_mut() {
             ms.update_on_events(&world.events);
         }
@@ -607,7 +608,7 @@ impl AgentSystem {
             mental_states.insert(agent, ms);
 
         }
-        Self{ agents, mental_states, estimators, estimator_map, actions: Vec::new() }
+        Self{ agents, mental_states, estimators, estimator_map }
     }
     pub fn threat_map<C: Cell>(&self, we: &WorldEntity, world: &World<C>) -> Vec<f32> {
         let mut vec = Vec::with_capacity(MAP_HEIGHT * MAP_WIDTH);

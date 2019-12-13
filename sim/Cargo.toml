@@ -15,6 +15,7 @@ edition = "2018"
 
 "smallvec" = { version = "^0.6.9", features=["union"]}
 
+"rayon" = "^1.2.1"
 
 [dev-dependencies]
 criterion = "0.3"

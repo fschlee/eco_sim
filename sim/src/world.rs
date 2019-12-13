@@ -156,7 +156,7 @@ pub const MAP_WIDTH: usize = 11;
 
 pub type ViewData = WorldEntity;
 
-pub trait Cell : std::ops::Deref<Target=[WorldEntity]> + Sized + Clone {
+pub trait Cell : std::ops::Deref<Target=[WorldEntity]> + Sized + Clone + Sync {
     fn empty_init() ->  [[Self; MAP_WIDTH]; MAP_HEIGHT];
     fn retain<F : FnMut(&WorldEntity)-> bool>(& mut self, f: F);
     fn push(& mut self, we: WorldEntity);
