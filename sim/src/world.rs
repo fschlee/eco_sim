@@ -348,10 +348,24 @@ impl<C: Cell> World<C> {
         new_e
     }
     pub fn act(&mut self, actions: impl Iterator<Item=(WorldEntity, Action)>) {
+        let mut move_list = Vec::new();
         for (actor, action) in actions {
             match self.act_one(&actor, action) {
                 Err(err) => error!("Action of {} failed: {}", actor, err),
+                Ok(Outcome::Moved(dir)) => {
+                    move_list.push((actor, dir));
+                    self.events.push(Event { actor, outcome: Outcome::Moved(dir)});
+                },
                 Ok(outcome) => self.events.push(Event{ actor, outcome }),
+            }
+        }
+        for (actor, dir) in move_list {
+            if let Some(pos) = self.positions.get(actor).and_then(|p| p.step(dir)) {
+                self.move_unchecked(&actor, pos);
+
+            }
+            else {
+                error!("Processing invalid move {} by {}", dir, actor);
             }
         }
     }
@@ -368,7 +382,6 @@ impl<C: Cell> World<C> {
                         if phys.partial_move(pos) >= MoveProgress(1.0) {
                             phys.move_target = None;
                             phys.move_progress = MoveProgress::default();
-                            self.move_unchecked(entity, pos);
                             Ok(Outcome::Moved(dir))
 
                         } else {
