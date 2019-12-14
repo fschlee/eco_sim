@@ -14,6 +14,7 @@ edition = "2018"
 "rand_distr" = "^0.2.2"
 
 "smallvec" = { version = "^0.6.9", features=["union"]}
+"lazysort" = "*"
 
 "rayon" = "^1.2.1"
 

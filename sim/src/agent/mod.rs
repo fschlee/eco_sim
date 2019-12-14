@@ -6,6 +6,7 @@ use rand::{Rng};
 use std::cmp::Ordering;
 use log:: {error, info};
 use std::collections::{HashMap};
+use lazysort::SortedBy;
 
 use super::world::*;
 use super::entity::*;
@@ -186,17 +187,16 @@ impl MentalState {
                 self.id.e_type().can_eat(&e.e_type())
             }).filter_map(|(e, p)| {
                 if let Some(rw) = self.lookup_preference(e.e_type()) {
-                    match max_threat(self.calculate_threat(p, observation, estimator)) {
-                        Some((_, threat)) if threat > FLEE_THREAT => None,
-                        _ => {
-                            let dist = own_position.distance(&p) as f32 * 0.05;
-                            Some((rw - dist, e, p))
-                        },
-                    }
+                    let dist = own_position.distance(&p) as f32 * 0.05;
+                    Some((rw - dist, e, p))
                 } else {
                     None
                 }
-            }).max_by(|(rw1, _, _), (rw2, _, _)| f32_cmp(rw1, rw2)) {
+            }).sorted_by(|(rw1, _, _), (rw2, _, _)| f32_cmp(rw2, rw1) // descending sort
+            ).filter(|(_, _, p)| match max_threat(self.calculate_threat(*p, observation, estimator)){
+                Some((_, threat)) if threat > FLEE_THREAT => false,
+                 _ => true
+            }).next() {
                 match observation.observed_physical_state(&food) {
                     Some(ps) if  ps.health > Health(0.0)  && observation.known_can_pass(&self.id, position) == Some(true) => {
                         self.current_behavior = Some(Behavior::Hunt(food));
