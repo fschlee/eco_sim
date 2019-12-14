@@ -175,8 +175,9 @@ impl MentalState {
         estimator: &impl Estimator,
     ) {
         let own_type = self.id.e_type();
-        if let Some((predator, threat)) = self.calculate_threat(own_position, observation, estimator).iter().max_by(|(_, t1), (_, t2)| f32_cmp(t1, t2)) {
-            if *threat > FLEE_THREAT {
+        let possible_threat = max_threat(self.calculate_threat(own_position, observation, estimator));
+        if let Some((predator, threat)) = possible_threat {
+            if threat > FLEE_THREAT {
                 self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
             }
         }
@@ -185,8 +186,13 @@ impl MentalState {
                 self.id.e_type().can_eat(&e.e_type())
             }).filter_map(|(e, p)| {
                 if let Some(rw) = self.lookup_preference(e.e_type()) {
-                    let dist = own_position.distance(&p) as f32 * 0.05;
-                    Some((rw - dist, e, p))
+                    match max_threat(self.calculate_threat(p, observation, estimator)) {
+                        Some((_, threat)) if threat > FLEE_THREAT => None,
+                        _ => {
+                            let dist = own_position.distance(&p) as f32 * 0.05;
+                            Some((rw - dist, e, p))
+                        },
+                    }
                 } else {
                     None
                 }
@@ -309,6 +315,24 @@ impl MentalState {
                     }
                 }
             }
+        }
+        match self.current_action.clone() {
+            Action::Move(dir) => {
+                if let Some(Behavior::FleeFrom(_)) = self.current_behavior {  }
+                else {
+                    match own_position.step(dir).and_then(|p|
+                        max_threat(self.calculate_threat(p, observation, estimator))
+                    ) {
+                        Some((_, threat)) if threat > FLEE_THREAT => {
+                            self.current_action = Action::Idle;
+                            self.current_behavior = None;
+                        }
+                        _ => (),
+                    }
+                }
+
+            },
+            _ => (),
         }
     }
     /*
@@ -434,17 +458,17 @@ impl MentalState {
 */
 
     // Threats are unordered
-    fn  calculate_threat(
-        &self,
+    fn  calculate_threat<'a>(
+        &'a self,
       //  physical_state: &PhysicalState,
         own_position: Position,
-        observation: & impl Observation,
-        estimator: &impl Estimator,
-    ) -> Vec<(WorldEntity, Threat)>{
+        observation: & 'a impl Observation,
+        estimator: & 'a impl Estimator,
+    ) -> impl Iterator<Item=(WorldEntity, Threat)> + 'a {
         let mut rng = self.rng.clone();
-        observation.find_closest(own_position, |e, w| {
+        observation.find_closest(own_position, move |e, w| {
             e.e_type().can_eat(&self.id.e_type())
-        }).filter_map(|(entity, position)| {
+        }).filter_map(move |(entity, position)| {
             match observation.path_as(position, own_position, &entity){
                 Some(v) => {
                     let mut total = 0.0;
@@ -469,7 +493,7 @@ impl MentalState {
                 },
                 _ => None
             }
-        }).collect()
+        })
     }
     pub fn path(&self, current: Position, goal: Position, observation: & impl Observation) -> Option<Vec<Dir>>  {
         observation.path_as(current, goal, &self.id)
@@ -618,8 +642,8 @@ impl AgentSystem {
             for y in 0..MAP_HEIGHT as Coord {
                 for x in 0..MAP_WIDTH as Coord {
                     let mut sum = 0.0;
-                    for (_, threat) in &ms.calculate_threat(Position{ x, y}, &observation, est){
-                        sum += *threat;
+                    for (_, threat) in ms.calculate_threat(Position{ x, y}, &observation, est){
+                        sum += threat;
                     }
                     vec.push(sum);
                 }
@@ -627,4 +651,8 @@ impl AgentSystem {
         }
         vec
     }
+}
+#[inline]
+fn max_threat(threats: impl Iterator<Item=(WorldEntity, Threat)>) -> Option<(WorldEntity, Threat)> {
+    threats.max_by(|(_, t1), (_, t2)| f32_cmp(t1, t2))
 }
