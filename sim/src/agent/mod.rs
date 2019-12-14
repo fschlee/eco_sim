@@ -553,9 +553,10 @@ pub struct AgentSystem {
 impl AgentSystem {
     pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
         use itertools::{Itertools, Either};
+        use rayon::prelude::*;
         let (mut actions, mut killed) : (Vec<_>, Vec<_>) = {
             let Self { ref mut mental_states, ref estimator_map, ref estimators } = self;
-            mental_states.iter_mut().partition_map(|mental_state|  {
+            mental_states.par_iter_mut().partition_map(|mental_state|  {
                 let entity = mental_state.id;
                 match (
                     world.get_physical_state(&entity),
@@ -582,7 +583,6 @@ impl AgentSystem {
                 }
             })
         };
-        use rayon::prelude::*;
         self.estimators.par_iter_mut().for_each( |est| {
             for (entity, action) in &actions {
                 if let Some(other_pos) = world.positions.get(entity) {

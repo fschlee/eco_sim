@@ -1,3 +1,5 @@
+use rayon::prelude::*;
+
 use crate::entity_type::EntityType;
 
 type GenID = i16;
@@ -270,7 +272,14 @@ impl<T> Storage<T> {
     pub fn iter_mut<'a>(& 'a mut self) -> impl Iterator<Item=&'a mut T> + 'a {
         self.content.iter_mut().filter_map(|t| t.as_mut())
     }
+
 }
+impl<T: Send> Storage<T> {
+    pub fn par_iter_mut<'a>(& 'a mut self) -> impl ParallelIterator<Item=&'a mut T> + 'a {
+        self.content.par_iter_mut().filter_map(|t| t.as_mut())
+    }
+}
+
 impl<T> Default for Storage<T> {
     fn default() -> Self {
         Self::new()
@@ -348,6 +357,8 @@ impl<'a, T> Iterator for StorageSliceIter<'a, T> {
     }
 
 }
+
+
 impl<'a, T> IntoIterator for & 'a StorageSlice<'a,T> {
     type IntoIter = StorageSliceIter<'a, T> ;
     type Item = &'a T;
