@@ -47,3 +47,8 @@ impl From<gfx_hal::device::MapError> for Error {
         Error::Owned(format!("{}", e))
     }
 }
+impl From<gfx_hal::device::OutOfMemory> for Error {
+    fn from(e: gfx_hal::device::OutOfMemory) -> Self {
+        Error::Owned(format!("{}", e))
+    }
+}

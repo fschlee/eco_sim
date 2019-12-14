@@ -5,8 +5,7 @@ pub mod memory;
 pub mod init;
 
 use memory::*;
-use std::{sync::{Arc, Mutex}, ops::DerefMut};
-use nalgebra::{Vector2, Vector3};
+use std::{sync::{Arc}};
 
 use log::{error, info, warn};
 
@@ -41,11 +40,11 @@ use gfx_hal::{
     },
     window::{Extent2D, PresentMode, Swapchain, SwapchainConfig, Surface, SurfaceCapabilities},
     Backend,
-    IndexType, Instance,
+    IndexType,
     query::Type::PipelineStatistics,
 };
 
-use winit::dpi::{LogicalSize, PhysicalSize};
+use winit::dpi::{PhysicalSize};
 
 use self::memory::{BufferBundle, ResourceManager, TextureSpec, Texture, Id};
 
@@ -276,7 +275,6 @@ impl<IS : InstSurface>  Renderer<IS>
     pub fn set_ui_buffer(& mut self, vtx: Vec<con_back::UiVertex>) -> Result<(), Error>{
         let proper_size = (vtx.len() * size_of::<f32>() * 6);
         let padded_size = ((proper_size + self.mem_atom - 1) / self.mem_atom)  * self.mem_atom;
-        let size = (vtx.len() * size_of::<f32>() * 6) as u64;
         if self.ui_vbuff.len() < 1 || self.ui_vbuff[0].requirements.size <= padded_size as u64 {
             let device = self.device.deref().deref();
             for b in self.ui_vbuff.drain(..){
@@ -286,13 +284,15 @@ impl<IS : InstSurface>  Renderer<IS>
             let vb = BufferBundle::new(& self.adapter, self.device.deref().deref(), padded_size, BufferUsage::VERTEX)?;
             self.ui_vbuff.insert(0, vb);
         }
+
         unsafe {
             let range = 0..(padded_size as u64);
             let memory = &(*self.ui_vbuff[0].memory);
             let mut vtx_target = self.device.map_memory(memory, range.clone()).unwrap();
             std::slice::from_raw_parts_mut(vtx_target as *mut UiVertex, vtx.len()).copy_from_slice(&vtx[0.. vtx.len()]);
-            self.device.flush_mapped_memory_ranges(Some(&(memory, range)));
+            let res = self.device.flush_mapped_memory_ranges(Some(&(memory, range)));
             self.device.unmap_memory(memory);
+            res?;
         }
         Ok(())
     }
@@ -328,20 +328,12 @@ impl<IS : InstSurface>  Renderer<IS>
             let size = size_of::<T>() * slice.len();
             let pad = self.padded_size(size);
             let buff = BufferBundle::new(self.adapter.deref(), self.device.deref(), pad, usage)?;
-            unsafe {
-                buff.write_range(&self.device,  0..(pad as u64), slice);
-                /*
-                let mut target = self.device.acquire_mapping_writer(&buff.memory, 0..(pad as u64)).map_err(|e| {
-                    error!("{}", e);
-                    "can't acquire mapping writer"
-                })?;
-                target[0..slice.len()].copy_from_slice(slice);
-                self.device.release_mapping_writer(target)
-                    .map_err(|_| "Couldn't release the mapping writer!")?;
-                    */
-            }
+            let res = unsafe {
+                buff.write_range(&self.device,  0..(pad as u64), slice)
+            };
             self.old_buffers.push(buff);
             self.old_buffer_expirations.push(4);
+            res?;
         }
        Ok(idx)
     }
@@ -772,7 +764,7 @@ impl<B: Backend> HalState<B> {
 */
     /// We have to clean up "leaf" elements before "root" elements. Basically, we
     /// clean up in reverse of the order that we created things.
-    fn dispose(&mut self)-> (B::CommandPool)  {
+    fn dispose(&mut self)-> B::CommandPool  {
         let _ = self.device.wait_idle();
         unsafe {
             for fence in self.in_flight_fences.drain(..) {

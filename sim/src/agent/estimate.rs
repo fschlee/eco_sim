@@ -1,15 +1,14 @@
 use rand::{Rng};
-use rand_distr::{Normal, StandardNormal, Distribution};
+use rand_distr::{StandardNormal, Distribution};
 use std::borrow::Borrow;
 
 use crate::agent::{MentalState, Behavior, Hunger, Reward};
 use super::estimator::MentalStateRep;
-use crate::entity::{WorldEntity, Storage, Source};
-use crate::world::{Action, PhysicalState, Health, Meat, Satiation, Speed, MoveProgress, Observation};
+use crate::entity::{WorldEntity};
+use crate::world::{Action, PhysicalState, Health, Speed, Observation};
 use crate::position::Coord;
 use crate::entity_type::{EntityType};
 use crate::agent::estimator::Estimator;
-use crate::util::clip;
 use crate::EmotionalState;
 
 #[derive(Clone, Debug)]

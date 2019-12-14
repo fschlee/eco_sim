@@ -1,7 +1,7 @@
 #![feature(manually_drop_take)]
 
 use winit::{event_loop::EventLoop, platform::desktop::EventLoopExtDesktop, window::{WindowBuilder, Window}};
-use log::{debug, error, info, trace, warn};
+use log::{error};
 use winit::dpi::LogicalSize;
 use std::time::Instant;
 use std::str::FromStr;
@@ -15,7 +15,6 @@ pub mod simulation;
 pub mod error;
 
 use renderer::init::{init_device, InstSurface, DeviceInit};
-use crate::error::Error;
 use winit::event::Event::EventsCleared;
 
 const MAX_RENDER_FAILS : u32 = 100;
@@ -117,7 +116,7 @@ fn game_loop<IS: InstSurface + 'static>(mut event_loop: EventLoop<()>, window: W
     let mut ui_processor = renderer::con_back::UiProcessor::from_glyph_cache_with_filled_queue(glyph_cache);
     let mut ui_cmds = Vec::new();
 
-    event_loop.run( move|event, window_target, cntr_flow| {
+    event_loop.run( move|event, _window_target, cntr_flow| {
         if event != EventsCleared {
             let close = ui_state.process(event, &game_state);
             if close || fail_counter > MAX_RENDER_FAILS {

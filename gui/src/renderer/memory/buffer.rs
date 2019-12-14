@@ -46,9 +46,9 @@ impl<B: Backend> BufferBundle<B> {
         let memory = & *(self.memory);
         let mut target = device.map_memory(memory, range.clone())?;
         std::slice::from_raw_parts_mut(target as *mut T, source.len()).copy_from_slice(source);
-        device.flush_mapped_memory_ranges(Some((memory, range)));
+        let res = device.flush_mapped_memory_ranges(Some((memory, range)));
         device.unmap_memory(memory);
-        // TODO: Error handling
+        res?;
         Ok(())
     }
     pub unsafe fn manually_drop(&self, device: &Dev<B>) {

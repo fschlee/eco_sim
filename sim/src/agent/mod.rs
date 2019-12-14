@@ -2,7 +2,7 @@ pub mod estimate;
 pub mod estimator;
 pub mod emotion;
 
-use rand::{Rng, thread_rng};
+use rand::{Rng};
 use std::cmp::Ordering;
 use log:: {error, info};
 use std::collections::{HashMap};
@@ -138,7 +138,7 @@ impl MentalState {
             if *actor == self.id {
                 match outcome {
                     Rested | Incomplete => (),
-                    Moved(dir) => { self.current_action = Action::Idle }
+                    Moved(_) => { self.current_action = Action::Idle }
                     Consumed(food, tp) => {
                         if let Some(r) = self.lookup_preference(*tp) {
                             score += r * food.0 * self.emotional_state.hunger().0

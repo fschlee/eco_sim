@@ -1,7 +1,6 @@
 use super::*;
 use conrod_core as cc;
 use gfx_hal::{pso::{VertexInputRate, Primitive}, command::CommandBuffer};
-use std::ops::DerefMut;
 
 pub struct Pipeline2D<B: Backend>{
     device: Arc<Dev<B>>,
@@ -183,7 +182,6 @@ impl<B: Backend> Pipeline2D<B> {
             encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc.ok(), &[], );
             // encoder.bind_graphics_descriptor_sets(&self.layout, 0, Some(&self.descriptor_sets[next_descriptor]), &[], );
 
-            let device = self.device.deref();
             for cmd in cmds.iter() {
                 encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &[
                     (render_area.w as f32).to_bits(),

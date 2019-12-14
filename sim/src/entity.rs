@@ -306,12 +306,6 @@ impl<'a, T> Iterator for StorageIter<'a, T> {
     }
 }
 
-pub struct StorageIterMut<'a, T> {
-    content: &'a mut [Option<T>],
-    // gens: & 'a mut [GenID],
-    idx: usize,
-}
-
 #[derive(Clone)]
 pub struct StorageSlice<'a,T> {
     gen0: & 'a [GenID],

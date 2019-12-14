@@ -25,7 +25,7 @@ impl Position {
         NeighborIter { pos: *self, dir: Some(Dir::R)}
     }
     pub fn distance(&self, other: & Position) -> Coord {
-        let dist = ((self.x  - other.x).abs() + (self.y - other.y).abs());
+        let dist = (self.x  - other.x).abs() + (self.y - other.y).abs();
         debug_assert!(dist >= 0);
         dist
     }
@@ -162,7 +162,7 @@ impl<T: Sized> PositionMap<T> {
                     return self.insert(k, v)
                 }
                 match vec.iter_mut().find(|(p, t)| *p == k ) {
-                    Some((p, t)) => {
+                    Some((_p, t)) => {
                         let mut r = v;
                         std::mem::swap(t, & mut r);
                         Some(r)

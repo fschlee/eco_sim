@@ -1,22 +1,16 @@
 use log::error;
-use std::ops::{Range, Sub};
+use std::ops::{Range};
 use rand::{Rng};
-use std::collections::{HashMap, BinaryHeap};
-use std::collections::hash_map::Entry;
+use std::collections::{BinaryHeap};
 use std::cmp::Ordering;
 use std::mem::{size_of, MaybeUninit};
-use rand_xorshift::XorShiftRng;
 use smallvec::SmallVec;
 
 use super::entity::*;
 use super::entity_type::*;
 use super::agent::AgentSystem;
 use crate::{MentalState};
-use crate::Occupancy::Empty;
 use crate::position::{Position, Dir, PositionMap, Coord};
-
-use enum_macros::{EnumIter};
-use crate::Outcome::Incomplete;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Action {
@@ -260,7 +254,6 @@ impl Cell for Occupancy {
 }
 impl Occupancy {
     fn initialize(none: Occupancy) -> [[Occupancy; MAP_WIDTH]; MAP_HEIGHT] {
-        use std::mem::MaybeUninit;
         unsafe {
             let bytes = std::slice::from_raw_parts(&none as * const _ as * const u8, size_of::<Occupancy>());
             if bytes.iter().all(|b| *b == 0u8) {
@@ -803,7 +796,6 @@ impl Iterator for PositionWalker {
 }
 
 fn none_initialize<T>() -> [[Option<Vec<T>>; MAP_WIDTH]; MAP_HEIGHT] {
-    use std::mem::MaybeUninit;
     let none = None::<Vec<T>>;
     unsafe {
         let bytes = std::slice::from_raw_parts(&none as * const _ as * const u8, size_of::<Option<Vec<T>>>());

@@ -2,7 +2,7 @@ use rand::{Rng};
 use super::MentalState;
 use crate::{World, Action, Observation, WorldEntity, Position, StorageSlice, Cell};
 use crate::position::Coord;
-use crate::entity::{Entity, Storage, Source};
+use crate::entity::{Storage, Source};
 use crate::entity_type::EntityType;
 
 
@@ -58,7 +58,7 @@ impl<'a, E: MentalStateRep, R: Rng>  Iterator for InvokeIter<'a, E, R> {
             }
         };
         if ms.is_none() {
-            *self = Self::Empty;;
+            *self = Self::Empty;
         }
         ms
     }

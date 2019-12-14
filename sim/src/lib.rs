@@ -12,11 +12,11 @@ pub use entity::*;
 pub use world::*;
 pub use position::*;
 pub use crate::agent::*;
+pub use crate::entity_type::EntityType;
 
 use std::ops::Range;
 use rand::{SeedableRng};
 use rand_xorshift::XorShiftRng;
-use crate::entity_type::EntityType;
 
 #[derive(Clone)]
 pub struct SimState {

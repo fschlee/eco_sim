@@ -58,8 +58,9 @@ impl<B: Backend> LoadedTexture<B> {
                 let dest_base = y * row_pitch;
                 target[dest_base..dest_base + row.len()].copy_from_slice(row);
             }
-            device.flush_mapped_memory_ranges(Some(&(memory, range)));
+            let res = device.flush_mapped_memory_ranges(Some(&(memory, range)));
             device.unmap_memory(memory);
+            res?;
 
             // 3. Make an image with transfer_dst and SAMPLED usage
             let mut the_image = device
