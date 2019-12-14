@@ -2,7 +2,6 @@ use super::*;
 use conrod_core as cc;
 use gfx_hal::{pso::{VertexInputRate, Primitive}, command::CommandBuffer};
 use super::con_back::{Command};
-use std::ops::DerefMut;
 
 pub struct UiPipeline<B: Backend>{
     device: Arc<Dev<B>>,
@@ -179,7 +178,6 @@ impl<B: Backend + BackendExt> UiPipeline<B> {
             encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &[(render_area.w as f32).to_bits(), (render_area.h as f32).to_bits()],
             );
             let mut last_tex = None;
-            let device = self.device.deref();
             for cmd in cmds.iter() {
                 if last_tex.is_none() || (cmd.texture_id.is_some() && cmd.texture_id != last_tex){
                     last_tex = cmd.texture_id;

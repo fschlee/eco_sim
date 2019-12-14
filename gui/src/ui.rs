@@ -266,17 +266,17 @@ impl UIState {
                 if let Some(ms) = game_state.get_mental_state(&edit_ent) {
 
 
-                    for hunger in cc::widget::number_dialer::NumberDialer::new(ms.hunger.0, 0.0, 10.0, 3)
+                    for hunger in cc::widget::number_dialer::NumberDialer::new(ms.emotional_state.hunger().0, 0.0, 1.0, 3)
                         .down_from(self.ids.dialer_title, 60.0)
                         .align_middle_x_of(self.ids.edit_canvas)
                         .w_h(160.0, 40.0)
                         .label("Hunger")
                         .set(self.ids.hunger_dialer, ui) {
                         let mut new_ms = ms.clone();
-                        new_ms.hunger = eco_sim::Hunger(hunger);
+                        new_ms.emotional_state.set_hunger(eco_sim::Hunger(hunger));
                         self.actions.push_back(Action::UpdateMentalState(new_ms));
                     }
-                    let act_text = eco_sim::Action::fmt(&ms.current_action);
+                    let act_text = format!("{}", ms.current_action);
                     cc::widget::Text::new(&act_text).font_size(16)
                         .down_from(self.ids.hunger_dialer, 60.0)
                         .align_middle_x_of(self.ids.edit_canvas).set(self.ids.action_text, ui);
@@ -291,7 +291,7 @@ impl UIState {
                         .label("Sight")
                         .set(self.ids.number_dialer, ui) {
                         let mut new_ms = ms.clone();
-                        new_ms.sight_radius = sight as u32;
+                        new_ms.sight_radius = sight as eco_sim::Coord;
                         self.actions.push_back(Action::UpdateMentalState(new_ms));
                     }
                     cc::widget::Canvas::new().pad(0.0)
@@ -304,19 +304,19 @@ impl UIState {
                     cc::widget::Text::new("Food preferences").font_size(20).mid_top_of(self.ids.list_canvas).set(self.ids.food_pref_text, ui);
 
                     let mut prev = self.ids.food_pref_text;
-                    for (i, (&id, (et, old_pref))) in self.ids.food_prefs.iter().zip(&ms.food_preferences).enumerate() {
+                    for (i, (&id, (et, old_pref))) in self.ids.food_prefs.iter().zip(ms.food_preferences()).enumerate() {
 
-                        let w = cc::widget::number_dialer::NumberDialer::new(*old_pref, 0.0, 20.0, 4)
+                        let w = cc::widget::number_dialer::NumberDialer::new(old_pref, 0.0, 20.0, 4)
                             .down_from(prev, 60.0)
                             .align_middle_x_of(self.ids.list_canvas)
                             .w_h(160.0, 40.0)
-                            .label(entity_type_label(*et));
+                            .label(entity_type_label(et));
 
                         prev = id;
 
                         for fp in w.set(id, ui) {
                             let mut new_ms = ms.clone();
-                            new_ms.food_preferences[i] = (*et, fp);
+                            new_ms.emotional_state.set_preference(et, fp);
                             self.actions.push_back(Action::UpdateMentalState(new_ms));
                         }
                     }

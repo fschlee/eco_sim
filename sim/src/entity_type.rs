@@ -45,7 +45,7 @@ impl EntityType {
 
         match self {
             Rock | Burrow | Grass | Clover | Tree => false,
-            Rabbit | Deer | Wolf => match other {
+            Deer | Wolf => match other {
                 Rock | Burrow => false,
                 Grass  | Clover | Tree => true,
                 Rabbit | Deer   | Wolf => true,

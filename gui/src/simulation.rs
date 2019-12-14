@@ -1,6 +1,6 @@
 use crate::ui::Action;
 
-use eco_sim::{SimState, Storage, WorldEntity, MentalState, entity_type::{EntityType, Count}};
+use eco_sim::{SimState, Storage, WorldEntity, MentalState, Coord, entity_type::{EntityType, Count}};
 use crate::renderer::con_back::{UiVertex};
 use std::ops::Range;
 use winit::dpi::LogicalPosition;
@@ -78,10 +78,11 @@ impl GameState {
                 Action::Move(entity, pos) => {
                     if let Some(ms) = self.eco_sim.get_mental_state(&entity) {
                         let (x, y) = self.logical_position_to_coords(pos);
-                        let sim_pos = eco_sim::Position { x: x as u32, y: y as u32 };
+                        let sim_pos = eco_sim::Position { x: x as Coord, y: y as Coord };
+
                         let mut new_ms = ms.clone();
-                        new_ms.current_action = Some(eco_sim::Action::Move(sim_pos));
-                        new_ms.current_behavior = None;
+                        new_ms.current_action = eco_sim::Action::Idle;
+                        new_ms.current_behavior = Some(eco_sim::Behavior::Travel(sim_pos));
                         self.eco_sim.update_mental_state(new_ms);
                     }
                 }
@@ -207,7 +208,7 @@ impl GameState {
     }
     pub fn logical_to_sim_position(&self, position: LogicalPosition) -> eco_sim::Position {
         let (x, y) = self.logical_position_to_coords(position);
-        eco_sim::Position{ x: x as u32, y: y as u32}
+        eco_sim::Position{ x: x as Coord, y: y as Coord}
     }
     fn logical_position_to_coords(&self, position: LogicalPosition) -> (usize, usize) {
         let x = ((position.x as f32 - self.margin) / self.cell_width).floor() as usize;

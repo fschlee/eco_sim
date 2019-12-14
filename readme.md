@@ -7,6 +7,10 @@ for vulkan backend (or metal backend on OS X):
 
 cargo run
 
+If on Linux and using x11 instead of Wayland:
+
+cargo run --fetures=x11
+ 
 for other backends:
 
 cargo run --feature="backend" --no-default-features

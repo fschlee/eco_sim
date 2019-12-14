@@ -13,6 +13,8 @@ dx11 = ["gfx-backend-dx11"]
 dx12 = ["gfx-backend-dx12"]
 gl = ["gfx-backend-gl"]
 metal = ["gfx-backend-metal"]
+x11 = ["gfx-backend-vulkan/x11"]
+xcb = ["gfx-backend-vulkan/xcb"]
 
 [dependencies]
 "eco_sim" = { path="../sim" }

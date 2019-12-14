@@ -2,7 +2,6 @@ use winit::{event_loop::EventLoop, window::{WindowBuilder, Window}};
 use gfx_hal::{Backend, Instance, adapter::{Adapter, PhysicalDevice},
               queue::{QueueGroup, QueueFamily}, window::Surface, Features};
 use log::{error};
-use winit::dpi::LogicalSize;
 
 use crate::error::Error;
 

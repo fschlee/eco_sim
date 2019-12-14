@@ -1,6 +1,5 @@
 use conrod_core as cc;
 use gfx_hal::{pso::{VertexInputRate, Primitive}, command::CommandBuffer};
-use std::ops::DerefMut;
 
 use super::*;
 use super::backend::BackendExt;
@@ -186,7 +185,6 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
             encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc.ok(), &[], );
             // encoder.bind_graphics_descriptor_sets(&self.layout, 0, Some(&self.descriptor_sets[next_descriptor]), &[], );
 
-            let device = self.device.deref();
             for cmd in cmds.iter() {
                 let push = [
                     (render_area.w as f32).to_bits(),
