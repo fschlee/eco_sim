@@ -6,7 +6,6 @@ use rand::{Rng};
 use std::cmp::Ordering;
 use log:: {error, info};
 use std::collections::{HashMap};
-use lazysort::SortedBy;
 
 use super::world::*;
 use super::entity::*;
@@ -65,6 +64,7 @@ pub struct MentalState {
     pub sight_radius: Coord,
     pub use_mdp: bool,
     pub rng: rand_xorshift::XorShiftRng,
+    pub score: Reward,
 }
 
 impl<R: MentalStateRep> From<&R> for MentalState {
@@ -85,6 +85,7 @@ impl MentalState {
             sight_radius: 5,
             use_mdp,
             rng: rand::SeedableRng::seed_from_u64(entity.id() as u64),
+            score: 0.0,
         }
     }
     pub fn decide(
@@ -165,7 +166,7 @@ impl MentalState {
                 }
             }
         }
-
+        self.score += score;
         return score
     }
     fn  decide_simple(
@@ -182,6 +183,7 @@ impl MentalState {
                 self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
             }
         }
+        use lazysort::SortedBy;
         if self.current_behavior.is_none() && self.emotional_state.hunger() > HUNGER_THRESHOLD {
             if let Some((reward, food, position)) = observation.find_closest(own_position, |e, w| {
                 self.id.e_type().can_eat(&e.e_type())
@@ -540,45 +542,46 @@ impl MentalState {
 }
 type EstimateRep = PointEstimateRep;
 type EstimatorT = LearningEstimator<EstimateRep>;
+type EstimatorMap = HashMap<Entity, usize, RandomState>;
 #[derive(Clone, Debug, Default)]
 pub struct AgentSystem {
-    pub agents: Vec<WorldEntity>,
     pub mental_states: Storage<MentalState>,
     pub estimators: Vec<LearningEstimator<EstimateRep>>,
-    pub estimator_map: HashMap<Entity, usize, RandomState>,
-    // actions: Vec<(WorldEntity, Action)>,
+    pub estimator_map: EstimatorMap,
 }
 
 impl AgentSystem {
     pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
-        let mut killed = Vec::new();
-        let mut actions = Vec::with_capacity(self.agents.len());
-        for entity in &self.agents {
-            match (
-                self.mental_states.get_mut(entity),
-                world.get_physical_state(entity),
-                world.positions.get(entity),
-                if let Some(i) = self.estimator_map.get(entity.into()) {
-                    self.estimators.get(*i)
-                } else {
-                    None
-                },
-            ) {
-                (Some(mental_state), Some(physical_state), Some(position), Some(estimator)) => {
-                    if physical_state.is_dead() {
-                        killed.push(entity.clone());
-                        info!("Agent {:?} died", entity);
+        use itertools::{Itertools, Either};
+        let (mut actions, mut killed) : (Vec<_>, Vec<_>) = {
+            let Self { ref mut mental_states, ref estimator_map, ref estimators } = self;
+            mental_states.iter_mut().partition_map(|mental_state|  {
+                let entity = mental_state.id;
+                match (
+                    world.get_physical_state(&entity),
+                    world.positions.get(&entity),
+                    if let Some(i) = estimator_map.get(&entity.into()) {
+                        estimators.get(*i)
                     } else {
-                        let action = mental_state.decide(physical_state, *position, &world.observe_in_radius(entity, mental_state.sight_radius), estimator);
-                        actions.push((*entity, action));
+                        None
+                    },
+                ) {
+                    (Some(physical_state), Some(position), Some(estimator)) => {
+                        if physical_state.is_dead() {
+                            info!("Agent {:?} died", entity);
+                            Either::Right(entity.clone())
+                        } else {
+                            let action = mental_state.decide(physical_state, *position, &world.observe_in_radius(&entity, mental_state.sight_radius), estimator);
+                            Either::Left((entity, action))
+                        }
                     }
+                    (ps, p, _) => {
+                        error!("Agent {:?} killed due to incomplete data:physical state {:?}, postion {:?}", entity, ps.is_some(), p.is_some());
+                        Either::Right(entity.clone())
+                    },
                 }
-                (ms, ps, p, _) => {
-                    killed.push(entity.clone());
-                    error!("Agent {:?} killed due to incomplete data: mental state {:?}, physical state {:?}, postion {:?}", entity, ms.is_some(), ps.is_some(), p.is_some());
-                },
-            }
-        }
+            })
+        };
         use rayon::prelude::*;
         self.estimators.par_iter_mut().for_each( |est| {
             for (entity, action) in &actions {
@@ -592,12 +595,10 @@ impl AgentSystem {
             ms.update_on_events(&world.events);
         }
         for entity in killed {
-            self.agents.remove_item(&entity);
-
             if let Some(mut ms) = self.mental_states.remove(&entity) {
                 let new_e = world.respawn(&entity, & mut ms, entity_manager);
+                debug_assert_eq!(ms.id, new_e);
                 self.mental_states.insert(&new_e, ms);
-                self.agents.push(new_e);
                 self.rebind_estimator(entity, new_e);
             }
         }
@@ -632,7 +633,7 @@ impl AgentSystem {
             mental_states.insert(agent, ms);
 
         }
-        Self{ agents, mental_states, estimators, estimator_map }
+        Self{ mental_states, estimators, estimator_map }
     }
     pub fn threat_map<C: Cell>(&self, we: &WorldEntity, world: &World<C>) -> Vec<f32> {
         let mut vec = Vec::with_capacity(MAP_HEIGHT * MAP_WIDTH);

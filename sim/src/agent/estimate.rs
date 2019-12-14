@@ -91,6 +91,7 @@ impl MentalStateRep for PointEstimateRep {
             sight_radius: self.sight_radius,
             use_mdp: false,
             rng: rand::SeedableRng::seed_from_u64(self.id.id() as u64),
+            score: 0.0,
         }
     }
     fn from_aggregate<B>(we: &WorldEntity, iter: impl Iterator<Item=B>) -> Self where B: Borrow<Self> {

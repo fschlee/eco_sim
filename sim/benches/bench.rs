@@ -11,8 +11,9 @@ fn sim(c: &mut Criterion) {
     c.bench_function("sim", |b| b.iter(|| {
         sim.advance(1.0);
     }));
+    let agents : Vec<_> = sim.agent_system.mental_states.into_iter().map(|ms| ms.id).collect();
     c.bench_function("pathing with observation", |b| b.iter(|| {
-        for agent in &sim.agent_system.agents {
+        for agent in &agents {
             let observation = sim.world.observe_in_radius(agent,6);
             let start = sim.world.positions.get(agent).unwrap();
             for goal in Position::iter() {
@@ -21,7 +22,7 @@ fn sim(c: &mut Criterion) {
         }
     }));
     c.bench_function("pathing on world", |b| b.iter(|| {
-        for agent in &sim.agent_system.agents {
+        for agent in &agents {
             let observation = &sim.world;
             let start = sim.world.positions.get(agent).unwrap();
             for goal in Position::iter() {
