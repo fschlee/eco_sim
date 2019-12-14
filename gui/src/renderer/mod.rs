@@ -34,7 +34,6 @@ use gfx_hal::{
         Rect, ShaderStageFlags, Specialization, StencilTest, VertexBufferDesc, Viewport, DescriptorPool
     },
     queue::{
-       //  capability::{Capability, Supports, Transfer},
         family::QueueGroup,
         CommandQueue, Submission,
     },
