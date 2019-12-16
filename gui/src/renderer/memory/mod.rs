@@ -132,6 +132,9 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
                             ty: gfx_hal::pso::DescriptorType::Sampler,
                             count: pool_size * Self::TEXTURES_PER_BINDING,
                         },
+                        if B::can_push_graphics_constants() {
+                            0
+                        } else { 1 }
                     ],
                     gfx_hal::pso::DescriptorPoolCreateFlags::empty(),
                 )

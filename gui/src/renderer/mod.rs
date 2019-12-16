@@ -79,6 +79,19 @@ const SHADERS_2D : [ShaderSpec; 2] = [
     ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/2d.vert", source: Some(include_str!("../../resources/2d.vert")) },
     ShaderSpec{ kind: shaderc::ShaderKind::Fragment, source_path: "resources/2d.frag", source: Some(include_str!("../../resources/2d.frag"))},
 ];
+#[cfg(feature = "reload_shaders")]
+const NO_PUSH_UI : ShaderSpec = ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/ui_no_push.vert", source: None};
+
+#[cfg(not(feature = "reload_shaders"))]
+const NO_PUSH_UI : ShaderSpec = ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/ui_no_push.vert", source: Some(include_str!("../../resources/ui_no_push.vert")) };
+
+
+#[cfg(feature = "reload_shaders")]
+const NO_PUSH_2D : ShaderSpec= ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/2d_no_push.vert", source: None};
+
+#[cfg(not(feature = "reload_shaders"))]
+const NO_PUSH_2D : ShaderSpec= ShaderSpec{ kind: shaderc::ShaderKind::Vertex, source_path:"resources/2d_no_push.vert",  source: Some(include_str!("../../resources/2d_no_push.vert"))};
+
 
 pub struct Renderer<IS : InstSurface> {
 //    type D = <IS::Backend as Backend>::Device,
@@ -140,7 +153,12 @@ impl<IS : InstSurface>  Renderer<IS>
         };
         let texture_manager = ResourceManager::new(device.clone(), adapter.clone(), transfer_pool).expect("failed to create texture manager");
         let ui_pipeline = ui_pipeline::UiPipeline::create(device.clone(), hal_state.render_area, hal_state.render_pass.deref(), vert_art, frag_art, &texture_manager.descriptor_set_layouts).expect("failed to create pipeline");
-        let mut art_2d = complile_shaders(&SHADERS_2D).expect("couldn't compile shader");
+        let shader_source = if IS::Back::can_push_graphics_constants() {
+            SHADERS_2D
+        } else {
+            [NO_PUSH_2D, SHADERS_2D[1].clone()]
+        };
+        let mut art_2d = complile_shaders(&shader_source).expect("couldn't compile shader");
         let frag_2d = art_2d.remove(1);
         let vert_2d = art_2d.remove(0);
         let pipeline_2d = pipeline_2d::Pipeline2D::create(device.clone(), hal_state.render_area, hal_state.render_pass.deref(), vert_2d, frag_2d, &texture_manager.descriptor_set_layouts).expect("failed to create pipeline");
@@ -229,8 +247,12 @@ impl<IS : InstSurface>  Renderer<IS>
         })
     }
     fn compile_ui_shaders() -> Result<(shaderc::CompilationArtifact, shaderc::CompilationArtifact), Error> {
-
-        let mut v = complile_shaders(&UI_SHADERS)?;
+        let shader_source = if IS::Back::can_push_graphics_constants() {
+            UI_SHADERS
+        } else {
+            [NO_PUSH_UI, UI_SHADERS[1].clone()]
+        };
+        let mut v = complile_shaders(&shader_source)?;
         if v.len() == 2 {
             let frag = v.remove(1);
             let vert = v.remove(0);
@@ -253,7 +275,12 @@ impl<IS : InstSurface>  Renderer<IS>
 
             let (vert_art, frag_art) = Self::compile_ui_shaders()?;
             self.ui_pipeline = ui_pipeline::UiPipeline::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_art, frag_art, &self.texture_manager.descriptor_set_layouts)?;
-            let mut art_2d = complile_shaders(&SHADERS_2D)?;
+            let shader_source = if IS::Back::can_push_graphics_constants() {
+                SHADERS_2D
+            } else {
+                [NO_PUSH_2D, SHADERS_2D[1].clone()]
+            };
+            let mut art_2d = complile_shaders(&shader_source)?;
             let frag_2d = art_2d.remove(1);
             let vert_2d = art_2d.remove(0);
             self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(),vert_2d, frag_2d, &self.texture_manager.descriptor_set_layouts)?;
@@ -833,7 +860,7 @@ impl Drop for HalState{
 }
 */
 
-
+#[derive(Clone)]
 struct ShaderSpec {
     pub kind: shaderc::ShaderKind,
     pub source_path: & 'static str,

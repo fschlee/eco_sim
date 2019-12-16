@@ -182,7 +182,12 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
             });
             let id = Id::new(0);
             let desc = texture_manager.get_descriptor_set(id);
-            encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc.ok(), &[], );
+            if B::can_push_graphics_constants() {
+                encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc.ok(), &[], );
+            }
+            else {
+                encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc.ok(), &[], );
+            }
             // encoder.bind_graphics_descriptor_sets(&self.layout, 0, Some(&self.descriptor_sets[next_descriptor]), &[], );
 
             for cmd in cmds.iter() {
