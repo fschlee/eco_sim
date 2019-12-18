@@ -167,62 +167,70 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
     pub fn execute(& mut self,
                            encoder: &mut impl CommandBuffer<B>,
                            image_idx: usize,
-                           texture_manager: & mut ResourceManager<B>,
-                           vertex_buffers: &[BufferBundle<B>],
-                           index_buffer: &BufferBundle<B>,
+                           resource_manager: & mut ResourceManager<B>,
+                           vertex_buffer: Id<VtxBuff<UiVertex>>,
+                           index_buffer: Id<IdxBuff>,
                            render_area: Rect,
-                           cmds: &[crate::simulation::Command]) {
+                           models: &[crate::simulation::Model]) {
+
         unsafe {
-            let vert= vertex_buffers.iter().map(|b| (b.buffer.deref(), 0));
             encoder.bind_graphics_pipeline(&self.gfx_pipeline);
-            encoder.bind_vertex_buffers(0, vert);
+            encoder.bind_vertex_buffers(0, resource_manager.get_buffer(vertex_buffer).map(|b| (b.buffer.deref(), 0)));
             encoder.bind_index_buffer(IndexBufferView{
-                buffer: index_buffer.buffer.deref(),
+                buffer: resource_manager.get_buffer(index_buffer).expect("index buffer not found").buffer.deref(),
                 offset: 0,
                 index_type: IndexType::U32
             });
-            let id = Id::new(0);
-            let desc = if let desc@Some(_) = texture_manager.get_descriptor_set(id) {
-                desc
-            } else {
-                texture_manager.get_or_write_descriptor_set(id).log();
-                texture_manager.get_descriptor_set(id)
-            };
-            if B::can_push_graphics_constants() {
-                encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc, &[], );
-            }
-            else  {
-                let ub_idx = image_idx;
-                let mut write = vec![(render_area.w as f32).to_bits(), (render_area.h as f32).to_bits(), 0, 0];
 
-                for cmd in cmds.iter() {
-                    write.push(cmd.x_offset.to_bits(),);
-                    write.push(cmd.y_offset.to_bits(),);
-                    write.push(cmd.highlight as u32);
-                    write.push(0);
+
+            let mut ub_idc = Vec::with_capacity(models.len());
+            if !B::can_push_graphics_constants() {
+                let head = crate::simulation::Instance{ x_offset : render_area.w as f32, y_offset : render_area.h as f32, highlight: 0, z : 0.0  };
+                let mut write = Vec::new();
+
+                for model in models.iter() {
+                    write.resize(1, head);
+                    write.extend_from_slice(&model.vec);
+                    ub_idc.push(resource_manager.write_temp_uniform_buffer_with_descriptor(&write).expect("failed writing to temp uniform buffer"));
                 }
-                texture_manager.uniform_buffers[ub_idx].write(&self.device,   0, &write).expect("couldn't write to uniform buffer");
-                encoder.bind_graphics_descriptor_sets(&self.layouts, 0, vec![desc.unwrap(), &texture_manager.uniform_buffer_descs[ub_idx]], &[], );
             }
-            let mut instance = 0;
-            for cmd in cmds.iter() {
+            let mut last_tex = None;
+            let mut desc = None;
+            let mut ub_idx = 0;
+            for model in models.iter() {
+                if last_tex.is_none() || (model.texture.is_some() && model.texture != last_tex){
+                    last_tex = model.texture;
+                    let id = model.texture.unwrap_or(Id::new(0));
+                    desc = if let desc@Some(_) = resource_manager.get_descriptor_set(id) {
+                        desc
+                    } else {
+                        resource_manager.get_or_write_descriptor_set(id).log();
+                        resource_manager.get_descriptor_set(id)
+                    };
+                    if B::can_push_graphics_constants() {
+                        encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc, &[], );
+                    }
+                }
                 let scissor = render_area;
                 encoder.set_scissors(0, Some(scissor));
                 if B::can_push_graphics_constants() {
-                    let push = [
-                        (render_area.w as f32).to_bits(),
-                        (render_area.h as f32).to_bits(),
-                        cmd.x_offset.to_bits(),
-                        cmd.y_offset.to_bits(),
-                        cmd.highlight as u32
-                    ];
-                    encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &push);
-                    encoder.draw_indexed(cmd.range.clone(), 0, 0..1);
+                    for instance in &model.vec {
+                        let push = [
+                            (render_area.w as f32).to_bits(),
+                            (render_area.h as f32).to_bits(),
+                            instance.x_offset.to_bits(),
+                            instance.y_offset.to_bits(),
+                            instance.highlight as u32
+                        ];
+                        encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &push);
+                        encoder.draw_indexed(model.range.clone(), 0, 0..1);
+                    }
+
                 }
                 else {
-                    let old = instance;
-                    instance += 1;
-                    encoder.draw_indexed(cmd.range.clone(), 0, old..instance);
+                    encoder.bind_graphics_descriptor_sets(&self.layouts, 0, vec![desc.unwrap(), resource_manager.get_temp_buffer_descriptor(ub_idc[ub_idx]).unwrap()], &[], );
+                    encoder.draw_indexed(model.range.clone(), 0, 0..model.vec.len() as u32);
+                    ub_idx += 1;
                 }
             }
         }

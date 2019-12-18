@@ -6,8 +6,7 @@ use conrod_core as cc;
 use conrod_core::render::{Primitives};
 use conrod_core::color::Rgba;
 use conrod_core::text::{GlyphCache};
-
-
+use crate::error::Error::ConBack;
 
 
 #[derive( Copy, Clone, Debug)]
@@ -34,12 +33,19 @@ pub struct UiVertex {
     pub mode: u32,
     pub color: u32,
 }
-#[derive(Debug)]
-pub enum Error {
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum ConBackError {
     UnhandledWidgetType,
     UncachedGlyph(u32),
 }
-
+impl std::fmt::Display for ConBackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        match self {
+            ConBackError::UnhandledWidgetType => write!(f, "Unhandled widget type"),
+            ConBackError::UncachedGlyph(g) => write!(f, "Uncached gylph {}", g),
+        }
+    }
+}
 const COL_NO_TEX: u32 = 2;
 const FULL_TEX : u32 = 1;
 const ALPHA_TEX: u32 = 0;
@@ -129,7 +135,7 @@ impl<'a> UiProcessor<'a> {
         self.tex_updated = true;
     }
     pub fn process_primitives(&mut self, primitives: &mut Primitives, dpi_factor: f32, screen_width: f32, screen_height: f32)
-                              -> Result<(Vec<Command>, Vec<UiVertex>), Error> {
+                              -> Result<(Vec<Command>, Vec<UiVertex>), ConBackError> {
 
         let mut cmds = Vec::new();
         let mut vertices = Vec::new();
@@ -273,7 +279,7 @@ impl<'a> UiProcessor<'a> {
 
                     for glyph in text.positioned_glyphs(1.0 /* dpi_factor */){
                         let result = self.glyph_cache
-                            .rect_for(font_id.index(), glyph).map_err(|_| Error::UncachedGlyph(glyph.id().0))?;
+                            .rect_for(font_id.index(), glyph).map_err(|_| ConBackError::UncachedGlyph(glyph.id().0))?;
                         if let Some((texture_rect, window_rect)) = result {
                             // current.clip_rect = window_rect;
 
@@ -299,8 +305,7 @@ impl<'a> UiProcessor<'a> {
                         }
                     }
                 },
-                PrimitiveKind::Other(_) => {
-                    // Err(Error::UnhandledWidgetType)?;
+                PrimitiveKind::Other(e) => {
                 },
             }
         }

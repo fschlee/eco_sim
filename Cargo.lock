@@ -519,7 +519,6 @@ dependencies = [
 name = "eco_sim_gui"
 version = "0.1.0"
 dependencies = [
- "arrayvec 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cmake 0.1.42 (registry+https://github.com/rust-lang/crates.io-index)",
  "conrod_core 0.68.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "conrod_winit 0.68.0 (registry+https://github.com/rust-lang/crates.io-index)",

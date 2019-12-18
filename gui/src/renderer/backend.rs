@@ -7,7 +7,7 @@ pub trait BackendExt {
 #[cfg(all(feature = "vulkan", not(macos)))]
 impl BackendExt for gfx_backend_vulkan::Backend {
     fn can_push_graphics_constants() -> bool{
-        false
+        true
     }
 }
 

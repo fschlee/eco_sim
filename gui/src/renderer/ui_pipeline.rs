@@ -163,7 +163,7 @@ impl<B: Backend + BackendExt> UiPipeline<B> {
     }
     pub fn execute<'a>(& mut self,
                           encoder: &mut impl CommandBuffer<B>,
-                          texture_manager: & mut ResourceManager<B>,
+                          resource_manager: & mut ResourceManager<B>,
                           vertex_buffers: &[BufferBundle<B>],
                           render_area: Rect,
                           cmds: &[Command]) {
@@ -174,7 +174,7 @@ impl<B: Backend + BackendExt> UiPipeline<B> {
             // encoder.bind_index_buffer(index_buffer);
 
             // encoder.bind_graphics_descriptor_sets(&self.layout, 0, Some(&self.descriptor_sets[next_descriptor]), &[], );
-            texture_manager.uniform_buffers[3].write(&self.device,   0,
+            resource_manager.uniform_buffers[3].write(&self.device,   0,
                                                      &[(render_area.w as f32).to_bits(), (render_area.h as f32).to_bits()])
                 .expect("couldn't write to uniform buffer");
             let mut last_tex = None;
@@ -182,8 +182,13 @@ impl<B: Backend + BackendExt> UiPipeline<B> {
                 if last_tex.is_none() || (cmd.texture_id.is_some() && cmd.texture_id != last_tex){
                     last_tex = cmd.texture_id;
                     let id = cmd.texture_id.unwrap_or(Id::new(0));
-                    let desc = texture_manager.get_descriptor_set(id);
-                    encoder.bind_graphics_descriptor_sets(&self.layouts, 0, vec![desc.unwrap(), &texture_manager.uniform_buffer_descs[3]], &[], );
+                    let desc = if let Some(desc) = resource_manager.get_descriptor_set(id) {
+                        desc
+                    } else {
+                        resource_manager.get_or_write_descriptor_set(id).log();
+                        resource_manager.get_descriptor_set(id).unwrap()
+                    };
+                    encoder.bind_graphics_descriptor_sets(&self.layouts, 0, vec![desc, &resource_manager.uniform_buffer_descs[3]], &[], );
                 }
                 let sr = cmd.clip_rect;
                 let scissor = calc_scissor(sr, render_area);

@@ -8,7 +8,7 @@ struct PushConsts {
     float x_offset;
     float y_offset;
     uint highlighted;
-    uint pad;
+    float z;
 };
 #ifdef VULKAN
 layout (set = 1, binding = 0) uniform PC {
@@ -58,7 +58,7 @@ void main()
     gl_Position = vec4(
     (margin + push.x_offset + 80.0 * position.x - 0.5 * width) * height,
     (margin + 80.0 * position.y + push.y_offset - 0.5 * height) * width,
-    0.0,
+    1.0 - push.z,
     0.5 * height * width);
     frag_color = color;
     uint low = push.highlighted & 255;

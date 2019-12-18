@@ -1,7 +1,7 @@
 #![feature(manually_drop_take)]
 
 use winit::{event_loop::EventLoop, platform::desktop::EventLoopExtDesktop, window::{WindowBuilder, Window}};
-use log::{error};
+use log::{error, info};
 use winit::dpi::LogicalSize;
 use std::time::Instant;
 use std::str::FromStr;
@@ -16,6 +16,7 @@ pub mod error;
 
 use renderer::init::{init_device, InstSurface, DeviceInit};
 use winit::event::Event::EventsCleared;
+use error::LogError;
 
 const MAX_RENDER_FAILS : u32 = 100;
 
@@ -129,7 +130,8 @@ fn game_loop<IS: InstSurface + 'static>(mut event_loop: EventLoop<()>, window: W
                 let dpi_factor = ui_state.window.hidpi_factor() as f32;
                 let winit::dpi::LogicalSize{width, height, ..} = ui_state.window.inner_size();
                 let (cmds, vtx) = ui_processor.process_primitives(& mut prims, dpi_factor, width as f32, height as f32)
-                    .or_else(|_| {
+                    .or_else(|e| {
+                        info!("{}", e);
                         ui_processor.update_gyph_cache(renderer::con_back::GlyphWalker::new(ui_state.conrod.draw(), dpi_factor ));
                         ui_processor.process_primitives(& mut ui_state.conrod.draw(), dpi_factor, width as f32, height as f32)
                     }).unwrap();
@@ -142,7 +144,8 @@ fn game_loop<IS: InstSurface + 'static>(mut event_loop: EventLoop<()>, window: W
                         let id = renderer.add_texture(&spec);
                         assert_eq!(id, Ok(id0));
                     } else {
-                        if let Err(_) = renderer.replace_texture(id0, &spec) {
+                        if let Err(e) = renderer.replace_texture(id0, &spec) {
+                            info!("{}", e);
                             let id = renderer.add_texture(&spec);
                             assert_eq!(id, Ok(id0));
                         }

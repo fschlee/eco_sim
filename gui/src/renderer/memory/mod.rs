@@ -14,6 +14,32 @@ pub type Texture<B> = texture::LoadedTexture<B>;
 
 pub enum Tex {}
 
+trait BufferType {
+    fn usage() -> BufferUsage;
+}
+
+pub struct VtxBuff<V> {
+    phantom: PhantomData<* const V>,
+}
+
+
+impl<V> BufferType for VtxBuff<V> {
+    fn usage() -> BufferUsage {
+        BufferUsage::VERTEX
+    }
+}
+
+pub enum IdxBuff {
+
+}
+impl BufferType for IdxBuff {
+    fn usage() -> BufferUsage {
+        BufferUsage::INDEX
+    }
+}
+
+pub enum TempUniform {}
+
 pub type FontId = usize;
 #[derive(Default)]
 pub struct Id<T> {
@@ -54,6 +80,7 @@ impl<T> std::hash::Hash for Id<T> {
 pub struct ResourceManager<B: Backend> {
     device: Arc<Dev<B>>,
     adapter: Arc<Adapter<B>>,
+    mem_atom: usize,
     command_pool: ManuallyDrop<B::CommandPool>,
     //   command_queue: ManuallyDrop<CommandQueue<back::Backend, Trans>>,
     textures: Vec<Option<Texture<B>>>,
@@ -68,12 +95,19 @@ pub struct ResourceManager<B: Backend> {
     descriptor_map: std::collections::HashMap<Id<Tex>, <B as Backend>::DescriptorSet, RandomState>,
     unmapped_descriptor_count : usize,
     pub uniform_buffers: Vec<BufferBundle<B>>,
-    old_uniform_buffers: Vec<BufferBundle<B>>,
     pub uniform_buffer_descs: Vec<<B as Backend>::DescriptorSet>,
+    registered_buffers: Vec<BufferBundle<B>>,
+    buffer_usages: Vec<BufferUsage>,
+    old_buffers: Vec<BufferBundle<B>>,
+    old_buffer_expirations: Vec<i32>,
+    old_buffer_descriptors: Vec<Option<<B as Backend>::DescriptorSet>>,
+
 }
 
 
 impl<B: Backend + BackendExt> ResourceManager<B> {
+    pub const MAX_UB_COUNT: usize = 256;
+    pub const AUTO_UB_COUNT: usize = 4;
     pub const TEXTURE_AND_SAMPLER : usize = 0;
     pub const UNIFORM_VS : usize = 1;
     const DELETE_DELAY : i32 = 4;
@@ -84,8 +118,9 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         command_pool: B::CommandPool,
         //       command_queue: CommandQueue<back::Backend, Trans>,
     )->Result<Self, Error> {
+        let mem_atom = adapter.physical_device.limits().non_coherent_atom_size;
         let max_texture_sets = 24;
-        let ub_count = 4;
+        let ub_count = Self::AUTO_UB_COUNT;
         let mut descriptor_set_layouts: Vec<<B as Backend>::DescriptorSetLayout> = Vec::new();
         let mut descs = vec![
             DescriptorSetLayoutBinding {
@@ -129,7 +164,7 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         let descriptor_pool = unsafe {
             device
                 .create_descriptor_pool(
-                    max_texture_sets + ub_count, // sets
+                    max_texture_sets + Self::MAX_UB_COUNT, // sets
                     &[
                         gfx_hal::pso::DescriptorRangeDesc {
                             ty: gfx_hal::pso::DescriptorType::SampledImage,
@@ -141,7 +176,7 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
                         },
                         gfx_hal::pso::DescriptorRangeDesc {
                             ty: gfx_hal::pso::DescriptorType::UniformBuffer,
-                            count: ub_count,
+                            count: Self::MAX_UB_COUNT,
                         }
                     ],
                     gfx_hal::pso::DescriptorPoolCreateFlags::empty(),
@@ -150,13 +185,14 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         };
         let mut uniform_buffers= Vec::new();
         let size = 20 * 256;
-        if  !B::can_push_graphics_constants() {
+        if  true || !B::can_push_graphics_constants() {
             for i in 0..ub_count {
                 uniform_buffers.push(BufferBundle::new(adapter.as_ref(), device.as_ref(), size, BufferUsage::UNIFORM).expect("Failed creating uniform buffer"));
             }
         }
         let mut this = Self{device,
             adapter,
+            mem_atom,
             command_pool: ManuallyDrop::new(command_pool),
             //           command_queue: ManuallyDrop::new(command_queue),
             textures: Vec::new(),
@@ -171,10 +207,14 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
             max_texture_sets,
             ub_count,
             uniform_buffers,
-            old_uniform_buffers: Vec::new(),
+            registered_buffers: Vec::new(),
+            buffer_usages: Vec::new(),
+            old_buffers: Vec::new(),
+            old_buffer_expirations: Vec::new(),
+            old_buffer_descriptors: Vec::new(),
             uniform_buffer_descs : Vec::new(),
         };
-        if !B::can_push_graphics_constants() {
+        if true || !B::can_push_graphics_constants() {
             this.allocate_uniform_descs()?;
         }
         Ok(this)
@@ -182,7 +222,7 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
 
     fn allocate_uniform_descs(&mut self) -> Result<(), Error>{
         self.uniform_buffer_descs.clear();
-        for i in 0..self.ub_count {
+        for i in 0..Self::AUTO_UB_COUNT {
             unsafe {
                 let new_set = self.descriptor_pool.allocate_set(&self.descriptor_set_layouts[Self::UNIFORM_VS])?;
                 self.device.write_descriptor_sets(vec![gfx_hal::pso::DescriptorSetWrite {
@@ -271,7 +311,7 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
                         },
                         gfx_hal::pso::DescriptorRangeDesc {
                             ty: gfx_hal::pso::DescriptorType::UniformBuffer,
-                            count: self.ub_count,
+                            count: Self::MAX_UB_COUNT,
                         }
                     ],
                     gfx_hal::pso::DescriptorPoolCreateFlags::empty(),
@@ -282,8 +322,97 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
 
         }
         self.allocate_uniform_descs()?;
+        self.ub_count = Self::AUTO_UB_COUNT;
         self.descriptor_map.clear();
         Ok(())
+    }
+    fn padded_size(& self, proper_size: usize) -> usize {
+        ((proper_size + self.mem_atom - 1) / self.mem_atom)  * self.mem_atom
+    }
+
+    pub fn register_buffer<T: Sized + Copy, U: BufferType>(& mut self, slice: & [T]) -> Result<Id<U>, Error> {
+        let idx = self.registered_buffers.len();
+        let usage = U::usage();
+        {
+            let size = size_of::<T>() * slice.len();
+            let pad = self.padded_size(size);
+            let buff = BufferBundle::new(self.adapter.deref(), self.device.deref(), pad, usage)?;
+            let res = unsafe {
+                buff.write_range(&self.device,  0..(pad as u64), slice)
+            };
+            self.registered_buffers.push(buff);
+            self.buffer_usages.push(usage);
+            res?;
+        }
+        Ok(Id::new(idx as u32))
+    }
+    pub fn replace_buffer<T: Sized + Copy, U: BufferType>(& mut self, id: Id<U>, slice: & [T]) -> Result<Id<U>, Error> {
+        let idx = id.id as usize;
+        let usage = U::usage();
+        assert!(self.registered_buffers.len() < idx);
+        assert!(self.buffer_usages[idx] == usage);
+        {
+            let size = size_of::<T>() * slice.len();
+            let pad = self.padded_size(size);
+            let mut buff = BufferBundle::new(self.adapter.deref(), self.device.deref(), pad, usage)?;
+            let res = unsafe {
+                buff.write_range(&self.device,  0..(pad as u64), slice)
+            };
+            std::mem::swap(& mut self.registered_buffers[idx], & mut buff);
+            self.old_buffers.push(buff);
+            self.old_buffer_expirations.push(Self::DELETE_DELAY);
+            res?;
+        }
+        Ok(id)
+    }
+    pub fn get_buffer<U: BufferType>(&self, id: Id<U> ) -> Option<&BufferBundle<B>> {
+        let idx = id.id as usize;
+        if idx > self.buffer_usages.len() || self.buffer_usages[idx] != U::usage() {
+            return None;
+        }
+        self.registered_buffers.get(idx)
+    }
+    pub fn write_temp_uniform_buffer_with_descriptor<T: Sized + Copy>(& mut self, slice : &[T]) -> Result<Id<TempUniform>, Error> {
+        let idx = self.old_buffers.len();
+        let usage = BufferUsage::UNIFORM;
+        let size = size_of::<T>() * slice.len();
+        let pad = self.padded_size(size);
+        unsafe {
+            let mut buff = BufferBundle::new(self.adapter.deref(), self.device.deref(), pad, usage)?;
+            let res = unsafe {
+                buff.write_range(&self.device,  0..(pad as u64), slice)
+            };
+            self.old_buffers.push(buff);
+            self.old_buffer_expirations.push(Self::DELETE_DELAY);
+            if self.ub_count + 1 >= Self::MAX_UB_COUNT {
+                self.refresh_pool()?;
+            }
+            self.ub_count += 1;
+            let new_set = self.descriptor_pool.allocate_set(&self.descriptor_set_layouts[Self::UNIFORM_VS])?;
+            self.device.write_descriptor_sets(vec![gfx_hal::pso::DescriptorSetWrite {
+                set: &new_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors: Some(gfx_hal::pso::Descriptor::Buffer(self.old_buffers[idx].buffer.deref(), None..None)),
+            }]);
+            let len_diff = idx - self.old_buffer_descriptors.len();
+            if len_diff > 0 {
+                for _ in 0 .. len_diff {
+                    self.old_buffer_descriptors.push(None);
+                }
+            }
+            debug_assert_eq!(idx, self.old_buffer_descriptors.len());
+            self.old_buffer_descriptors.push(Some(new_set));
+        }
+        Ok(Id::new(idx as u32))
+    }
+    pub fn get_temp_buffer_descriptor(&self, id: Id<TempUniform>) -> Option<& <B as Backend>::DescriptorSet> {
+        let idx = id.id as usize;
+        if self.old_buffer_descriptors.len() <= 4 || self.old_buffer_expirations.len() <= idx || self.old_buffer_expirations[idx] < 4  {
+            None
+        } else {
+            self.old_buffer_descriptors[idx].as_ref()
+        }
     }
     pub fn remove_texture(& mut self, id: Id<Tex>) -> Result<(), Error> {
         if let Some(mtex) = self.textures.get_mut(id.id as usize) {
@@ -295,6 +424,8 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         }
         Err("No texture present".into())
     }
+
+
     pub fn replace_texture<'a>(
         & mut self,
         id: Id<Tex>,
@@ -356,6 +487,20 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
                 }
             } else {
                 self.old_pool_expirations[i] -= 1;
+            }
+        }
+        for i in (0..self.old_buffers.len()).rev() {
+            if self.old_buffer_expirations[i] <= 0 {
+                unsafe {
+                    self.old_buffers.remove(i).manually_drop(self.device.deref());
+
+                }
+                self.old_buffer_expirations.remove(i);
+                if self.old_buffer_descriptors.len() > i {
+                    self.old_buffer_descriptors.remove(i);
+                }
+            } else {
+                self.old_buffer_expirations[i] -= 1;
             }
         }
 

@@ -1,4 +1,5 @@
 use log::{error};
+use crate::renderer::con_back::ConBackError;
 
 pub trait LogError {
     fn log(&self);
@@ -8,6 +9,7 @@ pub trait LogError {
 pub enum Error {
     Static(&'static str),
     Owned(String),
+    ConBack(ConBackError),
     // IO(std::io::Error),
 }
 impl std::fmt::Display for Error {
@@ -16,6 +18,7 @@ impl std::fmt::Display for Error {
         match self {
             Static(m) => write!(f, "{}", m),
             Owned((m))=> write!(f, "{}", m),
+            ConBack(e) => write!(f, "{}", e),
         }
     }
 }
@@ -27,7 +30,11 @@ impl<T> LogError for Result<T, Error> {
         }
     }
 }
-
+impl From<ConBackError> for Error {
+    fn from(e: ConBackError) -> Self {
+        Error::ConBack(e)
+    }
+}
 impl From<& 'static str> for Error {
     fn from(m: &'static str) -> Self {
         Error::Static(m)
@@ -63,5 +70,10 @@ impl From<gfx_hal::pso::AllocationError> for Error {
 impl From<gfx_hal::device::OomOrDeviceLost> for Error {
     fn from(e: gfx_hal::device::OomOrDeviceLost) -> Self {
         Error::Static("Out of memory, device lost")
+    }
+}
+impl From<gfx_hal::window::PresentError> for Error {
+    fn from(e: gfx_hal::window::PresentError) -> Self {
+        Error::Owned(format!("Could not present into swapchain: {}", e))
     }
 }

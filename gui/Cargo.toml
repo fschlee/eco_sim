@@ -36,7 +36,6 @@ xcb = ["gfx-backend-vulkan/xcb"]
 "conrod_winit" = "^0.68"
 
 #graphics data etc
-"arrayvec" = "*"
 "smallvec" = "^0.6"
 "image" = "*"
 "shaderc" = "0.6"

@@ -10,7 +10,6 @@ use std::{sync::{Arc}};
 
 use log::{error, info, warn};
 
-use arrayvec::ArrayVec;
 use core::{
     marker::PhantomData,
     mem::{size_of, ManuallyDrop},
@@ -52,6 +51,7 @@ use backend::BackendExt;
 use crate::renderer::memory::descriptors::DescriptorPoolManager;
 use crate::error::{Error, LogError};
 use crate::renderer::con_back::UiVertex;
+use crate::simulation::{RenderData, Update, BaseData};
 
 
 type Dev<B> = <B as Backend>::Device;
@@ -186,7 +186,7 @@ impl<IS : InstSurface>  Renderer<IS>
         let l = self.queue_group.queues.len();
         & mut self.queue_group.queues[l -1]
     }*/
-    pub fn tick(&mut self, cmds: &Vec<con_back::Command>, ui_updates: impl Iterator<Item=crate::ui::UIUpdate>, render_data: &crate::simulation::RenderData) -> Result<(), Error>{
+    pub fn tick(&mut self, cmds: &Vec<con_back::Command>, ui_updates: impl Iterator<Item=crate::ui::UIUpdate>, render_data: &RenderData) -> Result<(), Error>{
         use crate::ui::UIUpdate::*;
         let mut restart = false;
         let mut refresh = false;
@@ -211,15 +211,17 @@ impl<IS : InstSurface>  Renderer<IS>
         }
         self.dec_old();
         self.texture_manager.tick();
-
+        let (sim_vtx_id, sim_idx_id) : (Id<VtxBuff<UiVertex>>, Id<IdxBuff>) = match render_data.update {
+            Some(Update::Replace(BaseData{ indices, vertices })) => {
+                let idx = self.texture_manager.register_buffer(indices)?;
+                let vtx = self.texture_manager.register_buffer(vertices)?;
+                (vtx, idx)
+            }
+            None => {
+                (Id::new(1), Id::new(0))
+            }
+        };
         let render_area = self.hal_state.render_area.clone();
-        let sim_idx = self.temp_buffer(&render_data.indices, BufferUsage::INDEX)?;
-        let sim_vtx = self.temp_buffer(&render_data.vertices, BufferUsage::VERTEX)?;
-
-
-        let sim_idx_buff = & self.old_buffers[sim_idx];
-
-        let sim_vtx_buff = & self.old_buffers[sim_vtx..=sim_vtx];
 
         let pipeline = &mut self.ui_pipeline;
         let pipeline_2d = &mut self.pipeline_2d;
@@ -229,7 +231,7 @@ impl<IS : InstSurface>  Renderer<IS>
         self.hal_state.with_inline_encoder( draw_queue, |enc, i_idx| {
 
             {
-                pipeline_2d.execute(enc, i_idx, mm, sim_vtx_buff, sim_idx_buff, render_area, &render_data.commands);
+                pipeline_2d.execute(enc, i_idx, mm, sim_vtx_id, sim_idx_id, render_area, &render_data.models);
             }
             {
                 pipeline.execute(enc, mm, vbuffs,  render_area, cmds)
@@ -632,27 +634,17 @@ impl<B: Backend> HalState<B> {
 
             buffer.finish();
         }
-
-        // SUBMISSION AND PRESENT
-        let command_buffers = std::iter::once(&self.command_buffers[i_usize]);
-        let wait_semaphores: ArrayVec<[_; 1]> =
-            [(image_available, PipelineStage::COLOR_ATTACHMENT_OUTPUT)].into();
-        let signal_semaphores: ArrayVec<[_; 1]> = [render_finished].into();
-        // yes, you have to write it twice like this. yes, it's silly.
-        let present_wait_semaphores: ArrayVec<[_; 1]> = [render_finished].into();
         let submission = Submission {
-            command_buffers,
-            wait_semaphores,
-            signal_semaphores,
+            command_buffers: Some(&self.command_buffers[i_usize]),
+            wait_semaphores: Some((image_available, PipelineStage::COLOR_ATTACHMENT_OUTPUT)),
+            signal_semaphores : Some(render_finished),
         };
-
         unsafe {
+            // let the_command_queue = queues.get_unchecked_mut(0);
             command_queue.submit(submission, Some(flight_fence));
-            self
-                .swapchain
-                .present(command_queue, i_u32, present_wait_semaphores)
-                .map_err(|_| "Failed to present into the swapchain!".into()).map(|_| ())
-        }
+            self.swapchain.present(command_queue, i_u32, Some(render_finished))?;
+        };
+        Ok(())
     }
 
     pub fn with_inline_encoder<F>(
@@ -704,28 +696,15 @@ impl<B: Backend> HalState<B> {
                 // self.pipeline.execute(&mut encoder, memory_manager, &vertex_buffers, index_buffer_view, self.render_area, time_f32, cmds);
             }
             buffer.finish();
-        }
-
-
-        // SUBMISSION AND PRESENT
-        let command_buffers = std::iter::once(&self.command_buffers[i_usize]);
-        let wait_semaphores: ArrayVec<[_; 1]> =
-            [(image_available, PipelineStage::COLOR_ATTACHMENT_OUTPUT)].into();
-        let signal_semaphores: ArrayVec<[_; 1]> = [render_finished].into();
-        // yes, you have to write it twice like this. yes, it's silly.
-        let present_wait_semaphores: ArrayVec<[_; 1]> = [render_finished].into();
+        };
         let submission = Submission {
-            command_buffers,
-            wait_semaphores,
-            signal_semaphores,
+            command_buffers: Some(&self.command_buffers[i_usize]),
+            wait_semaphores: Some((image_available, PipelineStage::COLOR_ATTACHMENT_OUTPUT)),
+            signal_semaphores : Some(render_finished),
         };
         unsafe {
-            // let the_command_queue = queues.get_unchecked_mut(0);
             command_queue.submit(submission, Some(flight_fence));
-            self
-                .swapchain
-                .present(command_queue, i_u32, present_wait_semaphores)
-                .map_err(|_| "Failed to present into the swapchain!")?;
+            self.swapchain.present(command_queue, i_u32, Some(render_finished))?;
         };
         Ok(())
     } /*

@@ -6,30 +6,46 @@ use std::ops::Range;
 use winit::dpi::LogicalPosition;
 use std::collections::{HashSet, HashMap};
 use itertools::Itertools;
+use crate::renderer::memory::{Id, Tex};
 
-pub struct RenderData{
+pub struct BaseData {
     pub vertices: Vec<UiVertex>,
     pub indices: Vec<u32>,
-    pub commands: Vec<Command>
 }
 
-pub struct Command {
-    pub range: Range<u32>,
+pub enum Update<'a> {
+    Replace(& 'a BaseData),
+    // Writes,
+    // Transformations,
+}
+#[derive(Clone, Copy, Debug)]
+pub struct Instance {
     pub x_offset: f32,
     pub y_offset: f32,
     pub highlight: u32,
+    pub z: f32,
 }
+pub struct Model {
+    pub range: Range<u32>,
+    pub texture: Option<Id<Tex>>,
+    pub vec: Vec<Instance>,
 
-pub enum RenderUpdate{
-    New,
-    Delete,
-    Transform,
-    Once(RenderData)
+}
+impl Default for Model {
+    fn default() -> Self {
+        Model { range: 0..0, texture: None, vec: Vec::new() }
+    }
+}
+pub struct RenderData <'a> {
+    pub update: Option<Update<'a>>,
+    pub models: & 'a [Model],
 }
 
 pub struct GameState{
     eco_sim: eco_sim::SimState,
-    // cache: Storage<Command>,
+    base_data: BaseData,
+    re_register: bool,
+    models: [Model; EntityType::COUNT + Self::NON_ENTITY_MODELS],
     paused: bool,
     highlighted: HashSet<(usize, usize)>,
     highlight_visible: Option<WorldEntity>,
@@ -42,11 +58,16 @@ pub struct GameState{
 const SIM_STEP : f32 = 0.1;
 
 impl GameState {
+    pub const NON_ENTITY_MODELS : usize = 1;
+    const SQUARE : usize = EntityType::COUNT;
     pub fn new() -> GameState{
         let eco_sim = SimState::new(SIM_STEP);
+        let (base_data, models) = Self::init_models();
         GameState{
             eco_sim,
-        //    cache: Storage::new(),
+            base_data,
+            re_register: true,
+            models,
             paused: true,
             highlighted: HashSet::new(),
             highlight_visible: None,
@@ -55,6 +76,51 @@ impl GameState {
             margin: 80.0,
             threat_mode: false,
         }
+    }
+    fn init_models() -> (BaseData, [Model; EntityType::COUNT + Self::NON_ENTITY_MODELS]) {
+        let mut models : [Model; EntityType::COUNT + Self::NON_ENTITY_MODELS] = Default::default();
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        {
+            let v = |p0, p1, c| UiVertex {
+                pos: [p0, p1],
+                uv: [p0, p1],
+                mode: 0,
+                color: c
+            };
+
+            let full_block = |col| vec![v(0.0, 0.0, col), v(1.0, 0.0, col), v(1.0, 1.0, col), v(0.0, 1.0, col)];
+
+            {
+
+                vertices.append( & mut full_block(0xff808080));
+                indices.append(&mut vec![0, 1, 3, 3, 1, 2]);
+                models[Self::SQUARE].range = 0..6;
+            }
+            {
+                let dg = 0xff008000;
+                models[EntityType::Tree.idx()].range = ball(dg, 1.0, & mut vertices, & mut indices);
+                models[EntityType::Clover.idx()].range  = block(dg, & mut vertices, & mut indices);
+            }
+            let lg = 0xff00ff00;
+            models[EntityType::Grass.idx()].range  = block(lg, & mut vertices, & mut indices);
+
+            {
+                let dg = 0xff404040;
+                models[EntityType::Rabbit.idx()].range = ball(dg, 0.7, &mut vertices, &mut indices);
+                models[EntityType::Wolf.idx()].range = ball(dg, 0.9, &mut vertices, &mut indices);
+                let brown = 0xff002060;
+                models[EntityType::Deer.idx()].range = ball(brown, 0.85, &mut vertices, &mut indices);
+            }
+            {
+                let grey = 0xff202020;
+                models[EntityType::Rock.idx()].range = block(grey, & mut vertices, & mut indices);
+                models[EntityType::Burrow.idx()].range = ball(grey, 0.75, & mut vertices, & mut indices);
+            }
+
+        }
+
+        (BaseData { vertices, indices}, models)
     }
     pub fn update(&mut self, actions: impl Iterator<Item=Action>, time_step: f32) {
         for a in actions {
@@ -97,50 +163,9 @@ impl GameState {
 
     }
     pub fn get_render_data(&mut self) -> RenderData {
-        let mut vertices = Vec::new();
-        let mut indices = Vec::new();
-        let mut forms = [(0, 0); EntityType::COUNT];
-        {
-            let v = |p0, p1, c| UiVertex {
-                pos: [p0, p1],
-                uv: [p0, p1],
-                mode: 0,
-                color: c
-            };
-
-            let full_block = |col| vec![v(0.0, 0.0, col), v(1.0, 0.0, col), v(1.0, 1.0, col), v(0.0, 1.0, col)];
-
-            {
-
-                vertices.append( & mut full_block(0xff808080));
-                indices.append(&mut vec![0, 1, 3, 3, 1, 2]);
-            }
-            {
-                let dg = 0xff008000;
-                forms[EntityType::Tree.idx()] = ball(dg, 1.0, & mut vertices, & mut indices);
-                forms[EntityType::Clover.idx()]  = block(dg, & mut vertices, & mut indices);
-            }
-            let lg = 0xff00ff00;
-            forms[EntityType::Grass.idx()]  = block(lg, & mut vertices, & mut indices);
-
-            {
-                let dg = 0xff404040;
-                forms[EntityType::Rabbit.idx()] = ball(dg, 0.7, &mut vertices, &mut indices);
-                forms[EntityType::Wolf.idx()] = ball(dg, 0.9, &mut vertices, &mut indices);
-                let brown = 0xff002060;
-                forms[EntityType::Deer.idx()] = ball(brown, 0.85, &mut vertices, &mut indices);
-            }
-            {
-                let grey = 0xff202020;
-                forms[EntityType::Rock.idx()] = block(grey, & mut vertices, & mut indices);
-                forms[EntityType::Burrow.idx()] = ball(grey, 0.75, & mut vertices, & mut indices);
-            }
+        for m in self.models.iter_mut() {
+            m.vec.clear()
         }
-        let mut commands = Vec::new();
-        let lookup = |et: EntityType| {
-            let (b, e) = forms[et.idx()];
-            b..e
-        };
         let danger =  if let Some(ent) = self.highlight_visible {
             self.highlighted.clear();
             for eco_sim::Position{x, y} in  self.eco_sim.get_visibility(&ent) {
@@ -163,15 +188,23 @@ impl GameState {
                 true => 256,
                 false => 0,
             };
-            commands.push(Command{range: 0..6, x_offset, y_offset, highlight:  col });
+            let mut z = 0.01;
+            // self.models[Self::SQUARE].vec.push(Instance { x_offset, y_offset, highlight:  col, z });
             for ent in dat {
-                commands.push(Command{range: lookup(ent.e_type()), x_offset, y_offset, highlight: 0});
+                z += 0.01;
+                self.models[ent.e_type().idx()].vec.push(Instance{ x_offset, y_offset, highlight: 0, z});
             }
         }
+        let update = if self.re_register {
+            self.re_register = false;
+            Some(Update::Replace(& self.base_data))
+        } else {
+            None
+        };
+
          RenderData{
-             vertices,
-             indices,
-             commands,
+             update,
+             models: &self.models,
          }
     }
     pub fn get_view(
@@ -223,7 +256,7 @@ impl GameState {
     }
 }
 
-pub fn block(col: u32, vertices: &mut Vec<UiVertex>, indices: & mut Vec<u32>) -> (u32, u32) {
+pub fn block(col: u32, vertices: &mut Vec<UiVertex>, indices: & mut Vec<u32>) -> Range<u32> {
     let v = |p0, p1, c| UiVertex {
         pos: [p0, p1],
         uv: [p0, p1],
@@ -234,10 +267,10 @@ pub fn block(col: u32, vertices: &mut Vec<UiVertex>, indices: & mut Vec<u32>) ->
     let idx = indices.len();
     vertices.append(&mut vec![v(0.1, 0.1, col), v(0.9, 0.1, col), v(0.9, 0.9, col), v(0.1, 0.9, col)]);
     indices.append(&mut vec![base + 0, base + 1, base + 3, base + 3, base + 1, base + 2]);
-    (idx as u32,  idx as u32 + 6)
+    idx as u32.. (idx as u32 + 6)
 }
 
-pub fn ball(col: u32, radius: f32, vertices: &mut Vec<UiVertex>, indices: & mut Vec<u32>) -> (u32, u32) {
+pub fn ball(col: u32, radius: f32, vertices: &mut Vec<UiVertex>, indices: & mut Vec<u32>) -> Range<u32> {
     let v = |p0, p1, c| UiVertex {
         pos: [p0, p1],
         uv: [p0, p1],
@@ -265,5 +298,5 @@ pub fn ball(col: u32, radius: f32, vertices: &mut Vec<UiVertex>, indices: & mut 
     indices.push(base);
     indices.push(base + 8);
     indices.push(base + 1);
-    (idx as u32, idx as u32 + 24)
+    idx as u32..(idx as u32 + 24)
 }
