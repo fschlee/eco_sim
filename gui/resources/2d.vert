@@ -1,11 +1,11 @@
 #version 450
-#extension GL_EXT_nonuniform_qualifier : enable
 layout (push_constant) uniform PushConsts {
     layout(offset = 0) float width;
     layout(offset = 4) float height;
     layout(offset = 8) float x_offset;
     layout(offset = 12) float y_offset;
-    layout(offset = 16) uint highlighted;
+    layout(offset = 16) float z;
+    layout(offset = 20) uint highlighted;
 } push;
 layout (location = 0) in vec2 position;
 layout (location = 1) in vec2 vert_uv;
@@ -30,7 +30,7 @@ void main()
     gl_Position = vec4(
         (margin + push.x_offset + 80.0 * position.x - 0.5 * width) * height,
         (margin + 80.0 * position.y + push.y_offset - 0.5 * height) * width,
-        0.0,
+        1.0 - push.z,
         0.5 * height * width);
     uint low = push.highlighted & 255;
     uint highlight = (push.highlighted & 256) >> 8;

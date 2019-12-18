@@ -189,7 +189,7 @@ impl GameState {
                 false => 0,
             };
             let mut z = 0.01;
-            // self.models[Self::SQUARE].vec.push(Instance { x_offset, y_offset, highlight:  col, z });
+            self.models[Self::SQUARE].vec.push(Instance { x_offset, y_offset, highlight:  col, z });
             for ent in dat {
                 z += 0.01;
                 self.models[ent.e_type().idx()].vec.push(Instance{ x_offset, y_offset, highlight: 0, z});

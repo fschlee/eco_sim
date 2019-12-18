@@ -52,11 +52,15 @@ use crate::renderer::memory::descriptors::DescriptorPoolManager;
 use crate::error::{Error, LogError};
 use crate::renderer::con_back::UiVertex;
 use crate::simulation::{RenderData, Update, BaseData};
+use gfx_hal::command::ClearDepthStencil;
 
 
 type Dev<B> = <B as Backend>::Device;
 
-const CLEAR_COLOR : [ClearValue; 1] =  [ClearValue{color: ClearColor{uint32: [0x2E, 0x34, 0x36, 0]}}];
+const CLEAR_VALUES: [ClearValue; 2] =  [
+    ClearValue{color: ClearColor{uint32: [0x2E, 0x34, 0x36, 0]}},
+    ClearValue{depth_stencil: ClearDepthStencil{ depth: 1.0, stencil: 0 }}
+];
 
 #[cfg(feature = "reload_shaders")]
 const UI_SHADERS : [ShaderSpec; 2] = [
@@ -419,6 +423,7 @@ pub struct HalState< B: Backend>{
     command_pool: ManuallyDrop<B::CommandPool>,
     framebuffers: Vec<<B as Backend>::Framebuffer>,
     image_views: Vec<(<B as Backend>::ImageView)>,
+    depth_images: Vec<memory::depth::DepthImage<B>>,
     current_image: usize,
     render_pass: ManuallyDrop<<B as Backend>::RenderPass>,
     render_area: Rect,
@@ -511,27 +516,39 @@ impl<B: Backend> HalState<B> {
                 stencil_ops: AttachmentOps::DONT_CARE,
                 layouts: Layout::Undefined..Layout::Present,
             };
+            let depth_attachment = Attachment {
+                format: Some(Format::D32Sfloat),
+                samples: 1,
+                ops: AttachmentOps {
+                    load: AttachmentLoadOp::Clear,
+                    store: AttachmentStoreOp::DontCare
+                },
+                stencil_ops: AttachmentOps {
+                    load: AttachmentLoadOp::DontCare,
+                    store: AttachmentStoreOp::DontCare
+                },
+                layouts: Layout::Undefined..Layout::DepthStencilAttachmentOptimal,
+            };
             let subpass = SubpassDesc {
                 colors: &[(0, Layout::ColorAttachmentOptimal)],
-                depth_stencil: None,
+                depth_stencil: Some(&(1, Layout::DepthStencilAttachmentOptimal)),
                 inputs: &[],
                 resolves: &[],
                 preserves: &[],
             };
             unsafe {
                 device
-                    .create_render_pass(&[color_attachment], &[subpass], &[])
+                    .create_render_pass(&[color_attachment, depth_attachment], &[subpass], &[])
                     .map_err(|_| "Couldn't create a render pass!")?
             }
         };
 
         // Create The ImageViews
-        let image_views: Vec<_> = images
-                .into_iter()
+        let image_views: Vec<_> = images.iter()
                 .map(|image| unsafe {
                     device
                         .create_image_view(
-                            &image,
+                            image,
                             ViewKind::D2,
                             format,
                             Swizzle::NO,
@@ -544,16 +561,15 @@ impl<B: Backend> HalState<B> {
                         .map_err(|_| "Couldn't create the image_view for the image!".into())
                 })
                 .collect::<Result<Vec<_>, &str>>()?;
-
+        let depth_images  = images.iter().map(|_| memory::depth::DepthImage::new(&adapter, &device, extent)).collect::<Result<Vec<_>, Error>>()?;
         // Create Our FrameBuffers
         let framebuffers: Vec<<B as Backend>::Framebuffer> = {
-            image_views
-                .iter()
-                .map(|image_view| unsafe {
+            image_views.iter().zip(depth_images.iter())
+                .map(|(image_view, depth_image)| unsafe {
                     device
                         .create_framebuffer(
                             &render_pass,
-                            vec![image_view],
+                            vec![image_view, depth_image.image_view.deref()],
                             Extent {
                                 width: extent.width as u32,
                                 height: extent.height as u32,
@@ -576,6 +592,7 @@ impl<B: Backend> HalState<B> {
             render_area: extent.to_extent().rect(),
             render_pass: ManuallyDrop::new(render_pass),
             image_views,
+            depth_images,
             framebuffers,
             command_pool: ManuallyDrop::new(command_pool),
             command_buffers,
@@ -589,8 +606,6 @@ impl<B: Backend> HalState<B> {
         })
     }
 
-
-    /// Draw a frame that's just cleared to the color specified.
     pub fn draw_clear_frame(
             &mut self,
             command_queue: & mut B::CommandQueue,
@@ -617,12 +632,12 @@ impl<B: Backend> HalState<B> {
                 .reset_fence(flight_fence)?;
             err?;
         }
-
-        // RECORD COMMANDS
+        let clear_values = [
+            ClearValue{color: ClearColor{float32: color}},
+            ClearValue{depth_stencil: ClearDepthStencil{ depth: 1.0, stencil: 0 }}
+        ];
         let buffer = &mut self.command_buffers[i_usize];
         unsafe {
-
-            let clear_values = [ClearValue{color: ClearColor{float32: color}}];
             buffer.begin(CommandBufferFlags::EMPTY, CommandBufferInheritanceInfo::default());
             buffer.begin_render_pass(
                 &self.render_pass,
@@ -685,7 +700,7 @@ impl<B: Backend> HalState<B> {
                     &self.render_pass,
                     &self.framebuffers[i_usize],
                     self.render_area,
-                    CLEAR_COLOR.iter(),
+                    CLEAR_VALUES.iter(),
                     SubpassContents::Inline,
                 );
 
@@ -766,8 +781,7 @@ impl<B: Backend> HalState<B> {
     }
 
 */
-    /// We have to clean up "leaf" elements before "root" elements. Basically, we
-    /// clean up in reverse of the order that we created things.
+
     fn dispose(&mut self)-> B::CommandPool  {
         let _ = self.device.wait_idle();
         unsafe {
@@ -785,6 +799,9 @@ impl<B: Backend> HalState<B> {
             }
             for image_view in self.image_views.drain(..) {
                 self.device.destroy_image_view(image_view);
+            }
+            for depth_image in self.depth_images.drain(..) {
+                depth_image.dispose(&self.device);
             }
             // self.device.destroy_command_pool(ManuallyDrop::take(&mut self.command_pool).into_raw());
             self.device

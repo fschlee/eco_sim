@@ -77,3 +77,27 @@ impl From<gfx_hal::window::PresentError> for Error {
         Error::Owned(format!("Could not present into swapchain: {}", e))
     }
 }
+
+impl From<gfx_hal::image::CreationError> for Error {
+    fn from(e: gfx_hal::image::CreationError) -> Self {
+        Error::Owned(format!("{}", e))
+    }
+}
+
+impl From<gfx_hal::device::AllocationError> for Error {
+    fn from(e: gfx_hal::device::AllocationError) -> Self {
+        Error::Owned(format!("{}", e))
+    }
+}
+
+impl From<gfx_hal::device::BindError> for Error {
+    fn from(e: gfx_hal::device::BindError) -> Self {
+        Error::Owned(format!("{}", e))
+    }
+}
+
+impl From<gfx_hal::image::ViewError> for Error {
+    fn from(e: gfx_hal::image::ViewError) -> Self {
+        Error::Owned(format!("{}", e))
+    }
+}

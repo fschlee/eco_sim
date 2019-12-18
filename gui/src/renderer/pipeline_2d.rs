@@ -4,6 +4,7 @@ use gfx_hal::{pso::{VertexInputRate, Primitive}, command::CommandBuffer};
 use super::*;
 use super::backend::BackendExt;
 use crate::error::LogError;
+use gfx_hal::pso::{DepthTest, Comparison};
 
 pub struct Pipeline2D<B: Backend>{
     device: Arc<Dev<B>>,
@@ -103,7 +104,10 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
         };
 
         let depth_stencil = DepthStencilDesc {
-            depth: None,
+            depth: Some(DepthTest{
+                fun: Comparison::LessEqual,
+                write: true,
+            }),
             depth_bounds: false,
             stencil: None,
         };
@@ -119,7 +123,7 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
             blend_color: None,
             depth_bounds: None,
         };
-        let push_constants = vec![(ShaderStageFlags::VERTEX, 0..20)];
+        let push_constants = Some((ShaderStageFlags::VERTEX, 0..24));
         let layout = unsafe {
             device
                 .create_pipeline_layout(&texture_manager.descriptor_set_layouts, push_constants)
@@ -220,6 +224,7 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
                             (render_area.h as f32).to_bits(),
                             instance.x_offset.to_bits(),
                             instance.y_offset.to_bits(),
+                            instance.z.to_bits(),
                             instance.highlight as u32
                         ];
                         encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &push);

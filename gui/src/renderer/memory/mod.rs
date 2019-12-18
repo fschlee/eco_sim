@@ -3,6 +3,7 @@ use super::*;
 pub mod texture;
 pub mod descriptors;
 pub mod buffer;
+pub mod depth;
 
 use std::collections::{hash_map::RandomState};
 use std::hash::Hasher;
