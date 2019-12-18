@@ -1,4 +1,4 @@
-use winit::{event_loop::EventLoop, window::{WindowBuilder, Window}};
+use winit::{ event_loop::EventLoop, window::{Window, WindowBuilder}};
 use gfx_hal::{Backend, Instance, adapter::{Adapter, PhysicalDevice},
               queue::{QueueGroup, QueueFamily}, window::Surface, Features};
 use log::{error};

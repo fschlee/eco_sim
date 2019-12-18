@@ -159,6 +159,7 @@ fn game_loop<IS: InstSurface + 'static>(mut event_loop: EventLoop<()>, window: W
                 Err(err) => {
                     error!("{}", err);
                     fail_counter += 1;
+
                 }
             }
         }

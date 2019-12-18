@@ -63,13 +63,19 @@ pub struct ResourceManager<B: Backend> {
     old_pool_expirations: Vec<i32>,
     pub descriptor_set_layouts : Vec<<B as Backend>::DescriptorSetLayout>,
     descriptor_pool: ManuallyDrop<<B as Backend>::DescriptorPool>,
-    pool_size: usize,
+    max_texture_sets: usize,
+    ub_count: usize,
     descriptor_map: std::collections::HashMap<Id<Tex>, <B as Backend>::DescriptorSet, RandomState>,
     unmapped_descriptor_count : usize,
+    pub uniform_buffers: Vec<BufferBundle<B>>,
+    old_uniform_buffers: Vec<BufferBundle<B>>,
+    pub uniform_buffer_descs: Vec<<B as Backend>::DescriptorSet>,
 }
 
 
 impl<B: Backend + BackendExt> ResourceManager<B> {
+    pub const TEXTURE_AND_SAMPLER : usize = 0;
+    pub const UNIFORM_VS : usize = 1;
     const DELETE_DELAY : i32 = 4;
     const TEXTURES_PER_BINDING : usize = 1;
     pub fn new(
@@ -78,7 +84,8 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         command_pool: B::CommandPool,
         //       command_queue: CommandQueue<back::Backend, Trans>,
     )->Result<Self, Error> {
-        let pool_size = 32;
+        let max_texture_sets = 24;
+        let ub_count = 4;
         let mut descriptor_set_layouts: Vec<<B as Backend>::DescriptorSetLayout> = Vec::new();
         let mut descs = vec![
             DescriptorSetLayoutBinding {
@@ -96,22 +103,22 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
                 immutable_samplers: false,
             },
         ];
-        if !B::can_push_graphics_constants() {
-            descs.push(
-                DescriptorSetLayoutBinding {
-                    binding: 0,
-                    ty: gfx_hal::pso::DescriptorType::UniformBuffer,
-                    count: 1,
-                    stage_flags: ShaderStageFlags::VERTEX,
-                    immutable_samplers: false,
-                }
-            )
-        }
 
         unsafe {
             descriptor_set_layouts.push(device
                 .create_descriptor_set_layout(
                     &descs,
+                    &[],
+                ).map_err(|_| "Couldn't make a DescriptorSetLayout")?);
+            descriptor_set_layouts.push(device
+                .create_descriptor_set_layout(
+                    &vec![DescriptorSetLayoutBinding {
+                        binding: 0,
+                        ty: gfx_hal::pso::DescriptorType::UniformBuffer,
+                        count: 1,
+                        stage_flags: ShaderStageFlags::VERTEX,
+                        immutable_samplers: false,
+                    }],
                     &[],
                 ).map_err(|_| "Couldn't make a DescriptorSetLayout")?)
         }
@@ -122,25 +129,33 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         let descriptor_pool = unsafe {
             device
                 .create_descriptor_pool(
-                    pool_size, // sets
+                    max_texture_sets + ub_count, // sets
                     &[
                         gfx_hal::pso::DescriptorRangeDesc {
                             ty: gfx_hal::pso::DescriptorType::SampledImage,
-                            count: pool_size * Self::TEXTURES_PER_BINDING,
+                            count: max_texture_sets * Self::TEXTURES_PER_BINDING,
                         },
                         gfx_hal::pso::DescriptorRangeDesc {
                             ty: gfx_hal::pso::DescriptorType::Sampler,
-                            count: pool_size * Self::TEXTURES_PER_BINDING,
+                            count: max_texture_sets * Self::TEXTURES_PER_BINDING,
                         },
-                        if B::can_push_graphics_constants() {
-                            0
-                        } else { 1 }
+                        gfx_hal::pso::DescriptorRangeDesc {
+                            ty: gfx_hal::pso::DescriptorType::UniformBuffer,
+                            count: ub_count,
+                        }
                     ],
                     gfx_hal::pso::DescriptorPoolCreateFlags::empty(),
                 )
                 .map_err(|_| "Couldn't create a descriptor pool!")?
         };
-        Ok(Self{device,
+        let mut uniform_buffers= Vec::new();
+        let size = 20 * 256;
+        if  !B::can_push_graphics_constants() {
+            for i in 0..ub_count {
+                uniform_buffers.push(BufferBundle::new(adapter.as_ref(), device.as_ref(), size, BufferUsage::UNIFORM).expect("Failed creating uniform buffer"));
+            }
+        }
+        let mut this = Self{device,
             adapter,
             command_pool: ManuallyDrop::new(command_pool),
             //           command_queue: ManuallyDrop::new(command_queue),
@@ -151,10 +166,35 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
             old_texture_expirations: Vec::new(),
             old_pool_expirations : Vec::new(),
             old_pools: Vec::new(),
-            descriptor_map: std::collections::HashMap::with_capacity(pool_size ),
+            descriptor_map: std::collections::HashMap::with_capacity(max_texture_sets ),
             unmapped_descriptor_count: 0,
-            pool_size
-        })
+            max_texture_sets,
+            ub_count,
+            uniform_buffers,
+            old_uniform_buffers: Vec::new(),
+            uniform_buffer_descs : Vec::new(),
+        };
+        if !B::can_push_graphics_constants() {
+            this.allocate_uniform_descs()?;
+        }
+        Ok(this)
+    }
+
+    fn allocate_uniform_descs(&mut self) -> Result<(), Error>{
+        self.uniform_buffer_descs.clear();
+        for i in 0..self.ub_count {
+            unsafe {
+                let new_set = self.descriptor_pool.allocate_set(&self.descriptor_set_layouts[Self::UNIFORM_VS])?;
+                self.device.write_descriptor_sets(vec![gfx_hal::pso::DescriptorSetWrite {
+                    set: &new_set,
+                    binding: 0,
+                    array_offset: 0,
+                    descriptors: Some(gfx_hal::pso::Descriptor::Buffer(self.uniform_buffers[i].buffer.deref(), None..None)),
+                }]);
+                self.uniform_buffer_descs.push(new_set);
+            }
+        }
+        Ok(())
     }
     pub fn get_texture(&self, id: Id<Tex>) -> Option<&Texture<B>> {
         match self.textures.get(id.id as usize) {
@@ -162,20 +202,18 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
             _ => None
         }
     }
-    pub fn get_descriptor_set(& mut self, id: Id<Tex>) -> Result<& <B as Backend>::DescriptorSet, Error> {
+    pub fn get_descriptor_set(& self, id: Id<Tex>) -> Option<& <B as Backend>::DescriptorSet> {
         if self.descriptor_map.contains_key(&id) {
-            match self.descriptor_map.get(&id) {
-                Some(desc) => Ok(&desc),
-                None => Err("unknown texture id".into())
-            }
+            self.descriptor_map.get(&id)
         } else {
-            self.set_descriptor_set(id)
+            None
         }
     }
-    fn set_descriptor_set(& mut self, id: Id<Tex>) -> Result<& <B as Backend>::DescriptorSet, Error> {
-
-
-        if self.descriptor_map.len() + self.unmapped_descriptor_count >= self.pool_size {
+    pub fn get_or_write_descriptor_set(& mut self, id: Id<Tex>) -> Result<& <B as Backend>::DescriptorSet, Error> {
+        if self.get_descriptor_set(id).is_some() {
+            return self.get_descriptor_set(id).ok_or("Impossible".into());
+        }
+        if self.descriptor_map.len() + self.unmapped_descriptor_count >= self.max_texture_sets {
             self.refresh_pool()?;
             self.unmapped_descriptor_count = 0;
             warn!("refreshed descriptor pool");
@@ -190,7 +228,7 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
                 unsafe {
                     match self.descriptor_pool.allocate_set(&self.descriptor_set_layouts[0]) {
                         Ok(new_set) => {
-                            self.device.write_descriptor_sets(vec![
+                            let vec = vec![
                                 gfx_hal::pso::DescriptorSetWrite {
                                     set: &new_set,
                                     binding: 0,
@@ -206,7 +244,8 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
                                     array_offset: 0,
                                     descriptors: Some(gfx_hal::pso::Descriptor::Sampler(texture.sampler.deref())),
                                 },
-                            ]);
+                            ];
+                            self.device.write_descriptor_sets(vec);
                             self.descriptor_map.insert(id, new_set);
                             Ok(self.descriptor_map.get(&id).unwrap())
                         },
@@ -220,23 +259,29 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         unsafe {
             let pool = self.device
                 .create_descriptor_pool(
-                    self.pool_size, // sets
+                    self.max_texture_sets + self.ub_count, // sets
                     &[
                         gfx_hal::pso::DescriptorRangeDesc {
                             ty: gfx_hal::pso::DescriptorType::SampledImage,
-                            count: self.pool_size * Self::TEXTURES_PER_BINDING,
+                            count: self.max_texture_sets * Self::TEXTURES_PER_BINDING,
                         },
                         gfx_hal::pso::DescriptorRangeDesc {
                             ty: gfx_hal::pso::DescriptorType::Sampler,
-                            count: self.pool_size * Self::TEXTURES_PER_BINDING,
+                            count: self.max_texture_sets * Self::TEXTURES_PER_BINDING,
                         },
+                        gfx_hal::pso::DescriptorRangeDesc {
+                            ty: gfx_hal::pso::DescriptorType::UniformBuffer,
+                            count: self.ub_count,
+                        }
                     ],
                     gfx_hal::pso::DescriptorPoolCreateFlags::empty(),
                 ).map_err(|_| "Couldn't create a descriptor pool!")?;
             self.old_pools.push(ManuallyDrop::take(& mut self.descriptor_pool));
             self.old_pool_expirations.push(Self::DELETE_DELAY);
             self.descriptor_pool = ManuallyDrop::new(pool);
+
         }
+        self.allocate_uniform_descs()?;
         self.descriptor_map.clear();
         Ok(())
     }

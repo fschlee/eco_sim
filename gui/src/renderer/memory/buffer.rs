@@ -51,6 +51,37 @@ impl<B: Backend> BufferBundle<B> {
         res?;
         Ok(())
     }
+    pub fn write<T : Sized + Copy>(&self, device: &B::Device, offset: usize, source: &[T]) -> Result<(), Error>{
+        let range_start = (offset * size_of::<T>()) as u64;
+        assert!(range_start + (source.len() * size_of::<T>()) as u64 <= self.requirements.size);
+        let range = range_start..self.requirements.size;
+        let memory = & *(self.memory);
+
+        unsafe {
+            let mut target = device.map_memory(memory, range.clone())?;
+            std::slice::from_raw_parts_mut(target as *mut T, source.len()).copy_from_slice(source);
+            let res = device.flush_mapped_memory_ranges(Some((memory, range)));
+            device.unmap_memory(memory);
+            res?;
+        }
+
+        Ok(())
+    }
+    pub fn write_slice<T: Sized + Copy,F : FnMut(& mut [T])>(&self, device: &B::Device, mut writer: F) -> Result<(), Error> {
+        let range = 0..self.requirements.size;
+        let memory = & *(self.memory);
+        let len = self.requirements.size  as usize / size_of::<T>();
+
+        unsafe {
+            let mut target = device.map_memory(memory, range.clone())?;
+            writer(std::slice::from_raw_parts_mut(target as *mut T, len));
+            let res = device.flush_mapped_memory_ranges(Some((memory, range)));
+            device.unmap_memory(memory);
+            res?;
+        }
+
+        Ok(())
+    }
     pub unsafe fn manually_drop(&self, device: &Dev<B>) {
         use core::ptr::read;
         device.destroy_buffer(ManuallyDrop::into_inner(read(&self.buffer)));

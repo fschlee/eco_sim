@@ -3,6 +3,7 @@ use gfx_hal::{pso::{VertexInputRate, Primitive}, command::CommandBuffer};
 
 use super::*;
 use super::backend::BackendExt;
+use crate::error::LogError;
 
 pub struct Pipeline2D<B: Backend>{
     device: Arc<Dev<B>>,
@@ -18,7 +19,7 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
         render_pass: &<B as Backend>::RenderPass,
         vertex_compile_artifact: shaderc::CompilationArtifact,
         fragment_compile_artifact: shaderc::CompilationArtifact,
-        descriptor_set_layouts: & Vec<<B as Backend>::DescriptorSetLayout>,
+        texture_manager: & ResourceManager<B>,
     ) -> Result<Pipeline2D<B>, Error> {
 
         let vertex_shader_module = unsafe {
@@ -121,7 +122,7 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
         let push_constants = vec![(ShaderStageFlags::VERTEX, 0..20)];
         let layout = unsafe {
             device
-                .create_pipeline_layout(descriptor_set_layouts, push_constants)
+                .create_pipeline_layout(&texture_manager.descriptor_set_layouts, push_constants)
                 .map_err(|_| "Couldn't create a pipeline layout")?
         };
         let gfx_pipeline = {
@@ -165,10 +166,10 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
     }
     pub fn execute(& mut self,
                            encoder: &mut impl CommandBuffer<B>,
+                           image_idx: usize,
                            texture_manager: & mut ResourceManager<B>,
                            vertex_buffers: &[BufferBundle<B>],
                            index_buffer: &BufferBundle<B>,
-                           uniform_buffer: &Option<&mut BufferBundle<B>>,
                            render_area: Rect,
                            cmds: &[crate::simulation::Command]) {
         unsafe {
@@ -181,32 +182,48 @@ impl<B: Backend + BackendExt> Pipeline2D<B> {
                 index_type: IndexType::U32
             });
             let id = Id::new(0);
-            let desc = texture_manager.get_descriptor_set(id);
+            let desc = if let desc@Some(_) = texture_manager.get_descriptor_set(id) {
+                desc
+            } else {
+                texture_manager.get_or_write_descriptor_set(id).log();
+                texture_manager.get_descriptor_set(id)
+            };
             if B::can_push_graphics_constants() {
-                encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc.ok(), &[], );
+                encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc, &[], );
             }
-            else {
-                encoder.bind_graphics_descriptor_sets(&self.layouts, 0, desc.ok(), &[], );
-            }
-            // encoder.bind_graphics_descriptor_sets(&self.layout, 0, Some(&self.descriptor_sets[next_descriptor]), &[], );
+            else  {
+                let ub_idx = image_idx;
+                let mut write = vec![(render_area.w as f32).to_bits(), (render_area.h as f32).to_bits(), 0, 0];
 
+                for cmd in cmds.iter() {
+                    write.push(cmd.x_offset.to_bits(),);
+                    write.push(cmd.y_offset.to_bits(),);
+                    write.push(cmd.highlight as u32);
+                    write.push(0);
+                }
+                texture_manager.uniform_buffers[ub_idx].write(&self.device,   0, &write).expect("couldn't write to uniform buffer");
+                encoder.bind_graphics_descriptor_sets(&self.layouts, 0, vec![desc.unwrap(), &texture_manager.uniform_buffer_descs[ub_idx]], &[], );
+            }
+            let mut instance = 0;
             for cmd in cmds.iter() {
-                let push = [
-                    (render_area.w as f32).to_bits(),
-                    (render_area.h as f32).to_bits(),
-                    cmd.x_offset.to_bits(),
-                    cmd.y_offset.to_bits(),
-                    cmd.highlight as u32
-                ];
-                if B::can_push_graphics_constants() {
-                    encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &push);
-                }
-                else {
-                    uniform_buffer.as_ref().unwrap().write_range(&self.device,  0..((push.len() * 4) as u64) , &push);
-                }
                 let scissor = render_area;
                 encoder.set_scissors(0, Some(scissor));
-                encoder.draw_indexed(cmd.range.clone(), 0, 0..1);
+                if B::can_push_graphics_constants() {
+                    let push = [
+                        (render_area.w as f32).to_bits(),
+                        (render_area.h as f32).to_bits(),
+                        cmd.x_offset.to_bits(),
+                        cmd.y_offset.to_bits(),
+                        cmd.highlight as u32
+                    ];
+                    encoder.push_graphics_constants(&self.layouts, ShaderStageFlags::VERTEX, 0, &push);
+                    encoder.draw_indexed(cmd.range.clone(), 0, 0..1);
+                }
+                else {
+                    let old = instance;
+                    instance += 1;
+                    encoder.draw_indexed(cmd.range.clone(), 0, old..instance);
+                }
             }
         }
     }

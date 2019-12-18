@@ -1,4 +1,5 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : enable
 layout (push_constant) uniform PushConsts {
     layout(offset = 0) float width;
     layout(offset = 4) float height;

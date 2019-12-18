@@ -1,5 +1,5 @@
 #version 450
-layout (push_constant) uniform PushConsts {
+layout (set = 1, binding = 0) uniform PushConsts {
     layout(offset = 0) float width;
     layout(offset = 4) float height;
 } push;

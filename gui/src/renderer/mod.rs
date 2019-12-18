@@ -17,22 +17,22 @@ use core::{
     ops::Deref,
 };
 use gfx_hal::{
-    adapter::{Adapter, MemoryType, PhysicalDevice},
+    adapter::{Adapter, PhysicalDevice},
     buffer::{IndexBufferView, Usage as BufferUsage},
-    command::{ClearColor, ClearValue, ClearDepthStencil, CommandBuffer,
+    command::{ClearColor, ClearValue, CommandBuffer,
               CommandBufferFlags, CommandBufferInheritanceInfo, SubpassContents, Level},
     device::Device,
     format::{Aspects, ChannelType, Format, Swizzle},
-    image::{Extent, Layout, SubresourceRange, Usage, ViewKind},
+    image::{Extent, Layout, SubresourceRange, ViewKind},
     memory::{Properties, Requirements},
     pass::{Attachment, AttachmentLoadOp, AttachmentOps, AttachmentStoreOp, Subpass, SubpassDesc},
     pool::{CommandPool, CommandPoolCreateFlags},
     pso::{
-        AttributeDesc, BakedStates, BasePipeline, BlendDesc, BlendOp, BlendState, ColorBlendDesc,
-        ColorMask, DepthStencilDesc, DepthTest, DescriptorSetLayoutBinding, ElemOffset, ElemStride,
-        Element, EntryPoint, Face, Factor, FrontFace, GraphicsPipelineDesc, GraphicsShaderSet,
-        InputAssemblerDesc, LogicOp, PipelineCreationFlags, PipelineStage, PolygonMode, Rasterizer,
-        Rect, ShaderStageFlags, Specialization, StencilTest, VertexBufferDesc, Viewport, DescriptorPool
+        AttributeDesc, BakedStates, BasePipeline, BlendDesc, BlendState, ColorBlendDesc,
+        ColorMask, DepthStencilDesc, DescriptorSetLayoutBinding, ElemOffset, ElemStride,
+        Element, EntryPoint, Face, FrontFace, GraphicsPipelineDesc, GraphicsShaderSet,
+        InputAssemblerDesc, PipelineCreationFlags, PipelineStage, PolygonMode, Rasterizer,
+        Rect, ShaderStageFlags, Specialization, VertexBufferDesc, Viewport, DescriptorPool
     },
     queue::{
         family::QueueGroup,
@@ -41,12 +41,11 @@ use gfx_hal::{
     window::{Extent2D, PresentMode, Swapchain, SwapchainConfig, Surface, SurfaceCapabilities},
     Backend,
     IndexType,
-    query::Type::PipelineStatistics,
 };
 
 use winit::dpi::{PhysicalSize};
 
-use self::memory::{BufferBundle, ResourceManager, TextureSpec, Texture, Id};
+use self::memory::{BufferBundle, ResourceManager, TextureSpec, Id};
 
 use init::{InstSurface, DeviceInit};
 use backend::BackendExt;
@@ -102,7 +101,6 @@ pub struct Renderer<IS : InstSurface> {
     pub pipeline_2d: pipeline_2d::Pipeline2D<IS::Back>,
     ui_vbuff: Vec<BufferBundle<IS::Back>>,
     old_buffers: Vec<BufferBundle<IS::Back>>,
-    uniform_buff : Option<BufferBundle<IS::Back>>,
     old_buffer_expirations: Vec<i32>,
     pub window_client_size: PhysicalSize,
     //  : <back::Backend as Backend>::Surface,
@@ -161,15 +159,14 @@ impl<IS : InstSurface>  Renderer<IS>
         let mut art_2d = complile_shaders(&shader_source).expect("couldn't compile shader");
         let frag_2d = art_2d.remove(1);
         let vert_2d = art_2d.remove(0);
-        let pipeline_2d = pipeline_2d::Pipeline2D::create(device.clone(), hal_state.render_area, hal_state.render_pass.deref(), vert_2d, frag_2d, &texture_manager.descriptor_set_layouts).expect("failed to create pipeline");
+        let pipeline_2d = pipeline_2d::Pipeline2D::create(device.clone(), hal_state.render_area, hal_state.render_pass.deref(), vert_2d, frag_2d, &texture_manager).expect("failed to create pipeline");
         let queue_group = ManuallyDrop::new(queue_group);
-        let mut res = Self{ hal_state,
+        Self{ hal_state,
             ui_pipeline,
             pipeline_2d,
             ui_vbuff: Vec::new(),
             old_buffers: Vec::new(),
             old_buffer_expirations: Vec::new(),
-            uniform_buff: None,
             window_client_size,
             inst_surface: ManuallyDrop::new(inst_surface),
             adapter,
@@ -179,12 +176,7 @@ impl<IS : InstSurface>  Renderer<IS>
             mem_atom,
             snd_command_pools, // : ManuallyDrop::new(snd_command_pool),
            // snd_command_buffers,
-        };
-        if !IS::Back::can_push_graphics_constants() {
-            let size = res.padded_size(128);
-            res.uniform_buff = Some(BufferBundle::new(res.adapter.deref(), res.device.deref(), size, BufferUsage::UNIFORM).expect("Failed creating uniform buffer"));
         }
-        res
     }
     /*
     fn draw_queue(& self) ->  & mut CommandQueue<back::Backend, Graphics> {
@@ -234,14 +226,13 @@ impl<IS : InstSurface>  Renderer<IS>
         let mm = & mut self.texture_manager;
         let vbuffs = &self.ui_vbuff;
         let  draw_queue = & mut self.queue_group.queues[0];
-        let uniform = &self.uniform_buff.as_mut();
-        self.hal_state.with_inline_encoder( draw_queue, |enc| {
+        self.hal_state.with_inline_encoder( draw_queue, |enc, i_idx| {
 
             {
-                pipeline_2d.execute(enc, mm, sim_vtx_buff, sim_idx_buff, uniform, render_area, &render_data.commands);
+                pipeline_2d.execute(enc, i_idx, mm, sim_vtx_buff, sim_idx_buff, render_area, &render_data.commands);
             }
             {
-                pipeline.execute(enc, mm, vbuffs, uniform, render_area, cmds)
+                pipeline.execute(enc, mm, vbuffs,  render_area, cmds)
             }
 
         })
@@ -268,9 +259,9 @@ impl<IS : InstSurface>  Renderer<IS>
             println!("reloading shaders");
             {
                 let  draw_queue = & mut self.queue_group.queues[0];
-                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
-                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
-                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]);
+                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]).log();
+                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]).log();
+                self.hal_state.draw_clear_frame( draw_queue, [0.8, 0.8, 0.8, 1.0]).log();
             }
 
             let (vert_art, frag_art) = Self::compile_ui_shaders()?;
@@ -283,7 +274,7 @@ impl<IS : InstSurface>  Renderer<IS>
             let mut art_2d = complile_shaders(&shader_source)?;
             let frag_2d = art_2d.remove(1);
             let vert_2d = art_2d.remove(0);
-            self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(),vert_2d, frag_2d, &self.texture_manager.descriptor_set_layouts)?;
+            self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(),vert_2d, frag_2d, &self.texture_manager)?;
         }
         #[cfg(not(feature= "reload_shaders"))]
         {
@@ -305,7 +296,7 @@ impl<IS : InstSurface>  Renderer<IS>
         let frag_2d = art_2d.remove(1);
         let vert_2d = art_2d.remove(0);
         self.ui_pipeline = ui_pipeline::UiPipeline::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_art, frag_art, &self.texture_manager.descriptor_set_layouts)?;
-        self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_2d, frag_2d, &self.texture_manager.descriptor_set_layouts)?;
+        self.pipeline_2d = pipeline_2d::Pipeline2D::create(self.device.deref().clone(), self.hal_state.render_area, self.hal_state.render_pass.deref(), vert_2d, frag_2d, &self.texture_manager)?;
         Ok(())
     }
     pub fn set_ui_buffer(& mut self, vtx: Vec<con_back::UiVertex>) -> Result<(), Error>{
@@ -618,12 +609,11 @@ impl<B: Backend> HalState<B> {
 
         let flight_fence = &self.in_flight_fences[i_usize];
         unsafe {
+            let err = self.device
+                .wait_for_fence(flight_fence, core::u64::MAX);
             self.device
-                .wait_for_fence(flight_fence, core::u64::MAX)
-                .map_err(|_| "Failed to wait on the fence!")?;
-            self.device
-                .reset_fence(flight_fence)
-                .map_err(|_| "Couldn't reset the fence!")?;
+                .reset_fence(flight_fence)?;
+            err?;
         }
 
         // RECORD COMMANDS
@@ -669,7 +659,7 @@ impl<B: Backend> HalState<B> {
             &mut self,
             command_queue: & mut B::CommandQueue,
             draw: F) -> Result<(), Error>
-        where F : FnOnce(&mut B::CommandBuffer) {
+        where F : FnOnce(&mut B::CommandBuffer, usize) {
         // SETUP FOR THIS FRAME
         let image_available = &self.image_available_semaphores[self.current_frame];
         let render_finished = &self.render_finished_semaphores[self.current_frame];
@@ -686,12 +676,11 @@ impl<B: Backend> HalState<B> {
 
         let flight_fence = &self.in_flight_fences[i_usize];
         unsafe {
+            let err = self.device
+                .wait_for_fence(flight_fence, core::u64::MAX);
             self.device
-                .wait_for_fence(flight_fence, core::u64::MAX)
-                .map_err(|_| "Failed to wait on the fence!")?;
-            self.device
-                .reset_fence(flight_fence)
-                .map_err(|_| "Couldn't reset the fence!")?;
+                .reset_fence(flight_fence)?;
+            err?;
         }
 
 
@@ -709,7 +698,7 @@ impl<B: Backend> HalState<B> {
                 );
 
                 {
-                    draw(buffer);
+                    draw(buffer, i_usize);
                 }
 
                 // self.pipeline.execute(&mut encoder, memory_manager, &vertex_buffers, index_buffer_view, self.render_area, time_f32, cmds);
