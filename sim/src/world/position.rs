@@ -1,5 +1,5 @@
+use crate::world::{MAP_HEIGHT, MAP_WIDTH};
 use std::collections::HashMap;
-use crate::world::{MAP_WIDTH, MAP_HEIGHT};
 
 pub type Coord = i16; // Needs to be signed and to be able to store values of at least 2 * max(MAP_WIDTH, MAP_HEIGHT)
 
@@ -9,7 +9,7 @@ pub struct Position {
     pub y: Coord,
 }
 
-const CLOSEST_DIRS : [[Dir; 4]; 4] = [
+const CLOSEST_DIRS: [[Dir; 4]; 4] = [
     [Dir::R, Dir::D, Dir::U, Dir::L],
     [Dir::L, Dir::U, Dir::D, Dir::R],
     [Dir::U, Dir::L, Dir::R, Dir::D],
@@ -21,52 +21,70 @@ impl Position {
             && ((self.x as i64) - (other.x as i64)).abs() <= 1
             && ((self.y as i64) - (other.y as i64)).abs() <= 1
     }
-    pub fn neighbours(&self) -> impl IntoIterator<Item=Position> {
-        NeighborIter { pos: *self, dir: Some(Dir::R)}
+    pub fn neighbours(&self) -> impl IntoIterator<Item = Position> {
+        NeighborIter {
+            pos: *self,
+            dir: Some(Dir::R),
+        }
     }
-    pub fn distance(&self, other: & Position) -> Coord {
-        let dist = (self.x  - other.x).abs() + (self.y - other.y).abs();
+    pub fn distance(&self, other: &Position) -> Coord {
+        let dist = (self.x - other.x).abs() + (self.y - other.y).abs();
         debug_assert!(dist >= 0);
         dist
     }
-    pub fn within_bounds(& self) -> bool {
+    pub fn within_bounds(&self) -> bool {
         self.x < MAP_WIDTH as Coord && self.y < MAP_HEIGHT as Coord
     }
-    pub fn step(&self, dir: Dir)-> Option<Position>{
+    pub fn step(&self, dir: Dir) -> Option<Position> {
         use Dir::*;
         match dir {
-            R if self.x +1 < MAP_WIDTH as Coord  => Some(Position { x: self.x+1, y: self.y }),
-            L if self.x > 0  => Some(Position { x: self.x - 1, y: self.y }),
-            D if self.y +1 < MAP_HEIGHT as Coord => Some(Position { x: self.x, y: self.y +1 }),
-            U if self.y > 0 as Coord => Some(Position { x: self.x, y: self.y  - 1 }),
+            R if self.x + 1 < MAP_WIDTH as Coord => Some(Position {
+                x: self.x + 1,
+                y: self.y,
+            }),
+            L if self.x > 0 => Some(Position {
+                x: self.x - 1,
+                y: self.y,
+            }),
+            D if self.y + 1 < MAP_HEIGHT as Coord => Some(Position {
+                x: self.x,
+                y: self.y + 1,
+            }),
+            U if self.y > 0 as Coord => Some(Position {
+                x: self.x,
+                y: self.y - 1,
+            }),
             R | L | D | U => None,
         }
     }
-    fn possible_steps(&self, goal: &Position) -> impl Iterator<Item=Position> + '_ {
-        (&CLOSEST_DIRS[self.dir(goal) as usize]).iter().filter_map(move|dir|
-            self.step(*dir))
+    fn possible_steps(&self, goal: &Position) -> impl Iterator<Item = Position> + '_ {
+        (&CLOSEST_DIRS[self.dir(goal) as usize])
+            .iter()
+            .filter_map(move |dir| self.step(*dir))
     }
     pub fn dir(&self, other: &Position) -> Dir {
-        let x_diff = self.x  - other.x;
-        let y_diff = self.y  - other.y;
+        let x_diff = self.x - other.x;
+        let y_diff = self.y - other.y;
         if x_diff.abs() > y_diff.abs() {
             if x_diff > 0 {
                 Dir::L
-            }
-            else {
+            } else {
                 Dir::R
             }
-        }
-        else if y_diff > 0 {
+        } else if y_diff > 0 {
             Dir::U
-        }
-        else {
+        } else {
             Dir::D
         }
     }
-    pub fn iter() -> impl Iterator<Item=Position> {
-        (0.. MAP_WIDTH).into_iter().zip((0..MAP_HEIGHT).into_iter())
-            .map(move |(x, y)| Position{x : x as Coord, y: y as Coord})
+    pub fn iter() -> impl Iterator<Item = Position> {
+        (0..MAP_WIDTH)
+            .into_iter()
+            .zip((0..MAP_HEIGHT).into_iter())
+            .map(move |(x, y)| Position {
+                x: x as Coord,
+                y: y as Coord,
+            })
     }
 }
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]
@@ -77,7 +95,7 @@ pub enum Dir {
     D = 3,
 }
 impl Dir {
-    fn next(self) -> Option<Dir>{
+    fn next(self) -> Option<Dir> {
         use Dir::*;
         match self {
             R => Some(U),
@@ -101,28 +119,28 @@ impl Dir {
 }
 
 impl std::fmt::Display for Dir {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error>  {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         use Dir::*;
         match self {
             R => write!(f, "right"),
             L => write!(f, "left"),
             U => write!(f, "up"),
-            D => write!(f, "down")
+            D => write!(f, "down"),
         }
     }
 }
 
 struct NeighborIter {
-    pos : Position,
-    dir : Option<Dir>,
+    pos: Position,
+    dir: Option<Dir>,
 }
-impl Iterator for NeighborIter{
+impl Iterator for NeighborIter {
     type Item = Position;
-    fn next(&mut self) -> Option<Self::Item>{
+    fn next(&mut self) -> Option<Self::Item> {
         while let Some(dir) = self.dir {
             self.dir = dir.next();
-            if let p@Some(_) = self.pos.step(dir){
-                return p
+            if let p @ Some(_) = self.pos.step(dir) {
+                return p;
             }
         }
         None
@@ -139,15 +157,10 @@ impl<T: Sized> PositionMap<T> {
     }
     pub fn get(&self, k: &Position) -> Option<&T> {
         match self {
-            Self::Vec(vec) => vec.iter().find_map(|(p, t)| {
-                if *p == *k {
-                    Some(t)
-                }
-                else {
-                    None
-                }
-            }),
-            Self::Map(m) => m.get(k)
+            Self::Vec(vec) => vec
+                .iter()
+                .find_map(|(p, t)| if *p == *k { Some(t) } else { None }),
+            Self::Map(m) => m.get(k),
         }
     }
     pub fn insert(&mut self, k: Position, v: T) -> Option<T> {
@@ -159,21 +172,21 @@ impl<T: Sized> PositionMap<T> {
                         map.insert(p, t);
                     }
                     *self = Self::Map(map);
-                    return self.insert(k, v)
+                    return self.insert(k, v);
                 }
-                match vec.iter_mut().find(|(p, t)| *p == k ) {
+                match vec.iter_mut().find(|(p, t)| *p == k) {
                     Some((_p, t)) => {
                         let mut r = v;
-                        std::mem::swap(t, & mut r);
+                        std::mem::swap(t, &mut r);
                         Some(r)
-                    },
+                    }
                     None => {
                         vec.push((k, v));
                         None
                     }
                 }
             }
-            Self::Map(m) => m.insert(k, v)
+            Self::Map(m) => m.insert(k, v),
         }
     }
 }

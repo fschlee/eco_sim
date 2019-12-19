@@ -5,12 +5,9 @@ use crate::entity_type::EntityType;
 type GenID = i16;
 type ID = u32;
 
+trait Traits: Sized + Ord + Eq + Copy + std::fmt::Debug {}
 
-
-trait  Traits : Sized + Ord + Eq + Copy + std::fmt::Debug{}
-
-impl Traits for EntityType{}
-
+impl Traits for EntityType {}
 
 impl std::fmt::Display for WorldEntity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -38,16 +35,16 @@ impl WorldEntity {
         self.e_type
     }
     pub fn new(ent: Entity, e_type: EntityType) -> Self {
-        Self {ent, e_type}
+        Self { ent, e_type }
     }
 }
 impl Into<Entity> for WorldEntity {
-    fn into(self)-> Entity {
+    fn into(self) -> Entity {
         self.ent
     }
 }
-impl<'a> Into<& 'a Entity> for & 'a WorldEntity {
-    fn into(self)-> & 'a Entity {
+impl<'a> Into<&'a Entity> for &'a WorldEntity {
+    fn into(self) -> &'a Entity {
         &self.ent
     }
 }
@@ -60,15 +57,14 @@ impl Into<Entity> for &WorldEntity {
 #[derive(Clone, Debug, Default)]
 pub struct EntityManager {
     generations: Vec<GenID>,
-   //  data: Vec<T>,
+    //  data: Vec<T>,
     valid: Vec<bool>,
     full_to: usize,
     deleted: u32,
 }
 
 impl EntityManager {
-
-    pub fn destroy(&mut self, entity: impl Into< Entity>) -> Result<(), &str> {
+    pub fn destroy(&mut self, entity: impl Into<Entity>) -> Result<(), &str> {
         let entity = entity.into();
         debug_assert!(entity.id < self.generations.len() as u32);
         let id = entity.id as usize;
@@ -109,7 +105,7 @@ impl EntityManager {
     }
     pub fn put(&mut self, entity: impl Into<Entity>) -> Result<Entity, Entity> {
         let entity = entity.into();
-        let Entity {gen, id} = entity;
+        let Entity { gen, id } = entity;
         let id = id as usize;
         if id >= self.generations.len() {
             self.generations.resize(id + 1, -1);
@@ -117,12 +113,13 @@ impl EntityManager {
             self.generations[id] = gen;
             self.valid[id] = true;
             return Ok(entity);
-        } if !self.valid[id] && self.generations[id] < gen {
+        }
+        if !self.valid[id] && self.generations[id] < gen {
             self.generations[id] = gen;
             self.valid[id] = true;
-            return Ok(entity)
+            return Ok(entity);
         } else {
-            return Err(self.fresh())
+            return Err(self.fresh());
         }
     }
 }
@@ -164,7 +161,7 @@ pub struct Storage<T> {
 
 impl<T> Storage<T> {
     pub fn get(&self, entity: impl Into<Entity>) -> Option<&T> {
-        let Entity { id, gen} = entity.into();
+        let Entity { id, gen } = entity.into();
         let id = id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if *stored_gen == gen {
@@ -183,27 +180,28 @@ impl<T> Storage<T> {
                 if let Some(opt) = self.content.get_mut(id) {
                     return opt.as_mut();
                 }
-            }
-            else if *stored_gen < gen {
+            } else if *stored_gen < gen {
                 self.content[id] = None;
             }
         }
         None
     }
-    pub fn get_or_insert_with(& mut self, entity: impl Into<Entity>, inserter: impl FnOnce() -> T) -> &mut T {
-        let Entity { id, gen  } = &entity.into();
+    pub fn get_or_insert_with(
+        &mut self,
+        entity: impl Into<Entity>,
+        inserter: impl FnOnce() -> T,
+    ) -> &mut T {
+        let Entity { id, gen } = &entity.into();
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen > gen {
                 log::error!("invalid entity state");
-            }
-            else if stored_gen < gen {
+            } else if stored_gen < gen {
                 let val = inserter();
                 self.generations[id] = *gen;
                 self.content[id] = Some(val);
             }
-        }
-        else {
+        } else {
             let val = inserter();
             let end = self.generations.len();
             if id >= end {
@@ -236,13 +234,13 @@ impl<T> Storage<T> {
         }
         None
     }
-    pub fn remove(& mut self, entity: impl Into<Entity>) -> Option<T> {
+    pub fn remove(&mut self, entity: impl Into<Entity>) -> Option<T> {
         let Entity { id, gen } = &entity.into();
         let id = *id as usize;
         if let Some(stored_gen) = self.generations.get(id) {
             if stored_gen <= gen {
                 let mut val = None;
-                std::mem::swap(& mut self.content[id], & mut val);
+                std::mem::swap(&mut self.content[id], &mut val);
                 return val;
             }
         }
@@ -254,28 +252,42 @@ impl<T> Storage<T> {
             generations: Vec::new(),
         }
     }
-    pub fn split_out_mut<'a>(& 'a mut self, entity: impl Into<Entity>) -> Option<(& 'a mut T, StorageSlice<'a, T>)> {
+    pub fn split_out_mut<'a>(
+        &'a mut self,
+        entity: impl Into<Entity>,
+    ) -> Option<(&'a mut T, StorageSlice<'a, T>)> {
         let entity = entity.into();
         if self.get(entity).is_none() {
             return None;
         }
         let idx = entity.id as usize;
-        let Self {  content, generations} = self;
+        let Self {
+            content,
+            generations,
+        } = self;
         let (con0, con_) = content.as_mut_slice().split_at_mut(idx);
         let (gen0, gen1) = generations.as_mut_slice().split_at_mut(idx);
         let (e, con1) = con_.split_at_mut(1);
         if let Some(Some(elem)) = e.get_mut(0) {
-            return Some((elem, StorageSlice::<T>{con0, con1, gen0, gen1, idx }))
+            return Some((
+                elem,
+                StorageSlice::<T> {
+                    con0,
+                    con1,
+                    gen0,
+                    gen1,
+                    idx,
+                },
+            ));
         }
         None
     }
-    pub fn iter_mut<'a>(& 'a mut self) -> impl Iterator<Item=&'a mut T> + 'a {
+    pub fn iter_mut<'a>(&'a mut self) -> impl Iterator<Item = &'a mut T> + 'a {
         self.content.iter_mut().filter_map(|t| t.as_mut())
     }
-
 }
 impl<T: Send> Storage<T> {
-    pub fn par_iter_mut<'a>(& 'a mut self) -> impl ParallelIterator<Item=&'a mut T> + 'a {
+    pub fn par_iter_mut<'a>(&'a mut self) -> impl ParallelIterator<Item = &'a mut T> + 'a {
         self.content.par_iter_mut().filter_map(|t| t.as_mut())
     }
 }
@@ -299,8 +311,6 @@ pub struct StorageIter<'a, T> {
     idx: usize,
 }
 
-
-
 impl<'a, T> Iterator for StorageIter<'a, T> {
     type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
@@ -316,25 +326,23 @@ impl<'a, T> Iterator for StorageIter<'a, T> {
 }
 
 #[derive(Clone)]
-pub struct StorageSlice<'a,T> {
-    gen0: & 'a [GenID],
-    gen1: & 'a [GenID],
-    con0: & 'a [Option<T>],
-    con1: & 'a [Option<T>],
+pub struct StorageSlice<'a, T> {
+    gen0: &'a [GenID],
+    gen1: &'a [GenID],
+    con0: &'a [Option<T>],
+    con1: &'a [Option<T>],
     idx: usize,
 }
-impl<'a,T>  StorageSlice<'a,T>  {
-
-}
+impl<'a, T> StorageSlice<'a, T> {}
 
 pub struct StorageSliceIter<'a, T> {
-    slice : & 'a StorageSlice<'a, T>,
-    idx : usize,
+    slice: &'a StorageSlice<'a, T>,
+    idx: usize,
 }
 
 impl<'a, T> Iterator for StorageSliceIter<'a, T> {
     type Item = &'a T;
-    fn next(&mut self) -> Option<&'a T>{
+    fn next(&mut self) -> Option<&'a T> {
         while self.idx + 1 < self.slice.idx {
             self.idx += 1;
 
@@ -344,9 +352,9 @@ impl<'a, T> Iterator for StorageSliceIter<'a, T> {
         }
         // skipping non-accessible element
         if self.idx == self.slice.idx {
-            self.idx +=1;
+            self.idx += 1;
         }
-        while self.idx + 1  - self.slice.idx < self.slice.con1.len()  {
+        while self.idx + 1 - self.slice.idx < self.slice.con1.len() {
             self.idx += 1;
 
             if let Some(t) = &self.slice.con1[self.idx] {
@@ -355,33 +363,40 @@ impl<'a, T> Iterator for StorageSliceIter<'a, T> {
         }
         None
     }
-
 }
 
-
-impl<'a, T> IntoIterator for & 'a StorageSlice<'a,T> {
-    type IntoIter = StorageSliceIter<'a, T> ;
+impl<'a, T> IntoIterator for &'a StorageSlice<'a, T> {
+    type IntoIter = StorageSliceIter<'a, T>;
     type Item = &'a T;
     fn into_iter(self) -> Self::IntoIter {
-        Self::IntoIter{ slice: self, idx: 0 }
+        Self::IntoIter {
+            slice: self,
+            idx: 0,
+        }
     }
 }
 
-impl<'a, 'b, T> IntoIterator for &'b & 'a StorageSlice<'a,T> {
-    type IntoIter = StorageSliceIter<'a, T> ;
+impl<'a, 'b, T> IntoIterator for &'b &'a StorageSlice<'a, T> {
+    type IntoIter = StorageSliceIter<'a, T>;
     type Item = &'a T;
     fn into_iter(self) -> Self::IntoIter {
-        Self::IntoIter{ slice: *self, idx: 0 }
+        Self::IntoIter {
+            slice: *self,
+            idx: 0,
+        }
     }
 }
 
-pub trait Source<'a, T>  {
-    fn get(&'a self,  entity: impl Into<Entity>) -> Option<T>;
-    fn iter(&'a self) -> Box<dyn Iterator<Item=T> +'a>;
+pub trait Source<'a, T> {
+    fn get(&'a self, entity: impl Into<Entity>) -> Option<T>;
+    fn iter(&'a self) -> Box<dyn Iterator<Item = T> + 'a>;
 }
 
-impl<'a, T: 'a, F: 'static> Source<'a, T> for & 'a StorageSlice<'a,F> where & 'a F: Into<T> {
-    fn get(& 'a self, entity: impl Into<Entity>) -> Option<T> {
+impl<'a, T: 'a, F: 'static> Source<'a, T> for &'a StorageSlice<'a, F>
+where
+    &'a F: Into<T>,
+{
+    fn get(&'a self, entity: impl Into<Entity>) -> Option<T> {
         let entity = entity.into();
         let idx = entity.id as usize;
         if idx < self.idx {
@@ -392,8 +407,7 @@ impl<'a, T: 'a, F: 'static> Source<'a, T> for & 'a StorageSlice<'a,F> where & 'a
                     }
                 }
             }
-        }
-        else if idx > self.idx {
+        } else if idx > self.idx {
             if let Some(stored_gen) = self.gen1.get(idx) {
                 if *stored_gen == entity.gen {
                     if let Some(opt) = self.con1.get(idx) {
@@ -404,10 +418,9 @@ impl<'a, T: 'a, F: 'static> Source<'a, T> for & 'a StorageSlice<'a,F> where & 'a
         }
         None
     }
-    fn iter(& 'a self) -> Box<dyn Iterator<Item=T> + 'a> {
+    fn iter(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
         Box::new(self.into_iter().map(Into::into))
     }
-
 }
 /*
 impl<T> Source<T> for Storage<T> {
@@ -423,11 +436,13 @@ impl<'a, T, F> Source<T> for StorageSlice<'a, F> where &F: Into<T> {
     }
 }*/
 impl<'a, T, I: 'a> Source<'a, T> for Storage<I>
-        where &'a I: Into<T>  {
-    fn get(& 'a self, entity: impl Into<Entity>) -> Option<T> {
-        self.get( entity).map(|e | e.into())
+where
+    &'a I: Into<T>,
+{
+    fn get(&'a self, entity: impl Into<Entity>) -> Option<T> {
+        self.get(entity).map(|e| e.into())
     }
-    fn iter(& 'a self) -> Box<dyn Iterator<Item=T> +'a> {
+    fn iter(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
         Box::new(self.into_iter().map(|e| e.into()))
     }
 }

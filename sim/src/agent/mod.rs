@@ -1,24 +1,24 @@
+pub mod emotion;
 pub mod estimate;
 pub mod estimator;
-pub mod emotion;
 
-use rand::{Rng};
+use log::{error, info};
+use rand::Rng;
 use std::cmp::Ordering;
-use log:: {error, info};
-use std::collections::{HashMap};
+use std::collections::HashMap;
 
-use super::world::*;
 use super::entity::*;
-use super::entity_type::{EntityType};
+use super::entity_type::EntityType;
+use super::world::*;
+use crate::position::{Coord, Dir, Position};
+use crate::util::f32_cmp;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
-use crate::util::f32_cmp;
-use crate::position::{Position, Dir, Coord};
 
-use estimate::{PointEstimateRep};
+use crate::agent::estimator::{Estimator, LearningEstimator};
+pub use emotion::{EmotionalState, Hunger};
+use estimate::PointEstimateRep;
 use estimator::MentalStateRep;
-use crate::agent::estimator::{ LearningEstimator, Estimator};
-pub use emotion::{Hunger, EmotionalState};
 
 use std::collections::hash_map::RandomState;
 
@@ -43,13 +43,11 @@ impl Behavior {
     }
 }
 
+const HUNGER_THRESHOLD: Hunger = Hunger(0.2);
 
+const HUNGER_INCREMENT: f32 = 0.00001;
 
-const HUNGER_THRESHOLD : Hunger = Hunger(0.2);
-
-const HUNGER_INCREMENT : f32 = 0.00001;
-
-const FLEE_THREAT : f32 = 5.0;
+const FLEE_THREAT: f32 = 5.0;
 
 pub type Reward = f32;
 
@@ -65,6 +63,7 @@ pub struct MentalState {
     pub use_mdp: bool,
     pub rng: rand_xorshift::XorShiftRng,
     pub score: Reward,
+    pub world_model: Option<Box<World<Occupancy>>>,
 }
 
 impl<R: MentalStateRep> From<&R> for MentalState {
@@ -74,10 +73,20 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 }
 
 impl MentalState {
-    pub fn new(entity: WorldEntity, food_preferences: Vec<(EntityType, Reward)>, use_mdp: bool) -> Self {
+    pub fn new(
+        entity: WorldEntity,
+        food_preferences: Vec<(EntityType, Reward)>,
+        use_mdp: bool,
+        have_world_model: bool,
+    ) -> Self {
         debug_assert!(food_preferences.len() > 0);
         let emotional_state = EmotionalState::new(food_preferences);
-        Self{
+        let world_model = if have_world_model {
+            Some(Box::new(World::empty()))
+        } else {
+            None
+        };
+        Self {
             id: entity,
             emotional_state,
             current_action: Action::Idle,
@@ -86,6 +95,7 @@ impl MentalState {
             use_mdp,
             rng: rand::SeedableRng::seed_from_u64(entity.id() as u64),
             score: 0.0,
+            world_model,
         }
     }
     pub fn decide(
@@ -100,26 +110,33 @@ impl MentalState {
         }
         if self.use_mdp {
             unimplemented!()
-            // self.decide_mdp(physical_state, own_position, observation, estimator);
+        // self.decide_mdp(physical_state, own_position, observation, estimator);
         } else {
-            self.decide_simple( physical_state, own_position, observation, estimator);
+            self.decide_simple(physical_state, own_position, observation, estimator);
         }
         self.current_action
-
     }
-    fn update(& mut self, physical_state: &PhysicalState, own_position: Position, observation:  &impl Observation,) {
-        self.emotional_state += Hunger((20.0 -  physical_state.satiation.0) * HUNGER_INCREMENT);
+    fn update(
+        &mut self,
+        physical_state: &PhysicalState,
+        own_position: Position,
+        observation: &impl Observation,
+    ) {
+        self.emotional_state += Hunger((20.0 - physical_state.satiation.0) * HUNGER_INCREMENT);
         match self.current_action {
             Action::Eat(food) => {
-                if self.emotional_state.hunger().0 <= 0.0 || !observation.entities_at(own_position).contains(&food) {
+                if self.emotional_state.hunger().0 <= 0.0
+                    || !observation.entities_at(own_position).contains(&food)
+                {
                     self.current_action = Action::Idle;
                 }
-            },
+            }
             Action::Attack(opponent) => {
                 let can_attack = {
-                    if let (Some(pos), Some(phys)) =
-                    (observation.observed_position(&opponent),
-                     observation.observed_physical_state(&opponent)) {
+                    if let (Some(pos), Some(phys)) = (
+                        observation.observed_position(&opponent),
+                        observation.observed_physical_state(&opponent),
+                    ) {
                         pos == own_position && phys.health.0 > 0.0
                     } else {
                         false
@@ -134,29 +151,34 @@ impl MentalState {
     }
     fn update_on_events(&mut self, events: &[Event]) -> Reward {
         use Outcome::*;
-
         let mut score = 0.0;
-        for Event{ actor, outcome} in events {
+        for Event { actor, outcome } in events {
             if *actor == self.id {
                 match outcome {
                     Rested | Incomplete => (),
-                    Moved(_) => { self.current_action = Action::Idle }
+                    Moved(_) => self.current_action = Action::Idle,
                     Consumed(food, tp) => {
                         if let Some(r) = self.lookup_preference(*tp) {
                             score += r * food.0 * self.emotional_state.hunger().0
                         }
                     }
-                    Hurt { damage, target, lethal } => {
+                    Hurt {
+                        damage,
+                        target,
+                        lethal,
+                    } => {
                         if *lethal {
                             self.current_action = Action::Idle
                         }
                     }
                 }
-            }
-            else {
+            } else {
                 match outcome {
-                    Hurt { damage, target, lethal}
-                            if *target == self.id => {
+                    Hurt {
+                        damage,
+                        target,
+                        lethal,
+                    } if *target == self.id => {
                         score -= damage.0 * 100.0;
                         if *lethal {
                             score -= 10e5;
@@ -167,9 +189,9 @@ impl MentalState {
             }
         }
         self.score += score;
-        return score
+        return score;
     }
-    fn  decide_simple(
+    fn decide_simple(
         &mut self,
         physical_state: &PhysicalState,
         own_position: Position,
@@ -177,7 +199,8 @@ impl MentalState {
         estimator: &impl Estimator,
     ) {
         let own_type = self.id.e_type();
-        let possible_threat = max_threat(self.calculate_threat(own_position, observation, estimator));
+        let possible_threat =
+            max_threat(self.calculate_threat(own_position, observation, estimator));
         if let Some((predator, threat)) = possible_threat {
             if threat > FLEE_THREAT {
                 self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
@@ -185,31 +208,42 @@ impl MentalState {
         }
         use lazysort::SortedBy;
         if self.current_behavior.is_none() && self.emotional_state.hunger() > HUNGER_THRESHOLD {
-            if let Some((reward, food, position)) = observation.find_closest(own_position, |e, w| {
-                self.id.e_type().can_eat(&e.e_type())
-            }).filter_map(|(e, p)| {
-                if let Some(rw) = self.lookup_preference(e.e_type()) {
-                    let dist = own_position.distance(&p) as f32 * 0.05;
-                    Some((rw - dist, e, p))
-                } else {
-                    None
-                }
-            }).sorted_by(|(rw1, _, _), (rw2, _, _)| f32_cmp(rw2, rw1) // descending sort
-            ).filter(|(_, _, p)| match max_threat(self.calculate_threat(*p, observation, estimator)){
-                Some((_, threat)) if threat > FLEE_THREAT => false,
-                 _ => true
-            }).next() {
+            if let Some((reward, food, position)) = observation
+                .find_closest(own_position, |e, w| self.id.e_type().can_eat(&e.e_type()))
+                .filter_map(|(e, p)| {
+                    if let Some(rw) = self.lookup_preference(e.e_type()) {
+                        let dist = own_position.distance(&p) as f32 * 0.05;
+                        Some((rw - dist, e, p))
+                    } else {
+                        None
+                    }
+                })
+                .sorted_by(
+                    |(rw1, _, _), (rw2, _, _)| f32_cmp(rw2, rw1), // descending sort
+                )
+                .filter(|(_, _, p)| {
+                    match max_threat(self.calculate_threat(*p, observation, estimator)) {
+                        Some((_, threat)) if threat > FLEE_THREAT => false,
+                        _ => true,
+                    }
+                })
+                .next()
+            {
                 match observation.observed_physical_state(&food) {
-                    Some(ps) if  ps.health > Health(0.0)  && observation.known_can_pass(&self.id, position) == Some(true) => {
+                    Some(ps)
+                        if ps.health > Health(0.0)
+                            && observation.known_can_pass(&self.id, position) == Some(true) =>
+                    {
                         self.current_behavior = Some(Behavior::Hunt(food));
                     }
                     _ => {
                         self.current_behavior = Some(Behavior::Partake(food));
                     }
                 }
-            }
-            else {
-                self.current_behavior = Some(Behavior::Search(self.food_preferences().map(|(f, r)| f.clone()).collect()));
+            } else {
+                self.current_behavior = Some(Behavior::Search(
+                    self.food_preferences().map(|(f, r)| f.clone()).collect(),
+                ));
             }
         }
         match self.current_behavior.clone() {
@@ -219,12 +253,14 @@ impl MentalState {
                 if observation.known_can_pass(&predator, own_position) != Some(false) {
                     if let Some(pos) = observation.observed_position(&predator) {
                         let d = pos.distance(&own_position);
-                        let mut new_pos
-                            = own_position;
+                        let mut new_pos = own_position;
                         let mut value = 0;
                         for n in own_position.neighbours() {
                             if observation.known_can_pass(&self.id, n) == Some(true) {
-                                let v = match (observation.known_can_pass(&predator, n), pos.distance(&n).cmp( &d)) {
+                                let v = match (
+                                    observation.known_can_pass(&predator, n),
+                                    pos.distance(&n).cmp(&d),
+                                ) {
                                     (Some(false), _) => 10,
                                     (None, Ordering::Greater) => 4,
                                     (None, Ordering::Equal) => 2,
@@ -235,16 +271,13 @@ impl MentalState {
                                 };
                                 if v > value {
                                     value = v;
-                                    new_pos
-                         = n;
+                                    new_pos = n;
                                 }
                             }
                         }
-                        if new_pos
-                         != own_position {
+                        if new_pos != own_position {
                             self.current_action = Action::Move(own_position.dir(&new_pos));
                         }
-
                     } else {
                         escaped = true;
                     }
@@ -254,65 +287,55 @@ impl MentalState {
                 if escaped {
                     self.current_behavior = None;
                 }
-            },
-            Some(Behavior::Hunt(prey)) => {
-                match observation.observed_position(&prey) {
-                    Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
-                        if pos == own_position || own_position.is_neighbour(&pos) {
-                            match observation.observed_physical_state(&prey) {
-                                Some(ps) if ps.is_dead() => {
-                                    self.current_behavior = Some(Partake(prey));
-                                    if pos == own_position {
-                                        self.current_action = Eat(prey);
-                                    }
-                                },
-                                _ => self.current_action = Action::Attack(prey),
+            }
+            Some(Behavior::Hunt(prey)) => match observation.observed_position(&prey) {
+                Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
+                    if pos == own_position || own_position.is_neighbour(&pos) {
+                        match observation.observed_physical_state(&prey) {
+                            Some(ps) if ps.is_dead() => {
+                                self.current_behavior = Some(Partake(prey));
+                                if pos == own_position {
+                                    self.current_action = Eat(prey);
+                                }
                             }
+                            _ => self.current_action = Action::Attack(prey),
                         }
-                        else if let Some(path) = self.path(own_position, pos, observation){
-                            self.current_action = Action::Move(path[0]);
-                        }
-                        else {
-                            self.current_behavior = None;
-                        }
+                    } else if let Some(path) = self.path(own_position, pos, observation) {
+                        self.current_action = Action::Move(path[0]);
+                    } else {
+                        self.current_behavior = None;
                     }
-                    _ => self.current_behavior = None,
                 }
-            }
-            Some(Behavior::Partake(food)) => {
-                match observation.observed_position(&food) {
-                    Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
-                        if pos == own_position {
-                            self.current_action = Eat(food);
-
-                        }
-                        else if let Some(path) = self.path(own_position, pos, observation){
-                            self.current_action = Action::Move(path[0]);
-                        }
-                        else {
-                            self.current_behavior = None;
-                        }
+                _ => self.current_behavior = None,
+            },
+            Some(Behavior::Partake(food)) => match observation.observed_position(&food) {
+                Some(pos) if observation.known_can_pass(&self.id, pos) != Some(false) => {
+                    if pos == own_position {
+                        self.current_action = Eat(food);
+                    } else if let Some(path) = self.path(own_position, pos, observation) {
+                        self.current_action = Action::Move(path[0]);
+                    } else {
+                        self.current_behavior = None;
                     }
-                    _ => self.current_behavior = None,
                 }
-            }
+                _ => self.current_behavior = None,
+            },
             Some(Behavior::Search(list)) => {
-                if let Some(_) = observation.find_closest(own_position, |e, w| {
-                     list.contains(&e.e_type())
-                }).next() {
+                if let Some(_) = observation
+                    .find_closest(own_position, |e, w| list.contains(&e.e_type()))
+                    .next()
+                {
                     self.current_behavior = None;
-                }
-                else {
+                } else {
                     self.random_step(own_position, observation);
                 }
             }
             Some(Behavior::Travel(goal)) => {
-                if let Action::Move(_) = self.current_action {}
-                else {
-                    if let Some(path) = self.path(own_position, goal, observation){
+                if let Action::Move(_) = self.current_action {
+                } else {
+                    if let Some(path) = self.path(own_position, goal, observation) {
                         self.current_action = Action::Move(path[0]);
-                    }
-                    else {
+                    } else {
                         self.current_behavior = None;
                     }
                 }
@@ -320,11 +343,12 @@ impl MentalState {
         }
         match self.current_action.clone() {
             Action::Move(dir) => {
-                if let Some(Behavior::FleeFrom(_)) = self.current_behavior {  }
-                else {
-                    match own_position.step(dir).and_then(|p|
-                        max_threat(self.calculate_threat(p, observation, estimator))
-                    ) {
+                if let Some(Behavior::FleeFrom(_)) = self.current_behavior {
+                } else {
+                    match own_position
+                        .step(dir)
+                        .and_then(|p| max_threat(self.calculate_threat(p, observation, estimator)))
+                    {
                         Some((_, threat)) if threat > FLEE_THREAT => {
                             self.current_action = Action::Idle;
                             self.current_behavior = None;
@@ -332,8 +356,7 @@ impl MentalState {
                         _ => (),
                     }
                 }
-
-            },
+            }
             _ => (),
         }
     }
@@ -430,56 +453,59 @@ impl MentalState {
         }
     } */
     /*
-    fn decide_hierarchical(
-        &mut self,
-        physical_state: &PhysicalState,
-        own_position: Position,
-        observation: & impl Observation,
-        estimator: &impl Estimator,
-    ) {
-        let threat = self.calculate_threat( own_position, observation, estimator );
+        fn decide_hierarchical(
+            &mut self,
+            physical_state: &PhysicalState,
+            own_position: Position,
+            observation: & impl Observation,
+            estimator: &impl Estimator,
+        ) {
+            let threat = self.calculate_threat( own_position, observation, estimator );
 
-        // todo switch behaviors
-        match &self.current_behavior.clone() {
-            None => (),
-            Some(Behavior::Hunt(prey)) => (),
-            Some(Behavior::Search(foods)) => (),
-            Some(Behavior::FleeFrom(predator)) => (),
-            Some(Behavior::Partake(food)) => (),
+            // todo switch behaviors
+            match &self.current_behavior.clone() {
+                None => (),
+                Some(Behavior::Hunt(prey)) => (),
+                Some(Behavior::Search(foods)) => (),
+                Some(Behavior::FleeFrom(predator)) => (),
+                Some(Behavior::Partake(food)) => (),
+            }
+
+            // todo action based on behavior
+            match &self.current_behavior {
+                None => (),
+                Some(Behavior::Hunt(prey)) => (),
+                Some(Behavior::Search(foods)) => (),
+                Some(Behavior::FleeFrom(predator)) => (),
+                Some(Behavior::Partake(food)) => (),
+            };
         }
-
-        // todo action based on behavior
-        match &self.current_behavior {
-            None => (),
-            Some(Behavior::Hunt(prey)) => (),
-            Some(Behavior::Search(foods)) => (),
-            Some(Behavior::FleeFrom(predator)) => (),
-            Some(Behavior::Partake(food)) => (),
-        };
-    }
-*/
+    */
 
     // Threats are unordered
-    fn  calculate_threat<'a>(
+    fn calculate_threat<'a>(
         &'a self,
-      //  physical_state: &PhysicalState,
+        //  physical_state: &PhysicalState,
         own_position: Position,
-        observation: & 'a impl Observation,
-        estimator: & 'a impl Estimator,
-    ) -> impl Iterator<Item=(WorldEntity, Threat)> + 'a {
+        observation: &'a impl Observation,
+        estimator: &'a impl Estimator,
+    ) -> impl Iterator<Item = (WorldEntity, Threat)> + 'a {
         let mut rng = self.rng.clone();
-        observation.find_closest(own_position, move |e, w| {
-            e.e_type().can_eat(&self.id.e_type())
-        }).filter_map(move |(entity, position)| {
-            match observation.path_as(position, own_position, &entity){
-                Some(v) => {
-                    let mut total = 0.0;
-                    let inv_dist = 1.0 / v.len() as f32;
-                    debug_assert!(!inv_dist.is_nan());
+        observation
+            .find_closest(own_position, move |e, w| {
+                e.e_type().can_eat(&self.id.e_type())
+            })
+            .filter_map(move |(entity, position)| {
+                match observation.path_as(position, own_position, &entity) {
+                    Some(v) => {
+                        let mut total = 0.0;
+                        let inv_dist = 1.0 / v.len() as f32;
+                        debug_assert!(!inv_dist.is_nan());
 
-                        for pred_ms in estimator.invoke_sampled(entity, & mut rng, 10) {
+                        for pred_ms in estimator.invoke_sampled(entity, &mut rng, 10) {
                             pred_ms.lookup_preference(self.id.e_type()).map(|pref| {
-                                let mut score = 50.0 * pred_ms.emotional_state.hunger().0 * pref * inv_dist;
+                                let mut score =
+                                    50.0 * pred_ms.emotional_state.hunger().0 * pref * inv_dist;
                                 if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
                                     if prey == self.id {
                                         score += 100.0 * inv_dist;
@@ -491,33 +517,44 @@ impl MentalState {
                             });
                         }
 
-                    Some((entity, total))
-                },
-                _ => None
-            }
-        })
+                        Some((entity, total))
+                    }
+                    _ => None,
+                }
+            })
     }
-    pub fn path(&self, current: Position, goal: Position, observation: & impl Observation) -> Option<Vec<Dir>>  {
+    pub fn path(
+        &self,
+        current: Position,
+        goal: Position,
+        observation: &impl Observation,
+    ) -> Option<Vec<Dir>> {
         observation.path_as(current, goal, &self.id)
     }
 
-
-
-    pub fn random_step(& mut self, current: Position, observation: &impl Observation) {
-        use  rand::seq::SliceRandom;
-        if let Some(step) = current.neighbours().into_iter()
-            .filter(|p|
-                observation.known_can_pass(&self.id, *p) == Some(true))
-            .collect::<Vec<Position>>().choose(&mut self.rng) {
+    pub fn random_step(&mut self, current: Position, observation: &impl Observation) {
+        use rand::seq::SliceRandom;
+        if let Some(step) = current
+            .neighbours()
+            .into_iter()
+            .filter(|p| observation.known_can_pass(&self.id, *p) == Some(true))
+            .collect::<Vec<Position>>()
+            .choose(&mut self.rng)
+        {
             self.current_action = Action::Move(current.dir(step));
         }
     }
     pub fn lookup_preference(&self, entity_type: EntityType) -> Option<Reward> {
-        if !self.id.e_type().can_eat(&entity_type){
+        if !self.id.e_type().can_eat(&entity_type) {
             return None;
         }
         let pref = self.emotional_state.pref(entity_type).0;
-        debug_assert!(!pref.is_nan(), "{} pref for {:?} is NaN", self.id, entity_type);
+        debug_assert!(
+            !pref.is_nan(),
+            "{} pref for {:?} is NaN",
+            self.id,
+            entity_type
+        );
         Some(pref)
     }
     pub fn respawn_as(&mut self, entity: &WorldEntity) {
@@ -527,16 +564,17 @@ impl MentalState {
         self.current_action = Action::Idle;
         self.current_behavior = None;
     }
-    pub fn food_preferences<'a>(& 'a self) -> impl Iterator<Item=(EntityType, f32)> + 'a {
+    pub fn food_preferences<'a>(&'a self) -> impl Iterator<Item = (EntityType, f32)> + 'a {
         let own_et = self.id.e_type();
-        EntityType::iter().zip(self.emotional_state.preferences())
-            .filter_map(move |(et, r)|
+        EntityType::iter()
+            .zip(self.emotional_state.preferences())
+            .filter_map(move |(et, r)| {
                 if own_et.can_eat(&et) {
                     Some((et, (*r).0))
                 } else {
                     None
-                })
-
+                }
+            })
     }
     // pub fn set_preference()
 }
@@ -552,10 +590,14 @@ pub struct AgentSystem {
 
 impl AgentSystem {
     pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
-        use itertools::{Itertools, Either};
+        use itertools::{Either, Itertools};
         use rayon::prelude::*;
-        let (mut actions, mut killed) : (Vec<_>, Vec<_>) = {
-            let Self { ref mut mental_states, ref estimator_map, ref estimators } = self;
+        let (mut actions, mut killed): (Vec<_>, Vec<_>) = {
+            let Self {
+                ref mut mental_states,
+                ref estimator_map,
+                ref estimators,
+            } = self;
             mental_states.par_iter_mut().partition_map(|mental_state|  {
                 let entity = mental_state.id;
                 match (
@@ -583,20 +625,20 @@ impl AgentSystem {
                 }
             })
         };
-        self.estimators.par_iter_mut().for_each( |est| {
+        self.estimators.par_iter_mut().for_each(|est| {
             for (entity, action) in &actions {
                 if let Some(other_pos) = world.positions.get(entity) {
                     est.learn(*action, *entity, *other_pos, world);
                 }
             }
         });
-        world.act(actions.drain(..));
+        world.act(&actions);
         for ms in self.mental_states.iter_mut() {
             ms.update_on_events(&world.events);
         }
         for entity in killed {
             if let Some(mut ms) = self.mental_states.remove(&entity) {
-                let new_e = world.respawn(&entity, & mut ms, entity_manager);
+                let new_e = world.respawn(&entity, &mut ms, entity_manager);
                 debug_assert_eq!(ms.id, new_e);
                 self.mental_states.insert(&new_e, ms);
                 self.rebind_estimator(entity, new_e);
@@ -605,45 +647,60 @@ impl AgentSystem {
     }
     pub fn get_estimator(&self, entity: Entity) -> Option<&EstimatorT> {
         if let Some(i) = self.estimator_map.get(&entity) {
-            return self.estimators.get(*i)
+            return self.estimators.get(*i);
         }
         None
     }
-    pub fn get_representation_source<'a>(& 'a self, entity: Entity) -> Option<impl Iterator<Item = & impl MentalStateRep> + 'a> {
+    pub fn get_representation_source<'a>(
+        &'a self,
+        entity: Entity,
+    ) -> Option<impl Iterator<Item = &impl MentalStateRep> + 'a> {
         self.get_estimator(entity).map(|r| r.estimators.into_iter())
     }
-    pub fn rebind_estimator(& mut self, old: WorldEntity, new: WorldEntity) {
-        if let Some(idx) = self.estimator_map.remove(&old.into()){
+    pub fn rebind_estimator(&mut self, old: WorldEntity, new: WorldEntity) {
+        if let Some(idx) = self.estimator_map.remove(&old.into()) {
             self.estimators[idx].replace(old, new);
             self.estimator_map.insert(new.into(), idx);
         }
     }
-    pub fn init<C: Cell>(agents: Vec<WorldEntity>, world: &World<C>, use_mdp: bool, mut rng: impl Rng) -> Self {
+    pub fn init<C: Cell>(
+        agents: Vec<WorldEntity>,
+        world: &World<C>,
+        use_mdp: bool,
+        have_world_model: bool,
+        mut rng: impl Rng,
+    ) -> Self {
         let mut estimators = Vec::new();
         let mut estimator_map = HashMap::new();
         let mut mental_states = Storage::new();
         for agent in &agents {
             let food_prefs = EntityType::iter()
-                .filter(|e|agent.e_type().can_eat(e))
+                .filter(|e| agent.e_type().can_eat(e))
                 .map(|e| (e.clone(), rng.gen_range(0.0, 1.0)))
                 .collect();
-            let ms = MentalState::new(agent.clone(), food_prefs, use_mdp);
+            let ms = MentalState::new(agent.clone(), food_prefs, use_mdp, have_world_model);
             estimator_map.insert(agent.into(), estimators.len());
-            estimators.push(LearningEstimator::new( vec![(*agent, ms.sight_radius)]));
+            estimators.push(LearningEstimator::new(vec![(*agent, ms.sight_radius)]));
             mental_states.insert(agent, ms);
-
         }
-        Self{ mental_states, estimators, estimator_map }
+        Self {
+            mental_states,
+            estimators,
+            estimator_map,
+        }
     }
     pub fn threat_map<C: Cell>(&self, we: &WorldEntity, world: &World<C>) -> Vec<f32> {
         let mut vec = Vec::with_capacity(MAP_HEIGHT * MAP_WIDTH);
-        if let (Some(ms), Some(est), Some(current_pos))
-            = (self.mental_states.get(we), self.get_estimator(we.into()), world.positions.get(we)){
+        if let (Some(ms), Some(est), Some(current_pos)) = (
+            self.mental_states.get(we),
+            self.get_estimator(we.into()),
+            world.positions.get(we),
+        ) {
             let observation = RadiusObservation::new(ms.sight_radius, *current_pos, world);
             for y in 0..MAP_HEIGHT as Coord {
                 for x in 0..MAP_WIDTH as Coord {
                     let mut sum = 0.0;
-                    for (_, threat) in ms.calculate_threat(Position{ x, y}, &observation, est){
+                    for (_, threat) in ms.calculate_threat(Position { x, y }, &observation, est) {
                         sum += threat;
                     }
                     vec.push(sum);
@@ -654,6 +711,8 @@ impl AgentSystem {
     }
 }
 #[inline]
-fn max_threat(threats: impl Iterator<Item=(WorldEntity, Threat)>) -> Option<(WorldEntity, Threat)> {
+fn max_threat(
+    threats: impl Iterator<Item = (WorldEntity, Threat)>,
+) -> Option<(WorldEntity, Threat)> {
     threats.max_by(|(_, t1), (_, t2)| f32_cmp(t1, t2))
 }

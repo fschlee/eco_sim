@@ -1,14 +1,17 @@
-use conrod_winit::{WinitWindow};
-use winit::{event::{Event, WindowEvent, ElementState, ModifiersState, Touch, TouchPhase, MouseScrollDelta, MouseButton, VirtualKeyCode}, window::CursorIcon, dpi::{LogicalSize, LogicalPosition}};
-use conrod_core::{
-    Scalar,
-    cursor,
-    event::Input,
-    input,
+use conrod_core::{cursor, event::Input, input, Scalar};
+use conrod_winit::WinitWindow;
+use winit::{
+    dpi::{LogicalPosition, LogicalSize},
+    event::{
+        ElementState, Event, ModifiersState, MouseButton, MouseScrollDelta, Touch, TouchPhase,
+        VirtualKeyCode, WindowEvent,
+    },
+    window::CursorIcon,
 };
 
 pub fn convert_event<W>(e: Event<()>, window: &W) -> Option<Input>
-    where W: WinitWindow,
+where
+    W: WinitWindow,
 {
     match e {
         Event::WindowEvent { event, .. } => convert_window_event(event, window),
@@ -20,7 +23,8 @@ pub fn convert_event<W>(e: Event<()>, window: &W) -> Option<Input>
 ///
 /// This is useful for multi-window applications.
 pub fn convert_window_event<W>(e: WindowEvent, window: &W) -> Option<Input>
-    where W: WinitWindow,
+where
+    W: WinitWindow,
 {
     // The window size in points.
     let (win_w, win_h) = match window.get_inner_size() {
@@ -35,7 +39,7 @@ pub fn convert_window_event<W>(e: WindowEvent, window: &W) -> Option<Input>
     match e {
         WindowEvent::Resized(LogicalSize { width, height }) => {
             Some(Input::Resize(width as _, height as _).into())
-        },
+        }
 
         WindowEvent::ReceivedCharacter(ch) => {
             let string = match ch {
@@ -47,23 +51,25 @@ pub fn convert_window_event<W>(e: WindowEvent, window: &W) -> Option<Input>
                 _ => ch.to_string()
             };
             Some(Input::Text(string).into())
-        },
+        }
 
-        WindowEvent::Focused(focused) =>
-            Some(Input::Focus(focused).into()),
+        WindowEvent::Focused(focused) => Some(Input::Focus(focused).into()),
 
         WindowEvent::KeyboardInput { input, .. } => {
-            input.virtual_keycode.map(|key| {
-                match input.state {
-                    ElementState::Pressed =>
-                        Input::Press(input::Button::Keyboard(map_key(key))).into(),
-                    ElementState::Released =>
-                        Input::Release(input::Button::Keyboard(map_key(key))).into(),
+            input.virtual_keycode.map(|key| match input.state {
+                ElementState::Pressed => Input::Press(input::Button::Keyboard(map_key(key))).into(),
+                ElementState::Released => {
+                    Input::Release(input::Button::Keyboard(map_key(key))).into()
                 }
             })
-        },
+        }
 
-        WindowEvent::Touch(Touch { phase, location, id, .. }) => {
+        WindowEvent::Touch(Touch {
+            phase,
+            location,
+            id,
+            ..
+        }) => {
             let LogicalPosition { x, y } = location;
             let phase = match phase {
                 TouchPhase::Started => input::touch::Phase::Start,
@@ -73,7 +79,11 @@ pub fn convert_window_event<W>(e: WindowEvent, window: &W) -> Option<Input>
             };
             let xy = [tx(x), ty(y)];
             let id = input::touch::Id::new(id);
-            let touch = input::Touch { phase: phase, id: id, xy: xy };
+            let touch = input::Touch {
+                phase: phase,
+                id: id,
+                xy: xy,
+            };
             Some(Input::Touch(touch).into())
         }
 
@@ -83,7 +93,7 @@ pub fn convert_window_event<W>(e: WindowEvent, window: &W) -> Option<Input>
             let y = ty(y as Scalar);
             let motion = input::Motion::MouseCursor { x: x, y: y };
             Some(Input::Motion(motion).into())
-        },
+        }
 
         WindowEvent::MouseWheel { delta, .. } => match delta {
             MouseScrollDelta::PixelDelta(LogicalPosition { x, y }) => {
@@ -91,7 +101,7 @@ pub fn convert_window_event<W>(e: WindowEvent, window: &W) -> Option<Input>
                 let y = -y as Scalar;
                 let motion = input::Motion::Scroll { x: x, y: y };
                 Some(Input::Motion(motion).into())
-            },
+            }
 
             MouseScrollDelta::LineDelta(x, y) => {
                 // This should be configurable (we should provide a LineDelta event to allow for this).
@@ -99,18 +109,18 @@ pub fn convert_window_event<W>(e: WindowEvent, window: &W) -> Option<Input>
                 let x = ARBITRARY_POINTS_PER_LINE_FACTOR * x as Scalar;
                 let y = ARBITRARY_POINTS_PER_LINE_FACTOR * -y as Scalar;
                 Some(Input::Motion(input::Motion::Scroll { x: x, y: y }).into())
-            },
+            }
         },
 
         WindowEvent::MouseInput { state, button, .. } => match state {
-            ElementState::Pressed =>
-                Some(Input::Press(input::Button::Mouse(map_mouse(button))).into()),
-            ElementState::Released =>
-                Some(Input::Release(input::Button::Mouse(map_mouse(button))).into()),
+            ElementState::Pressed => {
+                Some(Input::Press(input::Button::Mouse(map_mouse(button))).into())
+            }
+            ElementState::Released => {
+                Some(Input::Release(input::Button::Mouse(map_mouse(button))).into())
+            }
         },
-        WindowEvent::RedrawRequested => {
-            Some(Input::Redraw)
-        },
+        WindowEvent::RedrawRequested => Some(Input::Redraw),
 
         _ => None,
     }
@@ -247,7 +257,6 @@ pub fn map_key(keycode: VirtualKeyCode) -> input::keyboard::Key {
 pub fn map_mouse(mouse_button: MouseButton) -> input::MouseButton {
     use input::MouseButton;
     match mouse_button {
-
         winit::event::MouseButton::Left => MouseButton::Left,
         winit::event::MouseButton::Right => MouseButton::Right,
         winit::event::MouseButton::Middle => MouseButton::Middle,
@@ -256,7 +265,7 @@ pub fn map_mouse(mouse_button: MouseButton) -> input::MouseButton {
         winit::event::MouseButton::Other(2) => MouseButton::Button6,
         winit::event::MouseButton::Other(3) => MouseButton::Button7,
         winit::event::MouseButton::Other(4) => MouseButton::Button8,
-        _ => MouseButton::Unknown
+        _ => MouseButton::Unknown,
     }
 }
 

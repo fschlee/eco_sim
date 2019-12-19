@@ -1,21 +1,20 @@
 extern crate proc_macro;
 
-use proc_macro::{TokenStream};
+use proc_macro::TokenStream;
 use quote::quote;
-
 
 #[proc_macro_derive(EnumCount)]
 pub fn enum_count(input: TokenStream) -> TokenStream {
-    let ast : syn::DeriveInput = syn::parse(input).unwrap();
+    let ast: syn::DeriveInput = syn::parse(input).unwrap();
     let mut count = 0usize;
-    let en  = match ast.data {
+    let en = match ast.data {
         syn::Data::Enum(en) => en,
         _ => panic!("Count only works for enum types"),
     };
     let mut match_arms = Vec::new();
     for variant in en.variants {
         let ident = variant.ident;
-        match_arms.push(quote!{#ident => #count, });
+        match_arms.push(quote! {#ident => #count, });
         count += 1;
     }
     let name = ast.ident;
@@ -35,20 +34,20 @@ pub fn enum_count(input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(EnumIter)]
 pub fn enum_iter(input: TokenStream) -> TokenStream {
-    let ast : syn::DeriveInput = syn::parse(input).unwrap();
+    let ast: syn::DeriveInput = syn::parse(input).unwrap();
     let mut count = 0usize;
-    let en  = match ast.data {
+    let en = match ast.data {
         syn::Data::Enum(en) => en,
         _ => panic!("Count only works for enum types"),
     };
     let mut match_arms = Vec::new();
     for variant in en.variants {
         let ident = variant.ident;
-        match_arms.push(quote!{ #count => Some(#ident), });
+        match_arms.push(quote! { #count => Some(#ident), });
         count += 1;
     }
     let name = ast.ident;
-    let struct_name : syn::Ident = syn::parse_str(&format!("{}Iterator", name)).unwrap();
+    let struct_name: syn::Ident = syn::parse_str(&format!("{}Iterator", name)).unwrap();
     let gen = quote! {
         pub struct #struct_name(usize);
 

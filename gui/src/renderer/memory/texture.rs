@@ -1,6 +1,6 @@
 use super::*;
-use gfx_hal::MemoryTypeId;
 use gfx_hal::command::Level;
+use gfx_hal::MemoryTypeId;
 
 pub struct LoadedTexture<B: Backend> {
     pub image: ManuallyDrop<B::Image>,
@@ -14,20 +14,45 @@ pub struct LoadedTexture<B: Backend> {
 
 impl<B: Backend> LoadedTexture<B> {
     pub fn from_image(
-        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut B::CommandPool,
-        command_queue: &mut B::CommandQueue, img: image::RgbaImage,
+        adapter: &Adapter<B>,
+        device: &Dev<B>,
+        command_pool: &mut B::CommandPool,
+        command_queue: &mut B::CommandQueue,
+        img: image::RgbaImage,
     ) -> Result<Self, Error> {
-        Self::from_buffer(adapter, device, command_pool, command_queue, &(*img), img.width(), img.height(), Format::Rgba8Srgb)
+        Self::from_buffer(
+            adapter,
+            device,
+            command_pool,
+            command_queue,
+            &(*img),
+            img.width(),
+            img.height(),
+            Format::Rgba8Srgb,
+        )
     }
     pub fn from_texture_spec(
-        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut B::CommandPool,
+        adapter: &Adapter<B>,
+        device: &Dev<B>,
+        command_pool: &mut B::CommandPool,
         command_queue: &mut B::CommandQueue,
-        spec: & TextureSpec,
+        spec: &TextureSpec,
     ) -> Result<Self, Error> {
-        Self::from_buffer(adapter, device, command_pool, command_queue, spec.buffer, spec.width, spec.height, spec.format)
+        Self::from_buffer(
+            adapter,
+            device,
+            command_pool,
+            command_queue,
+            spec.buffer,
+            spec.width,
+            spec.height,
+            spec.format,
+        )
     }
     pub fn from_buffer(
-        adapter: &Adapter<B>, device: &Dev<B>, command_pool: &mut B::CommandPool,
+        adapter: &Adapter<B>,
+        device: &Dev<B>,
+        command_pool: &mut B::CommandPool,
         command_queue: &mut B::CommandQueue,
         buffer: &[u8],
         width: u32,
@@ -37,7 +62,7 @@ impl<B: Backend> LoadedTexture<B> {
         let pixel_size = (format.surface_desc().bits / 8) as usize; // size_of::<image::Rgba<u8>>();
         let row_size = pixel_size * width as usize;
         let limits = adapter.physical_device.limits();
-        let row_alignment_mask = limits.optimal_buffer_copy_pitch_alignment  as u32 - 1;
+        let row_alignment_mask = limits.optimal_buffer_copy_pitch_alignment as u32 - 1;
         let row_pitch = ((row_size as u32 + row_alignment_mask) & !row_alignment_mask) as usize;
         debug_assert!(row_pitch as usize >= row_size);
         // 1. make a staging buffer with enough memory for the image, and a
@@ -47,12 +72,15 @@ impl<B: Backend> LoadedTexture<B> {
         unsafe {
             // 0. First we compute some memory related values.
 
-            let staging_bundle:  BufferBundle<B> =
+            let staging_bundle: BufferBundle<B> =
                 BufferBundle::new(&adapter, device, required_bytes, BufferUsage::TRANSFER_SRC)?;
 
             let range = 0..staging_bundle.requirements.size;
             let memory = &(*staging_bundle.memory);
-            let mut target = std::slice::from_raw_parts_mut(device.map_memory(memory, range.clone()).unwrap(), height as usize * row_pitch);
+            let mut target = std::slice::from_raw_parts_mut(
+                device.map_memory(memory, range.clone()).unwrap(),
+                height as usize * row_pitch,
+            );
             for y in 0..height as usize {
                 let row = &buffer[y * row_size..(y + 1) * row_size];
                 let dest_base = y * row_pitch;
@@ -117,19 +145,21 @@ impl<B: Backend> LoadedTexture<B> {
                 ))
                 .map_err(|_| "Couldn't create the sampler!")?;
 
-
             // 6. create a command buffer
             let mut cmd_buffer = command_pool.allocate_one(Level::Primary);
-            cmd_buffer.begin(CommandBufferFlags::EMPTY, CommandBufferInheritanceInfo::default());
+            cmd_buffer.begin(
+                CommandBufferFlags::EMPTY,
+                CommandBufferInheritanceInfo::default(),
+            );
 
             // 7. Use a pipeline barrier to transition the image from empty/undefined
             //    to TRANSFER_WRITE/TransferDstOptimal
             let image_barrier = gfx_hal::memory::Barrier::Image {
                 states: (gfx_hal::image::Access::empty(), Layout::Undefined)
                     ..(
-                    gfx_hal::image::Access::TRANSFER_WRITE,
-                    Layout::TransferDstOptimal,
-                ),
+                        gfx_hal::image::Access::TRANSFER_WRITE,
+                        Layout::TransferDstOptimal,
+                    ),
                 target: &the_image,
                 families: None,
                 range: SubresourceRange {
@@ -175,9 +205,9 @@ impl<B: Backend> LoadedTexture<B> {
                     Layout::TransferDstOptimal,
                 )
                     ..(
-                    gfx_hal::image::Access::SHADER_READ,
-                    Layout::ShaderReadOnlyOptimal,
-                ),
+                        gfx_hal::image::Access::SHADER_READ,
+                        Layout::ShaderReadOnlyOptimal,
+                    ),
                 target: &the_image,
                 families: None,
                 range: SubresourceRange {
@@ -218,7 +248,6 @@ impl<B: Backend> LoadedTexture<B> {
         }
     }
 
-
     pub unsafe fn manually_drop(&self, device: &Dev<B>) {
         use core::ptr::read;
         device.destroy_sampler(ManuallyDrop::into_inner(read(&self.sampler)));
@@ -233,17 +262,17 @@ pub struct TextureSpec<'a> {
     pub format: Format,
     pub width: u32,
     pub height: u32,
-    pub buffer: &'a [u8]
+    pub buffer: &'a [u8],
 }
 impl<'a> TextureSpec<'a> {
-    pub fn save_as_image(&self, path: & std::path::Path) -> Result<(), Error> {
+    pub fn save_as_image(&self, path: &std::path::Path) -> Result<(), Error> {
         use image::ColorType::*;
         let color_format = match self.format {
             Format::R8Unorm => Gray(8),
             Format::Rgba8Srgb => RGBA(8),
-            _ => Err("texture format with unknown image color mapping")?
+            _ => Err("texture format with unknown image color mapping")?,
         };
-        image::save_buffer(path, self.buffer, self.width, self.height, color_format).map_err(|e| e.into())
+        image::save_buffer(path, self.buffer, self.width, self.height, color_format)
+            .map_err(|e| e.into())
     }
 }
-

@@ -9,7 +9,10 @@ pub struct BufferBundle<B: Backend> {
 
 impl<B: Backend> BufferBundle<B> {
     pub fn new(
-        adapter: &Adapter<B>, device: &Dev<B>, size: usize, usage: BufferUsage,
+        adapter: &Adapter<B>,
+        device: &Dev<B>,
+        size: usize,
+        usage: BufferUsage,
     ) -> Result<Self, Error> {
         unsafe {
             let mut buffer = device
@@ -30,7 +33,12 @@ impl<B: Backend> BufferBundle<B> {
                 .ok_or("Couldn't find a memory type to support the buffer!")?;
             let memory = device
                 .allocate_memory(memory_type_id, requirements.size)
-                .map_err(|e| format!("Couldn't allocate buffer memory({} needed): {:?}", requirements.size,  e))?;
+                .map_err(|e| {
+                    format!(
+                        "Couldn't allocate buffer memory({} needed): {:?}",
+                        requirements.size, e
+                    )
+                })?;
             device
                 .bind_buffer_memory(&memory, 0, &mut buffer)
                 .map_err(|e| format!("Couldn't bind buffer memory: {:?}", e))?;
@@ -42,8 +50,13 @@ impl<B: Backend> BufferBundle<B> {
         }
     }
 
-    pub unsafe fn write_range<T : Copy>(&self, device: &B::Device, range: std::ops::Range<u64>, source: &[T]) -> Result<(), Error>{
-        let memory = & *(self.memory);
+    pub unsafe fn write_range<T: Copy>(
+        &self,
+        device: &B::Device,
+        range: std::ops::Range<u64>,
+        source: &[T],
+    ) -> Result<(), Error> {
+        let memory = &*(self.memory);
         let mut target = device.map_memory(memory, range.clone())?;
         std::slice::from_raw_parts_mut(target as *mut T, source.len()).copy_from_slice(source);
         let res = device.flush_mapped_memory_ranges(Some((memory, range)));
@@ -51,11 +64,16 @@ impl<B: Backend> BufferBundle<B> {
         res?;
         Ok(())
     }
-    pub fn write<T : Sized + Copy>(&self, device: &B::Device, offset: usize, source: &[T]) -> Result<(), Error>{
+    pub fn write<T: Sized + Copy>(
+        &self,
+        device: &B::Device,
+        offset: usize,
+        source: &[T],
+    ) -> Result<(), Error> {
         let range_start = (offset * size_of::<T>()) as u64;
         assert!(range_start + (source.len() * size_of::<T>()) as u64 <= self.requirements.size);
         let range = range_start..self.requirements.size;
-        let memory = & *(self.memory);
+        let memory = &*(self.memory);
 
         unsafe {
             let mut target = device.map_memory(memory, range.clone())?;
@@ -67,10 +85,14 @@ impl<B: Backend> BufferBundle<B> {
 
         Ok(())
     }
-    pub fn write_slice<T: Sized + Copy,F : FnMut(& mut [T])>(&self, device: &B::Device, mut writer: F) -> Result<(), Error> {
+    pub fn write_slice<T: Sized + Copy, F: FnMut(&mut [T])>(
+        &self,
+        device: &B::Device,
+        mut writer: F,
+    ) -> Result<(), Error> {
         let range = 0..self.requirements.size;
-        let memory = & *(self.memory);
-        let len = self.requirements.size  as usize / size_of::<T>();
+        let memory = &*(self.memory);
+        let len = self.requirements.size as usize / size_of::<T>();
 
         unsafe {
             let mut target = device.map_memory(memory, range.clone())?;

@@ -25,7 +25,7 @@ pub struct Speed(pub f32);
 
 impl std::ops::Mul<f32> for Speed {
     type Output = Speed;
-    fn mul(self, rhs: f32)-> Self::Output {
+    fn mul(self, rhs: f32) -> Self::Output {
         Speed(self.0 * rhs)
     }
 }
@@ -55,8 +55,7 @@ impl std::fmt::Display for PhysicalState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         if self.is_dead() {
             writeln!(f, "{:.2} meat remaining", self.meat.0)?;
-        }
-        else {
+        } else {
             writeln!(f, "Health: {:.2}/{:.2}", self.health.0, self.max_health.0)?;
             writeln!(f, "Speed : {:.}", self.speed.0)?;
             if let Some(att) = self.attack {
@@ -80,14 +79,14 @@ impl PhysicalState {
     }
     pub fn new(max_health: Health, speed: Speed, attack: Option<Attack>) -> Self {
         Self {
-            health : max_health,
+            health: max_health,
             max_health,
             meat: Meat(max_health.0 * 0.5),
             speed,
             move_progress: MoveProgress::default(),
             move_target: None,
             attack,
-            satiation: Satiation(10.0)
+            satiation: Satiation(10.0),
         }
     }
 }

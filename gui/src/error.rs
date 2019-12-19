@@ -1,5 +1,5 @@
-use log::{error};
 use crate::renderer::con_back::ConBackError;
+use log::error;
 
 pub trait LogError {
     fn log(&self);
@@ -17,13 +17,13 @@ impl std::fmt::Display for Error {
         use Error::*;
         match self {
             Static(m) => write!(f, "{}", m),
-            Owned((m))=> write!(f, "{}", m),
+            Owned((m)) => write!(f, "{}", m),
             ConBack(e) => write!(f, "{}", e),
         }
     }
 }
 impl<T> LogError for Result<T, Error> {
-    fn log(&self){
+    fn log(&self) {
         match self {
             Ok(_) => (),
             Err(err) => error!("{}", err),
@@ -35,7 +35,7 @@ impl From<ConBackError> for Error {
         Error::ConBack(e)
     }
 }
-impl From<& 'static str> for Error {
+impl From<&'static str> for Error {
     fn from(m: &'static str) -> Self {
         Error::Static(m)
     }
@@ -48,7 +48,7 @@ impl From<String> for Error {
 }
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
-       // Error::IO(e)
+        // Error::IO(e)
         Error::Owned(format!("{}", e))
     }
 }

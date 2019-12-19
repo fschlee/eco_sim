@@ -1,10 +1,9 @@
-use crate::world::{PhysicalState, Health, Meat, Satiation, Attack, Speed, MoveProgress};
+use crate::world::{Attack, Health, Meat, MoveProgress, PhysicalState, Satiation, Speed};
 
 use enum_macros::{EnumCount, EnumIter};
 
-
 pub trait Count {
-    const COUNT : usize;
+    const COUNT: usize;
     fn idx(&self) -> usize;
 }
 
@@ -28,16 +27,16 @@ impl EntityType {
             Rock | Burrow | Tree | Grass | Clover => false,
             Rabbit => match other {
                 Grass | Clover => true,
-                Rock | Burrow | Tree | Rabbit | Deer | Wolf => false
+                Rock | Burrow | Tree | Rabbit | Deer | Wolf => false,
             },
             Deer => match other {
                 Grass | Clover | Tree => true,
-                Rock  | Burrow | Rabbit | Deer | Wolf => false
-            }
+                Rock | Burrow | Rabbit | Deer | Wolf => false,
+            },
             Wolf => match other {
                 Rabbit | Deer => true,
                 Rock | Burrow | Tree | Grass | Clover | Wolf => false,
-            }
+            },
         }
     }
     pub fn can_pass(&self, other: &Self) -> bool {
@@ -47,38 +46,27 @@ impl EntityType {
             Rock | Burrow | Grass | Clover | Tree => false,
             Deer | Wolf => match other {
                 Rock | Burrow => false,
-                Grass  | Clover | Tree => true,
-                Rabbit | Deer   | Wolf => true,
-            }
-            Rabbit  => match other {
+                Grass | Clover | Tree => true,
+                Rabbit | Deer | Wolf => true,
+            },
+            Rabbit => match other {
                 Rock => false,
-                Grass  | Clover | Tree | Burrow => true,
-                Rabbit | Deer   | Wolf => true,
-            }
+                Grass | Clover | Tree | Burrow => true,
+                Rabbit | Deer | Wolf => true,
+            },
         }
     }
-    pub fn typical_physical_state(&self)  -> Option<PhysicalState> {
+    pub fn typical_physical_state(&self) -> Option<PhysicalState> {
         use EntityType::*;
         match self {
-            Rabbit=> Some(
-                PhysicalState::new(
-                    Health(50.0),
-                     Speed(0.2),
-                     None )
-            ),
-            Deer => Some(
-                PhysicalState::new(
-                    Health(300.0),
-                    Speed(0.4),
-                    None )
-            ),
-            Wolf => Some(
-                PhysicalState::new(
-                    Health(300.0),
-                    Speed(0.3),
-                    Some(Attack(60.0)))
-            ),
-            Rock | Grass | Clover | Tree | Burrow  => None
+            Rabbit => Some(PhysicalState::new(Health(50.0), Speed(0.2), None)),
+            Deer => Some(PhysicalState::new(Health(300.0), Speed(0.4), None)),
+            Wolf => Some(PhysicalState::new(
+                Health(300.0),
+                Speed(0.3),
+                Some(Attack(60.0)),
+            )),
+            Rock | Grass | Clover | Tree | Burrow => None,
         }
     }
     pub fn rate(&self) -> Rarity {
@@ -100,4 +88,3 @@ impl Default for EntityType {
         Self::Rock
     }
 }
-

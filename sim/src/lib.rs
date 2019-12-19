@@ -8,15 +8,15 @@ pub mod world;
 pub mod agent;
 pub mod util;
 
-pub use entity::*;
-pub use world::*;
-pub use position::*;
 pub use crate::agent::*;
 pub use crate::entity_type::EntityType;
+pub use entity::*;
+pub use position::*;
+pub use world::*;
 
-use std::ops::Range;
-use rand::{SeedableRng};
+use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
+use std::ops::Range;
 
 #[derive(Clone)]
 pub struct SimState {
@@ -32,7 +32,8 @@ impl SimState {
         self.time_acc += time_step;
         while self.time_acc >= self.sim_step {
             self.time_acc -= self.sim_step;
-            self.agent_system.advance(&mut self.world, &mut self.entity_manager);
+            self.agent_system
+                .advance(&mut self.world, &mut self.entity_manager);
             self.world.advance();
         }
     }
@@ -43,7 +44,7 @@ impl SimState {
         let mut entity_manager = EntityManager::default();
         let rng = XorShiftRng::seed_from_u64(seed);
         let (world, agents) = World::init(rng.clone(), &mut entity_manager);
-        let agent_system = AgentSystem::init(agents, &world, false, rng);
+        let agent_system = AgentSystem::init(agents, &world, false, false, rng);
         Self {
             time_acc: 0.0,
             sim_step: time_step,
@@ -62,19 +63,24 @@ impl SimState {
     pub fn entities_at(&self, position: Position) -> &[WorldEntity] {
         (&self.world).entities_at(position)
     }
-    pub fn update_mental_state(& mut self, mental_state: MentalState) {
-        self.agent_system.mental_states.insert(&mental_state.id.clone(), mental_state);
+    pub fn update_mental_state(&mut self, mental_state: MentalState) {
+        self.agent_system
+            .mental_states
+            .insert(&mental_state.id.clone(), mental_state);
     }
-    pub fn get_mental_state(&self, entity :&WorldEntity) -> Option<&MentalState> {
+    pub fn get_mental_state(&self, entity: &WorldEntity) -> Option<&MentalState> {
         self.agent_system.mental_states.get(entity)
     }
-    pub fn get_mental_model(&  self, entity: &WorldEntity) -> Option<impl Iterator<Item = & impl agent::estimator::MentalStateRep>> {
+    pub fn get_mental_model(
+        &self,
+        entity: &WorldEntity,
+    ) -> Option<impl Iterator<Item = &impl agent::estimator::MentalStateRep>> {
         self.agent_system.get_representation_source(entity.into())
     }
     pub fn get_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState> {
         self.world.physical_states.get(entity)
     }
-    pub fn get_visibility(& self, entity: &WorldEntity) -> impl Iterator<Item=Position> {
+    pub fn get_visibility(&self, entity: &WorldEntity) -> impl Iterator<Item = Position> {
         let pos = self.world.positions.get(entity);
         let ms = self.agent_system.mental_states.get(entity);
         match (pos, ms) {
@@ -82,7 +88,7 @@ impl SimState {
                 let radius = ms.sight_radius;
                 PositionWalker::new(*pos, radius)
             }
-            _ => PositionWalker::empty()
+            _ => PositionWalker::empty(),
         }
     }
     pub fn threat_map(&self, we: &WorldEntity) -> Vec<f32> {
