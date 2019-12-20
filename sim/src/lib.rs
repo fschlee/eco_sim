@@ -1,5 +1,6 @@
 #![feature(vec_remove_item)]
 #![feature(proc_macro_hygiene)]
+#![feature(try_blocks)]
 
 pub mod entity;
 pub mod entity_type;

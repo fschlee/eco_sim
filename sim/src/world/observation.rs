@@ -125,6 +125,8 @@ pub trait Observation: Clone {
         }
         None
     }
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a>;
+    fn is_observed(&self, pos: &Position) -> bool;
 }
 
 impl<'b, C: Cell> Observation for &'b World<C> {
@@ -158,6 +160,12 @@ impl<'b, C: Cell> Observation for &'b World<C> {
     }
     fn observed_position(&self, entity: &WorldEntity) -> Option<Position> {
         self.positions.get(entity).copied()
+    }
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a> {
+        Box::new(self.iter_cells().map(|(p, c)| (p, Some(c))))
+    }
+    fn is_observed(&self, pos: &Position) -> bool {
+        true
     }
 }
 #[derive(Clone, Debug)]
@@ -219,6 +227,18 @@ impl<'b, C: Cell> Observation for RadiusObservation<'b, C> {
             return self.world.entities_at(position);
         }
         &[]
+    }
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a> {
+        Box::new(self.world.iter_cells().map(move |(p, c)| {
+            if self.center.distance(&p) <= self.radius {
+                (p, Some(c))
+            } else {
+                (p, None)
+            }
+        }))
+    }
+    fn is_observed(&self, pos: &Position) -> bool {
+        self.center.distance(pos) <= self.radius
     }
 }
 struct EntityWalker<'a, C: Cell> {

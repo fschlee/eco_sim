@@ -21,6 +21,7 @@ pub enum EntityType {
     Wolf,
 }
 impl EntityType {
+    #[inline]
     pub fn can_eat(&self, other: &Self) -> bool {
         use EntityType::*;
         match self {
@@ -39,6 +40,7 @@ impl EntityType {
             },
         }
     }
+    #[inline]
     pub fn can_pass(&self, other: &Self) -> bool {
         use EntityType::*;
 
@@ -80,6 +82,14 @@ impl EntityType {
             Rabbit => 25,
             Deer => 30,
             Wolf => 50,
+        }
+    }
+    #[inline]
+    pub fn is_mobile(&self) -> bool {
+        use EntityType::*;
+        match self {
+            Rabbit | Deer | Wolf => true,
+            Rock | Grass | Clover | Tree | Burrow => false,
         }
     }
 }

@@ -4,21 +4,23 @@ pub mod estimator;
 
 use log::{error, info};
 use rand::Rng;
+use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, LinkedList};
 
 use super::entity::*;
 use super::entity_type::EntityType;
 use super::world::*;
 use crate::position::{Coord, Dir, Position};
 use crate::util::f32_cmp;
+use crate::world::cell::Cell;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
 
 use crate::agent::estimator::{Estimator, LearningEstimator};
 pub use emotion::{EmotionalState, Hunger};
 use estimate::PointEstimateRep;
-use estimator::MentalStateRep;
+use estimator::{EstimatorMap, MentalStateRep};
 
 use std::collections::hash_map::RandomState;
 
@@ -73,6 +75,8 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 }
 
 impl MentalState {
+    const UNSEEN_PROB_MULTIPLIER: f32 = 0.9;
+    const PROB_REMOVAL_THRESHOLD: f32 = 0.1;
     pub fn new(
         entity: WorldEntity,
         food_preferences: Vec<(EntityType, Reward)>,
@@ -105,14 +109,28 @@ impl MentalState {
         observation: &impl Observation,
         estimator: &impl Estimator,
     ) -> Action {
-        {
-            self.update(physical_state, own_position, observation);
-        }
-        if self.use_mdp {
-            unimplemented!()
-        // self.decide_mdp(physical_state, own_position, observation, estimator);
+        if let Some(world_model) = self.world_model.take() {
+            let observation = &&*world_model;
+            {
+                self.update(physical_state, own_position, observation);
+            }
+            if self.use_mdp {
+                unimplemented!()
+            // self.decide_mdp(physical_state, own_position, observation, estimator);
+            } else {
+                self.decide_simple(physical_state, own_position, observation, estimator);
+            }
+            self.world_model = Some(world_model);
         } else {
-            self.decide_simple(physical_state, own_position, observation, estimator);
+            {
+                self.update(physical_state, own_position, observation);
+            }
+            if self.use_mdp {
+                unimplemented!()
+            // self.decide_mdp(physical_state, own_position, observation, estimator);
+            } else {
+                self.decide_simple(physical_state, own_position, observation, estimator);
+            }
         }
         self.current_action
     }
@@ -190,6 +208,118 @@ impl MentalState {
         }
         self.score += score;
         return score;
+    }
+    pub fn update_world_model<'a>(
+        &'a mut self,
+        actions: impl IntoIterator<Item = itertools::Either<WorldEntity, &'a (WorldEntity, Action)>>,
+        observation: &'a impl Observation,
+        estimator: &impl Estimator,
+    ) {
+        use itertools::Itertools;
+        if let Some(ref mut wm) = self.world_model {
+            let (unseen, mut confident_actions): (Vec<WorldEntity>, Vec<(WorldEntity, Action)>) =
+                actions.into_iter().partition_map(std::convert::identity);
+
+            let mut expected_actions = Vec::new();
+            for (pos, c) in wm.iter_cells().filter(|(p, c)| observation.is_observed(p)) {
+                use Occupancy::*;
+                match c {
+                    Empty => (),
+                    Unknown => (),
+                    Filled(v) => v.iter().filter(|e| e.e_type().is_mobile()).for_each(|e| {
+                        if let (Some(phys), Some(mut ms)) =
+                            (wm.physical_states.get(e), estimator.invoke(*e))
+                        {
+                            confident_actions.push((*e, ms.decide(phys, pos, &&**wm, estimator)))
+                        }
+                    }),
+                    ExpectedFilled(vs, ps) => vs
+                        .iter()
+                        .zip(ps.iter())
+                        .filter(|(e, p)| {
+                            **p > Self::PROB_REMOVAL_THRESHOLD && e.e_type().is_mobile()
+                        })
+                        .for_each(|(e, p)| {
+                            if let (Some(phys), Some(mut ms)) =
+                                (wm.physical_states.get(e), estimator.invoke(*e))
+                            {
+                                let action = ms.decide(phys, pos, &&**wm, estimator);
+                                if *p > 0.9 {
+                                    confident_actions.push((*e, action));
+                                } else if *p > 0.1 {
+                                    expected_actions.push((*e, action, pos, *p));
+                                }
+                            }
+                        }),
+                }
+            }
+            wm.act(&confident_actions);
+            for (we, a, pos, p) in expected_actions {
+                wm.act_uncertain(a, we, pos, p);
+            }
+            wm.advance();
+
+            for (pos, opt_cell) in observation.iter() {
+                if let Some(cell) = opt_cell {
+                    wm.cells[pos.y as usize][pos.x as usize] = Occupancy::Empty;
+                    for e in (**cell).iter() {
+                        wm.move_unchecked(e, pos);
+                        observation
+                            .observed_physical_state(e)
+                            .map(|p| wm.physical_states.insert(e, p.clone()));
+                    }
+                } else {
+                    let mut clear = false;
+                    match &mut wm.cells[pos.y as usize][pos.x as usize] {
+                        Occupancy::Empty => (),
+                        Occupancy::Unknown => (),
+                        o @ Occupancy::Filled(_) => {
+                            let mut tmp = Occupancy::Unknown;
+                            std::mem::swap(o, &mut tmp);
+                            if let Occupancy::Filled(v) = tmp {
+                                let probs = v
+                                    .iter()
+                                    .map(|e| {
+                                        if e.e_type().is_mobile() {
+                                            Self::UNSEEN_PROB_MULTIPLIER
+                                        } else {
+                                            1.0
+                                        }
+                                    })
+                                    .collect();
+                                *o = Occupancy::ExpectedFilled(v, probs);
+                            }
+                        }
+                        Occupancy::ExpectedFilled(ws, ps) => {
+                            let mut i = 0;
+                            ws.retain(|w| {
+                                if w.e_type().is_mobile() {
+                                    i += 1;
+                                    true
+                                } else {
+                                    ps[i] *= Self::UNSEEN_PROB_MULTIPLIER;
+                                    // also filters out NaN
+                                    if ps[i] >= Self::PROB_REMOVAL_THRESHOLD {
+                                        i += 1;
+                                        true
+                                    } else {
+                                        ps.remove(i);
+                                        false
+                                    }
+                                }
+                            });
+                            if ws.len() < 1 {
+                                clear = true;
+                            }
+                        }
+                    }
+                    if clear {
+                        wm.cells[pos.y as usize][pos.x as usize] = Occupancy::Unknown;
+                    }
+                }
+            }
+        }
+        // TODO
     }
     fn decide_simple(
         &mut self,
@@ -578,43 +708,48 @@ impl MentalState {
     }
     // pub fn set_preference()
 }
-type EstimateRep = PointEstimateRep;
-type EstimatorT = LearningEstimator<EstimateRep>;
-type EstimatorMap = HashMap<Entity, usize, RandomState>;
+
 #[derive(Clone, Debug, Default)]
 pub struct AgentSystem {
     pub mental_states: Storage<MentalState>,
-    pub estimators: Vec<LearningEstimator<EstimateRep>>,
     pub estimator_map: EstimatorMap,
+    pub actions: Vec<(WorldEntity, Action)>,
+    pub killed: Vec<WorldEntity>,
 }
 
 impl AgentSystem {
     pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
         use itertools::{Either, Itertools};
         use rayon::prelude::*;
-        let (mut actions, mut killed): (Vec<_>, Vec<_>) = {
+        let mut res: LinkedList<_> = {
             let Self {
                 ref mut mental_states,
                 ref estimator_map,
-                ref estimators,
+                ref actions,
+                ..
             } = self;
-            mental_states.par_iter_mut().partition_map(|mental_state|  {
+            mental_states.par_iter_mut().map(|mental_state|  {
                 let entity = mental_state.id;
                 match (
                     world.get_physical_state(&entity),
                     world.positions.get(&entity),
-                    if let Some(i) = estimator_map.get(&entity.into()) {
-                        estimators.get(*i)
-                    } else {
-                        None
-                    },
+                    estimator_map.get(entity.into()),
                 ) {
                     (Some(physical_state), Some(position), Some(estimator)) => {
                         if physical_state.is_dead() {
                             info!("Agent {:?} died", entity);
                             Either::Right(entity.clone())
                         } else {
-                            let action = mental_state.decide(physical_state, *position, &world.observe_in_radius(&entity, mental_state.sight_radius), estimator);
+                            let sight = mental_state.sight_radius;
+                            let observation = world.observe_in_radius(&entity, sight);
+                            let observed_actions = actions.iter().map(|t | {
+                                match world.positions.get(t.0) {
+                                    Some(p) if position.distance(p) <= sight => Either::Right(t),
+                                    _ => Either::Left(t.0)
+                                }
+                            });
+                            mental_state.update_world_model(observed_actions, &observation, estimator);
+                            let action = mental_state.decide(physical_state, *position, &observation, estimator);
                             Either::Left((entity, action))
                         }
                     }
@@ -623,45 +758,57 @@ impl AgentSystem {
                         Either::Right(entity.clone())
                     },
                 }
-            })
+            }).collect()
         };
-        self.estimators.par_iter_mut().for_each(|est| {
-            for (entity, action) in &actions {
-                if let Some(other_pos) = world.positions.get(entity) {
-                    est.learn(*action, *entity, *other_pos, world);
-                }
+        self.actions.clear();
+        self.killed.clear();
+        for either in res {
+            match either {
+                Either::Left(a) => self.actions.push(a),
+                Either::Right(k) => self.killed.push(k),
             }
-        });
-        world.act(&actions);
+        }
+        {
+            let Self {
+                ref mut estimator_map,
+                ref actions,
+                ..
+            } = self;
+            estimator_map.par_iter_mut().for_each(|est| {
+                for (entity, action) in actions {
+                    if let Some(other_pos) = world.positions.get(entity) {
+                        est.learn(*action, *entity, *other_pos, world);
+                    }
+                }
+            });
+        }
+
+        world.act(&self.actions);
         for ms in self.mental_states.iter_mut() {
             ms.update_on_events(&world.events);
         }
-        for entity in killed {
-            if let Some(mut ms) = self.mental_states.remove(&entity) {
-                let new_e = world.respawn(&entity, &mut ms, entity_manager);
-                debug_assert_eq!(ms.id, new_e);
-                self.mental_states.insert(&new_e, ms);
-                self.rebind_estimator(entity, new_e);
+        {
+            let Self {
+                ref mut estimator_map,
+                ref mut mental_states,
+                ref killed,
+                ..
+            } = self;
+            for entity in killed {
+                if let Some(mut ms) = mental_states.remove(entity) {
+                    let new_e = world.respawn(&entity, &mut ms, entity_manager);
+                    debug_assert_eq!(ms.id, new_e);
+                    mental_states.insert(&new_e, ms);
+                    estimator_map.rebind_estimator(*entity, new_e);
+                }
             }
         }
-    }
-    pub fn get_estimator(&self, entity: Entity) -> Option<&EstimatorT> {
-        if let Some(i) = self.estimator_map.get(&entity) {
-            return self.estimators.get(*i);
-        }
-        None
     }
     pub fn get_representation_source<'a>(
         &'a self,
         entity: Entity,
     ) -> Option<impl Iterator<Item = &impl MentalStateRep> + 'a> {
-        self.get_estimator(entity).map(|r| r.estimators.into_iter())
-    }
-    pub fn rebind_estimator(&mut self, old: WorldEntity, new: WorldEntity) {
-        if let Some(idx) = self.estimator_map.remove(&old.into()) {
-            self.estimators[idx].replace(old, new);
-            self.estimator_map.insert(new.into(), idx);
-        }
+        self.estimator_map.get_representation_source(entity)
     }
     pub fn init<C: Cell>(
         agents: Vec<WorldEntity>,
@@ -670,8 +817,7 @@ impl AgentSystem {
         have_world_model: bool,
         mut rng: impl Rng,
     ) -> Self {
-        let mut estimators = Vec::new();
-        let mut estimator_map = HashMap::new();
+        let mut estimator_map = EstimatorMap::default();
         let mut mental_states = Storage::new();
         for agent in &agents {
             let food_prefs = EntityType::iter()
@@ -679,21 +825,21 @@ impl AgentSystem {
                 .map(|e| (e.clone(), rng.gen_range(0.0, 1.0)))
                 .collect();
             let ms = MentalState::new(agent.clone(), food_prefs, use_mdp, have_world_model);
-            estimator_map.insert(agent.into(), estimators.len());
-            estimators.push(LearningEstimator::new(vec![(*agent, ms.sight_radius)]));
+            estimator_map.insert(&ms);
             mental_states.insert(agent, ms);
         }
         Self {
             mental_states,
-            estimators,
             estimator_map,
+            actions: Vec::new(),
+            killed: Vec::new(),
         }
     }
     pub fn threat_map<C: Cell>(&self, we: &WorldEntity, world: &World<C>) -> Vec<f32> {
         let mut vec = Vec::with_capacity(MAP_HEIGHT * MAP_WIDTH);
         if let (Some(ms), Some(est), Some(current_pos)) = (
             self.mental_states.get(we),
-            self.get_estimator(we.into()),
+            self.estimator_map.get(we.into()),
             world.positions.get(we),
         ) {
             let observation = RadiusObservation::new(ms.sight_radius, *current_pos, world);

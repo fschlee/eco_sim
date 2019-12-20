@@ -1,9 +1,13 @@
+use super::estimate::PointEstimateRep;
 use super::MentalState;
-use crate::entity::{Source, Storage};
+use crate::entity::{Entity, Source, Storage, WorldEntity};
 use crate::entity_type::EntityType;
 use crate::position::Coord;
-use crate::{Action, Cell, Observation, Position, StorageSlice, World, WorldEntity};
+use crate::{Action, Cell, Observation, Position, StorageSlice, World};
+
 use rand::Rng;
+use rayon::prelude::*;
+use std::collections::{hash_map::RandomState, HashMap};
 
 pub trait MentalStateRep: std::fmt::Display + Sized {
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState;
@@ -178,5 +182,44 @@ impl<'a, T: MentalStateRep + Sized + 'static> Estimator for StorageSlice<'a, T> 
         world: &World<C>,
     ) {
         unimplemented!()
+    }
+}
+
+type EstimateRep = PointEstimateRep;
+pub type EstimatorT = LearningEstimator<EstimateRep>;
+
+#[derive(Clone, Debug, Default)]
+pub struct EstimatorMap {
+    pub estimators: Vec<LearningEstimator<EstimateRep>>,
+    pub estimator_map: HashMap<Entity, usize, RandomState>,
+}
+
+impl EstimatorMap {
+    pub fn insert(&mut self, ms: &MentalState) {
+        self.estimator_map
+            .insert(ms.id.into(), self.estimators.len());
+        self.estimators
+            .push(LearningEstimator::new(vec![(ms.id, ms.sight_radius)]));
+    }
+    pub fn get(&self, entity: Entity) -> Option<&EstimatorT> {
+        if let Some(i) = self.estimator_map.get(&entity) {
+            return self.estimators.get(*i);
+        }
+        None
+    }
+    pub fn get_representation_source<'a>(
+        &'a self,
+        entity: Entity,
+    ) -> Option<impl Iterator<Item = &impl MentalStateRep> + 'a> {
+        self.get(entity).map(|r| r.estimators.into_iter())
+    }
+    pub fn rebind_estimator(&mut self, old: WorldEntity, new: WorldEntity) {
+        if let Some(idx) = self.estimator_map.remove(&old.into()) {
+            self.estimators[idx].replace(old, new);
+            self.estimator_map.insert(new.into(), idx);
+        }
+    }
+    pub fn par_iter_mut<'a>(&'a mut self) -> impl ParallelIterator<Item = &'a mut EstimatorT> + 'a {
+        self.estimators.par_iter_mut()
     }
 }

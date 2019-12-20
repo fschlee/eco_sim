@@ -73,6 +73,7 @@ pub struct World<C: Cell> {
 }
 
 impl<C: Cell> World<C> {
+    pub const EATING_DECREMENT: f32 = 5.0;
     pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<WorldEntity>) {
         let area = MAP_WIDTH * MAP_HEIGHT;
         let mut cells = C::empty_init();
@@ -198,7 +199,7 @@ impl<C: Cell> World<C> {
             Action::Eat(target) => {
                 if self.positions.get(&target) == Some(own_pos) {
                     if entity.e_type().can_eat(&target.e_type()) {
-                        Ok(self.eat_unchecked(entity, &target))
+                        Ok(self.eat_unchecked(entity, &target, Self::EATING_DECREMENT))
                     } else {
                         Err("entity can't eat that")
                     }
@@ -281,16 +282,19 @@ impl<C: Cell> World<C> {
         let y = position.y as usize;
         &mut self.cells[y][x]
     }
-    fn move_unchecked(&mut self, entity: &WorldEntity, new_position: Position) {
+    pub(crate) fn move_unchecked(&mut self, entity: &WorldEntity, new_position: Position) {
         if let Some((_, old_pos)) = self.positions.insert(entity, new_position) {
             self.entities_at_mut(old_pos).retain(|e| e != entity);
         }
         self.entities_at_mut(new_position).push(entity.clone());
     }
-    fn eat_unchecked(&mut self, eater: &WorldEntity, eaten: &WorldEntity) -> Outcome {
-        let mut decrement = 5.0;
+    fn eat_unchecked(
+        &mut self,
+        eater: &WorldEntity,
+        eaten: &WorldEntity,
+        mut decrement: f32,
+    ) -> Outcome {
         let mut remove = false;
-
         if let Some(phys) = self.physical_states.get_mut(eaten) {
             if phys.meat.0 <= decrement {
                 remove = true;
@@ -324,6 +328,19 @@ impl<C: Cell> World<C> {
                     .map(move |(res, x)| (x, y.clone(), &**res))
             })
     }
+    pub fn iter_cells<'a>(&'a self) -> impl Iterator<Item = (Position, &'a C)> + 'a {
+        self.cells.iter().enumerate().flat_map(|(y, row)| {
+            row.iter().enumerate().map(move |(x, c)| {
+                (
+                    Position {
+                        x: x as Coord,
+                        y: y as Coord,
+                    },
+                    c,
+                )
+            })
+        })
+    }
 }
 impl World<Occupancy> {
     pub fn empty() -> Self {
@@ -333,6 +350,106 @@ impl World<Occupancy> {
             physical_states: Storage::new(),
             events: Vec::new(),
         }
+    }
+    pub fn act_uncertain<'a>(
+        &'a mut self,
+        action: Action,
+        entity: WorldEntity,
+        position: Position,
+        prob: f32,
+    ) -> impl Iterator<Item = (Event, f32)> + 'a {
+        assert!(prob > 0.0 && prob < 1.0);
+        if (prob > 0.0) {
+            let res: Result<Result<_, _>, _> = try {
+                match action {
+                    Action::Move(dir) => match position.step(dir) {
+                        Some(pos) if self.can_pass(&entity, pos) => {
+                            let phys = self
+                                .physical_states
+                                .get_mut(entity)
+                                .ok_or("Entity has no physical state but tries to move")?;
+                            if phys.partial_move(pos) >= MoveProgress(1.0) {
+                                phys.move_target = None;
+                                phys.move_progress = MoveProgress::default();
+                                Ok(Outcome::Moved(dir))
+                            } else {
+                                Ok(Outcome::Incomplete)
+                            }
+                        }
+                        Some(_) => Err("blocked move"),
+                        None => Err("Invalid move"),
+                    },
+                    Action::Eat(target) => {
+                        if self.positions.get(&target) == Some(&position) {
+                            if entity.e_type().can_eat(&target.e_type()) {
+                                Ok(self.eat_unchecked(
+                                    &entity,
+                                    &target,
+                                    Self::EATING_DECREMENT * prob,
+                                ))
+                            } else {
+                                Err("entity can't eat that")
+                            }
+                        } else {
+                            Err("can only eat things in the same tile")
+                        }
+                    }
+                    Action::Attack(opponent) => {
+                        let pos = self
+                            .positions
+                            .get(&opponent)
+                            .ok_or("Entity tries to attack opponent with no known position")?;
+                        if pos != &position
+                            && !(self.can_pass(&entity, *pos) && position.is_neighbour(pos))
+                        {
+                            Err("Cannot reach attacked opponent")?;
+                        }
+                        let phys = self
+                            .physical_states
+                            .get_mut(entity)
+                            .ok_or("Entity has no physical state but tries to attack")?;
+                        if let Some(mut attack) = phys.attack {
+                            attack.0 *= prob;
+                            if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
+                                let damage = phys_target.health.suffer(attack);
+                                Ok(Outcome::Hurt {
+                                    damage,
+                                    target: opponent,
+                                    lethal: phys_target.is_dead(),
+                                })
+                            } else {
+                                Err("opponent has no physical state")
+                            }
+                        } else {
+                            Err("entity incapable of attacking")
+                        }
+                    }
+                    Action::Idle => Ok(Outcome::Rested),
+                }
+            };
+            let outcome = res.and_then(std::convert::identity).ok();
+            return outcome
+                .map(|outcome| {
+                    (
+                        Event {
+                            actor: entity,
+                            outcome,
+                        },
+                        prob,
+                    )
+                })
+                .into_iter();
+        }
+        None.into_iter()
+    }
+    fn move_uncertain(&mut self, entity: &WorldEntity, new_position: Position, prob: f32) {
+        if let Some((_, old_pos)) = self.positions.insert(entity, new_position) {
+            if self.entities_at_mut(old_pos).reduce_prob(entity, prob) > prob {
+                self.positions.insert(entity, old_pos);
+            }
+        }
+        self.entities_at_mut(new_position)
+            .push_prob(entity.clone(), prob);
     }
 }
 impl<C: Cell> std::fmt::Debug for World<C> {
