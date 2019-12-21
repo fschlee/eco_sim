@@ -45,7 +45,7 @@ impl SimState {
         let mut entity_manager = EntityManager::default();
         let rng = XorShiftRng::seed_from_u64(seed);
         let (world, agents) = World::init(rng.clone(), &mut entity_manager);
-        let agent_system = AgentSystem::init(agents, &world, false, false, rng);
+        let agent_system = AgentSystem::init(agents, &world, false, true, rng);
         Self {
             time_acc: 0.0,
             sim_step: time_step,

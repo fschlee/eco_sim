@@ -3,7 +3,7 @@ pub mod cell;
 pub mod observation;
 pub mod position;
 
-use log::error;
+use log::{error, warn};
 use rand::Rng;
 use std::ops::Range;
 
@@ -168,11 +168,11 @@ impl<C: Cell> World<C> {
             if let Some(pos) = self.positions.get(actor).and_then(|p| p.step(dir)) {
                 self.move_unchecked(&actor, pos);
             } else {
-                error!("Processing invalid move {} by {}", dir, actor);
+                error!("Processing invalid move {:?} by {}", dir, actor);
             }
         }
     }
-    fn act_one(&mut self, entity: &WorldEntity, action: Action) -> Result<Outcome, &str> {
+    fn act_one(&mut self, entity: &WorldEntity, action: Action) -> Result<Outcome, String> {
         let own_pos = self
             .positions
             .get(entity)
@@ -193,18 +193,18 @@ impl<C: Cell> World<C> {
                         Ok(Outcome::Incomplete)
                     }
                 }
-                Some(_) => Err("blocked move"),
-                None => Err("Invalid move"),
+                Some(pos) => Err(format!("Move from {:?} to {:?} blocked by {:?}", own_pos, pos, self.entities_at(pos).iter().find(|&e| !entity.e_type().can_pass(&e.e_type())).unwrap())),
+                None => Err("Invalid move".to_owned()),
             },
             Action::Eat(target) => {
                 if self.positions.get(&target) == Some(own_pos) {
                     if entity.e_type().can_eat(&target.e_type()) {
                         Ok(self.eat_unchecked(entity, &target, Self::EATING_DECREMENT))
                     } else {
-                        Err("entity can't eat that")
+                        Err(format!("Can't eat {} ", target))
                     }
                 } else {
-                    Err("can only eat things in the same tile")
+                    Err("Can only eat things in the same tile".to_owned())
                 }
             }
             Action::Attack(opponent) => {
@@ -213,7 +213,7 @@ impl<C: Cell> World<C> {
                     .get(&opponent)
                     .ok_or("Entity tries to attack opponent with no known position")?;
                 if pos != own_pos && !(self.can_pass(entity, *pos) && own_pos.is_neighbour(pos)) {
-                    return Err("Cannot reach attacked opponent");
+                    return Err(format!("Cannot reach attacked opponent {} at {:?} from {:?}", opponent, pos, own_pos));
                 }
                 let phys = self
                     .physical_states
@@ -228,10 +228,10 @@ impl<C: Cell> World<C> {
                             lethal: phys_target.is_dead(),
                         })
                     } else {
-                        Err("opponent has no physical state")
+                        Err(format!("Attacked opponent {} has no physical state", opponent))
                     }
                 } else {
-                    Err("entity incapable of attacking")
+                    Err(format!("Incapable of attacking {}", opponent))
                 }
             }
             Action::Idle => Ok(Outcome::Rested),
@@ -351,6 +351,29 @@ impl World<Occupancy> {
             events: Vec::new(),
         }
     }
+    pub fn confident_act<'a>(&'a mut self, actions: impl IntoIterator<Item = &'a (WorldEntity, Action)>, observer: WorldEntity) {
+        let mut move_list = Vec::new();
+        for &(actor, action) in actions {
+            match self.act_one(&actor, action) {
+                Err(err) => error!("Observed action of {} as modelled by {} failed: {}", actor, observer, err),
+                Ok(Outcome::Moved(dir)) => {
+                    move_list.push((actor, dir));
+                    self.events.push(Event {
+                        actor,
+                        outcome: Outcome::Moved(dir),
+                    });
+                }
+                Ok(outcome) => self.events.push(Event { actor, outcome }),
+            }
+        }
+        for (actor, dir) in move_list {
+            if let Some(pos) = self.positions.get(actor).and_then(|p| p.step(dir)) {
+                self.move_unchecked(&actor, pos);
+            } else {
+                warn!("Processing invalid move {:?} by {}", dir, actor);
+            }
+        }
+    }
     pub fn act_uncertain<'a>(
         &'a mut self,
         action: Action,
@@ -358,7 +381,7 @@ impl World<Occupancy> {
         position: Position,
         prob: f32,
     ) -> impl Iterator<Item = (Event, f32)> + 'a {
-        assert!(prob > 0.0 && prob < 1.0);
+        assert!(prob > 0.0 && prob <= 1.0);
         if (prob > 0.0) {
             let res: Result<Result<_, _>, _> = try {
                 match action {
@@ -371,6 +394,7 @@ impl World<Occupancy> {
                             if phys.partial_move(pos) >= MoveProgress(1.0) {
                                 phys.move_target = None;
                                 phys.move_progress = MoveProgress::default();
+                                self.move_uncertain(&entity, pos, prob);
                                 Ok(Outcome::Moved(dir))
                             } else {
                                 Ok(Outcome::Incomplete)

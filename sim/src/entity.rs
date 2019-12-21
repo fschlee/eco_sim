@@ -388,7 +388,7 @@ impl<'a, 'b, T> IntoIterator for &'b &'a StorageSlice<'a, T> {
 }
 
 pub trait Source<'a, T> {
-    fn get(&'a self, entity: impl Into<Entity>) -> Option<T>;
+    fn get(&'a self, entity: Entity) -> Option<T>;
     fn iter(&'a self) -> Box<dyn Iterator<Item = T> + 'a>;
 }
 
@@ -396,8 +396,7 @@ impl<'a, T: 'a, F: 'static> Source<'a, T> for &'a StorageSlice<'a, F>
 where
     &'a F: Into<T>,
 {
-    fn get(&'a self, entity: impl Into<Entity>) -> Option<T> {
-        let entity = entity.into();
+    fn get(&'a self, entity: Entity) -> Option<T> {
         let idx = entity.id as usize;
         if idx < self.idx {
             if let Some(stored_gen) = self.gen0.get(idx) {
@@ -439,10 +438,29 @@ impl<'a, T, I: 'a> Source<'a, T> for Storage<I>
 where
     &'a I: Into<T>,
 {
-    fn get(&'a self, entity: impl Into<Entity>) -> Option<T> {
+    fn get(&'a self, entity: Entity) -> Option<T> {
         self.get(entity).map(|e| e.into())
     }
     fn iter(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
         Box::new(self.into_iter().map(|e| e.into()))
+    }
+}
+
+pub struct StorageAdapter<'a, T, U> {
+    storage: & 'a Storage<U>,
+    fun : Box<dyn Fn(&U)->Option<&T> + Sync + Send>,
+}
+impl<'a, T, U> StorageAdapter<'a, T, U> {
+    pub fn new(storage: & 'a Storage<U>, fun: Box<dyn Fn(&U)->Option<&T> + Sync + Send>) -> Self {
+        Self { storage, fun }
+    }
+}
+impl<'a, T, U> Source<'a, & 'a T> for StorageAdapter<'a, T, U> {
+    fn get(&'a self, entity: Entity) -> Option<&'a T> {
+        self.storage.get(entity).and_then(| t|(*self.fun)(t))
+    }
+
+    fn iter(&'a self) -> Box<dyn Iterator<Item=&'a T> + 'a> {
+        Box::new(self.storage.iter().flat_map(move |u| (*self.fun)(u).into_iter()))
     }
 }

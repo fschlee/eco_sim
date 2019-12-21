@@ -3,7 +3,7 @@ use super::MentalState;
 use crate::entity::{Entity, Source, Storage, WorldEntity};
 use crate::entity_type::EntityType;
 use crate::position::Coord;
-use crate::{Action, Cell, Observation, Position, StorageSlice, World};
+use crate::{Action, Cell, Observation, Position, StorageSlice, World, Event, Occupancy};
 
 use rand::Rng;
 use rayon::prelude::*;
@@ -17,6 +17,7 @@ pub trait MentalStateRep: std::fmt::Display + Sized {
         others: &impl Estimator,
         observation: &impl Observation,
     );
+    fn update_on_events<'a>(& 'a mut self, events: impl IntoIterator<Item=&'a Event>  + Copy, world_model: Option<&'a World<Occupancy>>);
     fn update_unseen<'a>(&'a mut self, others: &impl Estimator, observation: &impl Observation);
     fn into_ms(&self) -> MentalState {
         let mut rng: rand_xorshift::XorShiftRng = rand::SeedableRng::seed_from_u64(0);
@@ -31,6 +32,7 @@ pub trait MentalStateRep: std::fmt::Display + Sized {
 
 pub trait Estimator {
     fn invoke(&self, we: WorldEntity) -> Option<MentalState>;
+    fn update_on_events<'a>(& 'a mut self, events: impl IntoIterator<Item=&'a Event>  + Copy, world_model: Option<&'a World<Occupancy>>);
     type Rep: MentalStateRep;
     fn invoke_sampled<'a, R: rand::Rng + Sized>(
         &'a self,
@@ -38,12 +40,13 @@ pub trait Estimator {
         rng: &'a mut R,
         n: usize,
     ) -> InvokeIter<'a, Self::Rep, R>;
-    fn learn<C: Cell>(
+    fn learn<'a, C: Cell>(
         &mut self,
         action: Action,
         other: WorldEntity,
         other_pos: Position,
         world: &World<C>,
+        world_models: & 'a impl Source<'a, & 'a World<Occupancy>>
     );
 }
 
@@ -86,7 +89,7 @@ impl<'a, E: MentalStateRep, R: Rng> Iterator for InvokeIter<'a, E, R> {
     }
 }
 
-impl<E: MentalStateRep> LearningEstimator<E> {
+impl<E: MentalStateRep + 'static> LearningEstimator<E> {
     fn assure_init(&mut self, entity: &WorldEntity, observation: &impl Observation) {
         if self.estimators.get(entity).is_some() {
             return;
@@ -112,6 +115,19 @@ impl<E: MentalStateRep> LearningEstimator<E> {
             tpl.0 = new;
         }
     }
+    fn learn_helper(&mut self, agent: WorldEntity, other: WorldEntity, action: Action, sight: Coord, own_pos: &Position, other_pos: Position, observation: impl Observation) {
+        let dist = own_pos.distance(&other_pos);
+        if dist <= sight {
+            self.assure_init(&other, &observation);
+        }
+        if let Some((es, sc)) = self.estimators.split_out_mut(other) {
+            if dist <= sight {
+                es.update_seen(action, &sc, &observation);
+            } else {
+                es.update_unseen(&sc, &observation);
+            }
+        }
+    }
 }
 
 impl<E: MentalStateRep + 'static> Estimator for LearningEstimator<E> {
@@ -133,36 +149,37 @@ impl<E: MentalStateRep + 'static> Estimator for LearningEstimator<E> {
 
         // self.estimators.get(entity).iter().flat_map(|e| e.sample(1.0, rng)).fuse()
     }
-    fn learn<C: Cell>(
+    fn learn<'a, C: Cell>(
         &mut self,
         action: Action,
         other: WorldEntity,
         other_pos: Position,
         world: &World<C>,
+        world_models: &'a impl Source<'a, & 'a World<Occupancy>>
     ) {
+
+
         for (agent, sight) in self.agents.clone() {
             if let Some(own_pos) = world.positions.get(agent) {
-                let observation = world.observe_in_radius(&agent, sight); // &(*world);//
-                let dist = own_pos.distance(&other_pos);
-                if dist <= sight {
-                    self.assure_init(&other, &observation);
-                }
-                if let Some((es, sc)) = self.estimators.split_out_mut(other) {
-                    if dist <= sight {
-                        es.update_seen(action, &sc, &observation);
-                    } else {
-                        es.update_unseen(&sc, &observation);
-                    }
+                if let Some(wm) = world_models.get(agent.into()) {
+                    self.learn_helper(agent, other, action, sight, own_pos, other_pos, wm);
+                } else {
+                    self.learn_helper(agent, other, action, sight, own_pos, other_pos, world.observe_in_radius(&agent, sight));
                 }
             }
         }
     }
+    fn update_on_events<'a>(& 'a mut self, events: impl IntoIterator<Item=&'a Event>  + Copy, world_model: Option<&'a World<Occupancy>>) {
+        for est in self.estimators.iter_mut() {
+            est.update_on_events(events, world_model)
+        }
+    }
 }
 
-impl<'a, T: MentalStateRep + Sized + 'static> Estimator for StorageSlice<'a, T> {
+impl<'c, T: MentalStateRep + Sized + 'static> Estimator for StorageSlice<'c, T> {
     type Rep = T;
     fn invoke(&self, entity: WorldEntity) -> Option<MentalState> {
-        self.get(entity).map(MentalStateRep::into_ms)
+        self.get(entity.into()).map(MentalStateRep::into_ms)
     }
 
     fn invoke_sampled<'b, R: rand::Rng + Sized>(
@@ -174,13 +191,17 @@ impl<'a, T: MentalStateRep + Sized + 'static> Estimator for StorageSlice<'a, T> 
         InvokeIter::Empty
         // self.get(we).iter().flat_map(|e: &T| e.sample(1.0, rng)).fuse()
     }
-    fn learn<C: Cell>(
+    fn learn<'a, C: Cell>(
         &mut self,
         action: Action,
         other: WorldEntity,
         other_pos: Position,
         world: &World<C>,
+        world_models: & impl Source<'a, & 'a World<Occupancy>>
     ) {
+        unimplemented!()
+    }
+    fn update_on_events<'a>(& 'a mut self, events: impl IntoIterator<Item=&'a Event> + Copy, world_model: Option<&'a World<Occupancy>>) {
         unimplemented!()
     }
 }
