@@ -447,20 +447,24 @@ where
 }
 
 pub struct StorageAdapter<'a, T, U> {
-    storage: & 'a Storage<U>,
-    fun : Box<dyn Fn(&U)->Option<&T> + Sync + Send>,
+    storage: &'a Storage<U>,
+    fun: Box<dyn Fn(&U) -> Option<&T> + Sync + Send>,
 }
 impl<'a, T, U> StorageAdapter<'a, T, U> {
-    pub fn new(storage: & 'a Storage<U>, fun: Box<dyn Fn(&U)->Option<&T> + Sync + Send>) -> Self {
+    pub fn new(storage: &'a Storage<U>, fun: Box<dyn Fn(&U) -> Option<&T> + Sync + Send>) -> Self {
         Self { storage, fun }
     }
 }
-impl<'a, T, U> Source<'a, & 'a T> for StorageAdapter<'a, T, U> {
+impl<'a, T, U> Source<'a, &'a T> for StorageAdapter<'a, T, U> {
     fn get(&'a self, entity: Entity) -> Option<&'a T> {
-        self.storage.get(entity).and_then(| t|(*self.fun)(t))
+        self.storage.get(entity).and_then(|t| (*self.fun)(t))
     }
 
-    fn iter(&'a self) -> Box<dyn Iterator<Item=&'a T> + 'a> {
-        Box::new(self.storage.iter().flat_map(move |u| (*self.fun)(u).into_iter()))
+    fn iter(&'a self) -> Box<dyn Iterator<Item = &'a T> + 'a> {
+        Box::new(
+            self.storage
+                .iter()
+                .flat_map(move |u| (*self.fun)(u).into_iter()),
+        )
     }
 }

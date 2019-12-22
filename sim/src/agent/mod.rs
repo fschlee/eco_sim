@@ -116,7 +116,7 @@ impl MentalState {
             }
             if self.use_mdp {
                 unimplemented!()
-                // self.decide_mdp(physical_state, own_position, observation, estimator);
+            // self.decide_mdp(physical_state, own_position, observation, estimator);
             } else {
                 self.decide_simple(physical_state, own_position, observation, estimator);
             }
@@ -127,7 +127,7 @@ impl MentalState {
             }
             if self.use_mdp {
                 unimplemented!()
-                // self.decide_mdp(physical_state, own_position, observation, estimator);
+            // self.decide_mdp(physical_state, own_position, observation, estimator);
             } else {
                 self.decide_simple(physical_state, own_position, observation, estimator);
             }
@@ -164,17 +164,22 @@ impl MentalState {
                     self.current_action = Action::Idle;
                 }
             }
-            Action::Move(d) => if let Some(pos)= own_position.step(d) {
-                if observation.known_can_pass(&self.id, pos) == Some(false) {
+            Action::Move(d) => {
+                if let Some(pos) = own_position.step(d) {
+                    if observation.known_can_pass(&self.id, pos) == Some(false) {
+                        self.current_action = Action::Idle;
+                    }
+                } else {
                     self.current_action = Action::Idle;
                 }
-            } else {
-                self.current_action = Action::Idle;
             }
-            Action::Idle =>  (),
+            Action::Idle => (),
         }
     }
-    fn update_on_events<'a>(& mut self, events: impl IntoIterator<Item=& 'a Event> + Copy) -> Reward {
+    fn update_on_events<'a>(
+        &mut self,
+        events: impl IntoIterator<Item = &'a Event> + Copy,
+    ) -> Reward {
         use Outcome::*;
         let mut score = 0.0;
         for Event { actor, outcome } in events {
@@ -228,33 +233,46 @@ impl MentalState {
                 actions.into_iter().partition_map(std::convert::identity);
 
             let mut expected_actions = Vec::new();
-            for (pos, c) in wm.iter_cells().filter(|(p, c) |observation.is_observed(p)) {
+            for (pos, c) in wm.iter_cells().filter(|(p, c)| observation.is_observed(p)) {
                 use Occupancy::*;
                 match c {
-                    Empty=> (),
+                    Empty => (),
                     Unknown => (),
-                    Filled(v) =>
-                        v.iter().filter(|e  |e.e_type().is_mobile() && unseen.contains(e)).for_each(|e|
-                            if let (Some(phys), Some(mut ms)) = (wm.physical_states.get(e), estimator.invoke(*e)) {
-                                confident_actions.push((*e, ms.decide(phys, pos, &&**wm, estimator)))
+                    Filled(v) => v
+                        .iter()
+                        .filter(|e| e.e_type().is_mobile() && unseen.contains(e))
+                        .for_each(|e| {
+                            if let (Some(phys), Some(mut ms)) =
+                                (wm.physical_states.get(e), estimator.invoke(*e))
+                            {
+                                confident_actions
+                                    .push((*e, ms.decide(phys, pos, &&**wm, estimator)))
                             }
-                        ),
-                    ExpectedFilled(vs, ps) =>
-                        vs.iter().zip(ps.iter()).filter(|(e, p)| **p > Self::PROB_REMOVAL_THRESHOLD && e.e_type().is_mobile() && unseen.contains(e)).for_each(|(e, p)|{
-                            if let (Some(phys), Some(mut ms)) = (wm.physical_states.get(e), estimator.invoke(*e)) {
+                        }),
+                    ExpectedFilled(vs, ps) => vs
+                        .iter()
+                        .zip(ps.iter())
+                        .filter(|(e, p)| {
+                            **p > Self::PROB_REMOVAL_THRESHOLD
+                                && e.e_type().is_mobile()
+                                && unseen.contains(e)
+                        })
+                        .for_each(|(e, p)| {
+                            if let (Some(phys), Some(mut ms)) =
+                                (wm.physical_states.get(e), estimator.invoke(*e))
+                            {
                                 let action = ms.decide(phys, pos, &&**wm, estimator);
                                 if *p > 0.9 {
                                     confident_actions.push((*e, action));
                                 } else if *p > 0.1 {
                                     expected_actions.push((*e, action, pos, *p));
                                 }
-
                             }
-                        })
+                        }),
                 }
             }
             wm.confident_act(&confident_actions, self.id);
-            for (we, a ,pos,  p) in expected_actions {
+            for (we, a, pos, p) in expected_actions {
                 wm.act_uncertain(a, we, pos, p).count();
             }
             wm.advance();
@@ -270,7 +288,7 @@ impl MentalState {
                     }
                 } else {
                     let mut clear = false;
-                    match  &mut wm.cells[pos.y as usize][pos.x as usize] {
+                    match &mut wm.cells[pos.y as usize][pos.x as usize] {
                         Occupancy::Empty => (),
                         Occupancy::Unknown => (),
                         o @ Occupancy::Filled(_) => {
@@ -316,7 +334,6 @@ impl MentalState {
                     if clear {
                         wm.cells[pos.y as usize][pos.x as usize] = Occupancy::Unknown;
                     }
-
                 }
             }
         }
@@ -719,9 +736,33 @@ pub struct AgentSystem {
 }
 
 impl AgentSystem {
-    pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
+    pub fn advance<C: Cell>(&mut self, world: & mut World<C>, entity_manager: &mut EntityManager) {
         use itertools::{Either, Itertools};
         use rayon::prelude::*;
+        for ms in self.mental_states.iter_mut() {
+            ms.update_on_events(&world.events);
+        }
+        {
+            self.estimator_map.par_iter_mut().for_each(|est| {
+                est.update_on_events(&world.events, None);
+            });
+        }
+        {
+            let Self {
+                ref mut estimator_map,
+                ref mut mental_states,
+                ref killed,
+                ..
+            } = self;
+            for entity in killed {
+                if let Some(mut ms) = mental_states.remove(entity) {
+                    let new_e = world.respawn(&entity, &mut ms, entity_manager);
+                    debug_assert_eq!(ms.id, new_e);
+                    mental_states.insert(&new_e, ms);
+                    estimator_map.rebind_estimator(*entity, new_e);
+                }
+            }
+        }
         let mut res: LinkedList<_> = {
             let Self {
                 ref mut mental_states,
@@ -790,31 +831,6 @@ impl AgentSystem {
             });
         }
 
-        world.act(&self.actions);
-        for ms in self.mental_states.iter_mut() {
-            ms.update_on_events(&world.events);
-        }
-        {
-            self.estimator_map.par_iter_mut().for_each(|est|{
-                est.update_on_events(&world.events, None);
-            });
-        }
-        {
-            let Self {
-                ref mut estimator_map,
-                ref mut mental_states,
-                ref killed,
-                ..
-            } = self;
-            for entity in killed {
-                if let Some(mut ms) = mental_states.remove(entity) {
-                    let new_e = world.respawn(&entity, &mut ms, entity_manager);
-                    debug_assert_eq!(ms.id, new_e);
-                    mental_states.insert(&new_e, ms);
-                    estimator_map.rebind_estimator(*entity, new_e);
-                }
-            }
-        }
     }
     pub fn get_representation_source<'a>(
         &'a self,

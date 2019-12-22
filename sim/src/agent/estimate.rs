@@ -8,7 +8,7 @@ use crate::agent::{Behavior, Hunger, MentalState, Reward};
 use crate::entity::WorldEntity;
 use crate::entity_type::EntityType;
 use crate::position::Coord;
-use crate::world::{Action, Health, Observation, PhysicalState, Speed, Event, World, Occupancy};
+use crate::world::{Action, Event, Health, Observation, Occupancy, PhysicalState, Speed, World};
 use crate::EmotionalState;
 
 #[derive(Clone, Debug)]
@@ -139,13 +139,16 @@ impl MentalStateRep for PointEstimateRep {
     fn get_type(&self) -> EntityType {
         self.id.e_type()
     }
-    fn update_on_events<'a>(& 'a mut self, events: impl IntoIterator<Item=&'a Event>  + Copy, world_model: Option<&'a World<Occupancy>>) {
+    fn update_on_events<'a>(
+        &'a mut self,
+        events: impl IntoIterator<Item = &'a Event> + Copy,
+        world_model: Option<&'a World<Occupancy>>,
+    ) {
         {
-            let mut new : MentalState = (&(*self)).into();
+            let mut new: MentalState = (&(*self)).into();
             new.update_on_events(events);
             self.update(&new);
         }
-
     }
 }
 

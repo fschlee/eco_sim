@@ -31,10 +31,11 @@ pub struct SimState {
 impl SimState {
     pub fn advance(&mut self, time_step: f32) {
         self.time_acc += time_step;
-        while self.time_acc >= self.sim_step {
+        if self.time_acc >= self.sim_step {
             self.time_acc -= self.sim_step;
             self.agent_system
                 .advance(&mut self.world, &mut self.entity_manager);
+            self.world.act(&self.agent_system.actions);
             self.world.advance();
         }
     }

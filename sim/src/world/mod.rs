@@ -193,7 +193,15 @@ impl<C: Cell> World<C> {
                         Ok(Outcome::Incomplete)
                     }
                 }
-                Some(pos) => Err(format!("Move from {:?} to {:?} blocked by {:?}", own_pos, pos, self.entities_at(pos).iter().find(|&e| !entity.e_type().can_pass(&e.e_type())).unwrap())),
+                Some(pos) => Err(format!(
+                    "Move from {:?} to {:?} blocked by {:?}",
+                    own_pos,
+                    pos,
+                    self.entities_at(pos)
+                        .iter()
+                        .find(|&e| !entity.e_type().can_pass(&e.e_type()))
+                        .unwrap()
+                )),
                 None => Err("Invalid move".to_owned()),
             },
             Action::Eat(target) => {
@@ -213,7 +221,10 @@ impl<C: Cell> World<C> {
                     .get(&opponent)
                     .ok_or("Entity tries to attack opponent with no known position")?;
                 if pos != own_pos && !(self.can_pass(entity, *pos) && own_pos.is_neighbour(pos)) {
-                    return Err(format!("Cannot reach attacked opponent {} at {:?} from {:?}", opponent, pos, own_pos));
+                    return Err(format!(
+                        "Cannot reach attacked opponent {} at {:?} from {:?}",
+                        opponent, pos, own_pos
+                    ));
                 }
                 let phys = self
                     .physical_states
@@ -228,7 +239,10 @@ impl<C: Cell> World<C> {
                             lethal: phys_target.is_dead(),
                         })
                     } else {
-                        Err(format!("Attacked opponent {} has no physical state", opponent))
+                        Err(format!(
+                            "Attacked opponent {} has no physical state",
+                            opponent
+                        ))
                     }
                 } else {
                     Err(format!("Incapable of attacking {}", opponent))
@@ -351,11 +365,18 @@ impl World<Occupancy> {
             events: Vec::new(),
         }
     }
-    pub fn confident_act<'a>(&'a mut self, actions: impl IntoIterator<Item = &'a (WorldEntity, Action)>, observer: WorldEntity) {
+    pub fn confident_act<'a>(
+        &'a mut self,
+        actions: impl IntoIterator<Item = &'a (WorldEntity, Action)>,
+        observer: WorldEntity,
+    ) {
         let mut move_list = Vec::new();
         for &(actor, action) in actions {
             match self.act_one(&actor, action) {
-                Err(err) => error!("Observed action of {} as modelled by {} failed: {}", actor, observer, err),
+                Err(err) => error!(
+                    "Observed action of {} as modelled by {} failed: {}",
+                    actor, observer, err
+                ),
                 Ok(Outcome::Moved(dir)) => {
                     move_list.push((actor, dir));
                     self.events.push(Event {
