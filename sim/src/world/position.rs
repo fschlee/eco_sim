@@ -78,13 +78,15 @@ impl Position {
         }
     }
     pub fn iter() -> impl Iterator<Item = Position> {
-        (0..MAP_WIDTH)
-            .into_iter()
-            .zip((0..MAP_HEIGHT).into_iter())
-            .map(move |(x, y)| Position {
+        (0..MAP_HEIGHT).into_iter().flat_map(|y| {
+            (0..MAP_WIDTH).into_iter().map(move |x| Position {
                 x: x as Coord,
                 y: y as Coord,
             })
+        })
+    }
+    pub fn idx(&self) -> usize {
+        MAP_WIDTH * self.y as usize + self.x as usize
     }
 }
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]

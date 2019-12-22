@@ -400,7 +400,7 @@ impl World<Occupancy> {
         action: Action,
         entity: WorldEntity,
         position: Position,
-        prob: f32,
+        mut prob: f32,
     ) -> impl Iterator<Item = (Event, f32)> + 'a {
         assert!(prob > 0.0 && prob <= 1.0);
         if (prob > 0.0) {
@@ -408,6 +408,7 @@ impl World<Occupancy> {
                 match action {
                     Action::Move(dir) => match position.step(dir) {
                         Some(pos) if self.can_pass(&entity, pos) => {
+                            prob *= (&*self).can_pass_prob(&entity, pos);
                             let phys = self
                                 .physical_states
                                 .get_mut(entity)

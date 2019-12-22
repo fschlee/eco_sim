@@ -1,23 +1,38 @@
 use smallvec::SmallVec;
 use std::mem::{size_of, MaybeUninit};
+use std::ops::Deref;
 
 use super::{MAP_HEIGHT, MAP_WIDTH};
 use crate::entity::WorldEntity;
 use crate::Position;
 
-pub trait Cell: std::ops::Deref<Target = [WorldEntity]> + Sized + Clone + Sync {
+//type ProbIterator = impl Iterator<Item=(WorldEntity, Prob)>;
+pub trait Cell: Deref<Target = [WorldEntity]> + Sized + Clone + Sync {
     type Locator;
     fn empty_init() -> [[Self; MAP_WIDTH]; MAP_HEIGHT];
     fn retain<F: FnMut(&WorldEntity) -> bool>(&mut self, f: F);
     fn push(&mut self, we: WorldEntity);
     fn unknown() -> Self;
     fn is_empty(&self) -> bool;
+    fn iter_probs<'a>(&'a self) -> OccupancyIter<'a>;
+    fn pass_rate(&self, entity: WorldEntity) -> f32 {
+        if self
+            .deref()
+            .iter()
+            .all(|e| entity.e_type().can_pass(&e.e_type()))
+        {
+            1.0
+        } else {
+            0.0
+        }
+    }
 }
 
 pub type DefCell = SmallVec<[WorldEntity; 3]>;
 
 impl Cell for DefCell {
     type Locator = Position;
+
     fn empty_init() -> [[Self; MAP_WIDTH]; MAP_HEIGHT] {
         empty_initialize()
     }
@@ -36,6 +51,9 @@ impl Cell for DefCell {
 
     fn is_empty(&self) -> bool {
         self.is_empty()
+    }
+    fn iter_probs<'a>(&'a self) -> OccupancyIter<'a> {
+        OccupancyIter::Filled(self.as_slice(), 0)
     }
 }
 
@@ -182,8 +200,71 @@ impl Cell for Occupancy {
             _ => false,
         }
     }
+    fn iter_probs<'a>(&'a self) -> OccupancyIter<'a> {
+        use Occupancy::*;
+        match self {
+            Filled(v) => OccupancyIter::Filled(v, 0),
+            Empty | Unknown => OccupancyIter::Empty,
+            ExpectedFilled(ws, ps) => OccupancyIter::Exp(ws, ps, 0),
+        }
+    }
+    fn pass_rate(&self, entity: WorldEntity) -> f32 {
+        use Occupancy::*;
+        match self {
+            Empty => 1.0,
+            Unknown => entity.e_type().pass_rate(),
+            Filled(v) => {
+                if v.iter().all(|e| entity.e_type().can_pass(&e.e_type())) {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+            ExpectedFilled(ws, ps) => {
+                let mut prob = 1.0;
+                ws.iter().zip(ps.iter()).for_each(|(e, p)| {
+                    if !entity.e_type().can_pass(&e.e_type()) {
+                        prob *= 1.0 - *p
+                    }
+                });
+                prob
+            }
+        }
+    }
 }
 
+pub enum OccupancyIter<'a> {
+    Empty,
+    Filled(&'a [WorldEntity], usize),
+    Exp(&'a [WorldEntity], &'a [Prob], usize),
+}
+impl<'a> Iterator for OccupancyIter<'a> {
+    type Item = (WorldEntity, Prob);
+    fn next(&mut self) -> Option<Self::Item> {
+        use OccupancyIter::*;
+        match self {
+            Empty => None,
+            Filled(slice, idx) => {
+                if *idx < slice.len() {
+                    let ret = (slice[*idx], 1.0);
+                    *idx += 1;
+                    Some(ret)
+                } else {
+                    None
+                }
+            }
+            Exp(ws, ps, idx) => {
+                if *idx < ws.len() {
+                    let ret = (ws[*idx], ps[*idx]);
+                    *idx += 1;
+                    Some(ret)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
 fn none_initialize<T>() -> [[Option<Vec<T>>; MAP_WIDTH]; MAP_HEIGHT] {
     let none = None::<Vec<T>>;
     unsafe {

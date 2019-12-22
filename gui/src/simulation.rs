@@ -206,7 +206,7 @@ impl GameState {
             let idx = eco_sim::MAP_WIDTH * j + i;
             let col = match self.highlighted.contains(&(i, j)) {
                 x if danger.len() > idx && self.threat_mode => {
-                    x as u32 * 256 | 512 | ((danger[idx] * 10.0).floor() as u32).min(255)
+                    x as u32 * 256 | 512 | ((danger[idx] * 0.5).floor() as u32).min(255)
                 }
                 true => 256,
                 false => 0,

@@ -22,7 +22,7 @@ pub enum EntityType {
 }
 impl EntityType {
     #[inline]
-    pub fn can_eat(&self, other: &Self) -> bool {
+    pub const fn can_eat(&self, other: &Self) -> bool {
         use EntityType::*;
         match self {
             Rock | Burrow | Tree | Grass | Clover => false,
@@ -41,7 +41,7 @@ impl EntityType {
         }
     }
     #[inline]
-    pub fn can_pass(&self, other: &Self) -> bool {
+    pub const fn can_pass(&self, other: &Self) -> bool {
         use EntityType::*;
 
         match self {
@@ -71,7 +71,7 @@ impl EntityType {
             Rock | Grass | Clover | Tree | Burrow => None,
         }
     }
-    pub fn rate(&self) -> Rarity {
+    pub const fn rate(&self) -> Rarity {
         use EntityType::*;
         match self {
             Rock => 16,
@@ -85,12 +85,25 @@ impl EntityType {
         }
     }
     #[inline]
-    pub fn is_mobile(&self) -> bool {
+    pub const fn is_mobile(&self) -> bool {
         use EntityType::*;
         match self {
             Rabbit | Deer | Wolf => true,
             Rock | Grass | Clover | Tree | Burrow => false,
         }
+    }
+    #[inline]
+    pub const fn pass_rate(&self) -> f32 {
+        use EntityType::*;
+        let mut rate = 1.0;
+        let mut i = 0;
+        while i < EntityType::COUNT {
+            let e = ITEMS[i];
+            if !self.can_pass(&e) {
+                rate *= 1.0 / e.rate() as f32;
+            }
+        }
+        rate
     }
 }
 impl Default for EntityType {
@@ -98,3 +111,14 @@ impl Default for EntityType {
         Self::Rock
     }
 }
+
+const ITEMS: [EntityType; EntityType::COUNT] = [
+    EntityType::Rock,
+    EntityType::Burrow,
+    EntityType::Tree,
+    EntityType::Grass,
+    EntityType::Clover,
+    EntityType::Rabbit,
+    EntityType::Deer,
+    EntityType::Wolf,
+];

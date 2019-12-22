@@ -6,7 +6,9 @@ use log::{error, info};
 use rand::Rng;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
+use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, LinkedList};
+use std::ops::Deref;
 
 use super::entity::*;
 use super::entity_type::EntityType;
@@ -21,8 +23,6 @@ use crate::agent::estimator::{Estimator, LearningEstimator};
 pub use emotion::{EmotionalState, Hunger};
 use estimate::PointEstimateRep;
 use estimator::{EstimatorMap, MentalStateRep};
-
-use std::collections::hash_map::RandomState;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 pub enum Behavior {
@@ -445,6 +445,7 @@ impl MentalState {
                                     self.current_action = Eat(prey);
                                 }
                             }
+                            None => self.current_behavior = None,
                             _ => self.current_action = Action::Attack(prey),
                         }
                     } else if let Some(path) = self.path(own_position, pos, observation) {
@@ -670,6 +671,54 @@ impl MentalState {
                 }
             })
     }
+    pub fn threat_map(
+        &self,
+        observation: &impl Observation,
+        estimator: &impl Estimator,
+    ) -> Vec<f32> {
+        let mut rng = self.rng.clone();
+        let mut threat = vec![0.0; MAP_WIDTH * MAP_HEIGHT];
+        for (pos, opt_cell) in observation.iter() {
+            if let Some(cell) = opt_cell {
+                for (entity, p) in cell.iter_probs() {
+                    if entity.e_type().can_eat(&self.id.e_type()) {
+                        let mut total = 0.0;
+                        for pred_ms in estimator.invoke_sampled(entity, &mut rng, 10) {
+                            pred_ms.lookup_preference(self.id.e_type()).map(|pref| {
+                                let mut score = 50.0 * pred_ms.emotional_state.hunger().0 * pref;
+                                if let Some(Behavior::Hunt(prey)) = pred_ms.current_behavior {
+                                    if prey == self.id {
+                                        score += 100.0;
+                                    } else {
+                                        score *= 0.5;
+                                    }
+                                }
+                                total += score;
+                            });
+                        }
+                        if self.current_behavior == Some(Behavior::FleeFrom(entity)) {
+                            total *= 2.0;
+                        }
+                        total *= p;
+                        debug_assert!(!total.is_nan());
+                        for considered_pos in Position::iter() {
+                            threat[considered_pos.idx()] +=
+                                observation.can_pass_prob(&entity, considered_pos) * total * 1.0
+                                    / (1.0 + pos.distance(&considered_pos) as f32);
+                        }
+                    }
+                }
+            } else {
+                println!("foo")
+            }
+        }
+        {
+            escape_helper(&mut threat, 4, |pos| {
+                observation.can_pass_prob(&self.id, pos)
+            });
+        }
+        threat
+    }
     pub fn path(
         &self,
         current: Position,
@@ -736,7 +785,7 @@ pub struct AgentSystem {
 }
 
 impl AgentSystem {
-    pub fn advance<C: Cell>(&mut self, world: & mut World<C>, entity_manager: &mut EntityManager) {
+    pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
         use itertools::{Either, Itertools};
         use rayon::prelude::*;
         for ms in self.mental_states.iter_mut() {
@@ -830,7 +879,6 @@ impl AgentSystem {
                 }
             });
         }
-
     }
     pub fn get_representation_source<'a>(
         &'a self,
@@ -865,24 +913,17 @@ impl AgentSystem {
         }
     }
     pub fn threat_map<C: Cell>(&self, we: &WorldEntity, world: &World<C>) -> Vec<f32> {
-        let mut vec = Vec::with_capacity(MAP_HEIGHT * MAP_WIDTH);
-        if let (Some(ms), Some(est), Some(current_pos)) = (
+        if let (Some(ms), Some(est)) = (
             self.mental_states.get(we),
             self.estimator_map.get(we.into()),
-            world.positions.get(we),
         ) {
-            let observation = RadiusObservation::new(ms.sight_radius, *current_pos, world);
-            for y in 0..MAP_HEIGHT as Coord {
-                for x in 0..MAP_WIDTH as Coord {
-                    let mut sum = 0.0;
-                    for (_, threat) in ms.calculate_threat(Position { x, y }, &observation, est) {
-                        sum += threat;
-                    }
-                    vec.push(sum);
-                }
+            if let Some(ref wm) = &ms.world_model {
+                return ms.threat_map(&&**wm, est);
+            } else if let Some(pos) = world.positions.get(we) {
+                return ms.threat_map(&RadiusObservation::new(ms.sight_radius, *pos, world), est);
             }
         }
-        vec
+        Vec::new()
     }
 }
 #[inline]
@@ -890,4 +931,43 @@ fn max_threat(
     threats: impl Iterator<Item = (WorldEntity, Threat)>,
 ) -> Option<(WorldEntity, Threat)> {
     threats.max_by(|(_, t1), (_, t2)| f32_cmp(t1, t2))
+}
+/// This function tries to account for the fact that just calculating how easy it is for enemies to reach a square pushes towards corners and edges,
+/// that are also difficult to escape from once cornered there.
+/// Desired properties:
+///  * All else being the same it is always better to have a dangerous escape route than to have none.
+///  * An impassable neighbor is equivalent to no neighbor.
+///  * Assuming an infinite plane where every square is equally accessible to enemies there is no overall change.
+///  * A completely safe square with four moderately dangerous neighbors is still safe.
+
+fn escape_helper<F: Fn(Position) -> f32>(
+    threats: &mut Vec<f32>,
+    escape_distance: u32,
+    passabiliy: F,
+) {
+    let mut temp = vec![0.0; MAP_WIDTH * MAP_HEIGHT];
+    debug_assert!(threats.len() == temp.len());
+    for i in (1..escape_distance).rev() {
+        let inv = 1.0 / i as f32;
+        for pos in Position::iter() {
+            let threat = threats[pos.idx()];
+
+            let mut routes = 0.0;
+            let mut danger = 0.0;
+            for n in pos.neighbours() {
+                let pass = passabiliy(n);
+                routes += pass;
+                danger += pass * threats[n.idx()];
+                temp[pos.idx()] = if routes == 0.0 {
+                    std::f32::INFINITY
+                } else if threat + danger > 0.0 {
+                    let r = inv * threat / (threat + danger) + (4.0 - routes) / 4.0;
+                    (1.0 - r) * (threat) + r * 4.0 * danger / (routes * routes)
+                } else {
+                    threat
+                }
+            }
+        }
+        std::mem::swap(&mut temp, threats)
+    }
 }

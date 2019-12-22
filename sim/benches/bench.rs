@@ -1,4 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use eco_sim::agent::{AgentSystem, MentalState};
 use eco_sim::entity::{EntityManager, WorldEntity};
 use eco_sim::position::Position;
 use eco_sim::world::{Observation, Occupancy, World};
@@ -17,6 +18,22 @@ fn sim(c: &mut Criterion) {
         .into_iter()
         .map(|ms| ms.id)
         .collect();
+    /*
+    c.bench_function("threat map 1",    |b|{
+        b.iter(||{
+            let AgentSystem { ref mental_states, ref estimator_map, .. } = &sim.agent_system;
+            for ms in mental_states.into_iter() {
+                ms.threat_map(&&**ms.world_model.as_ref().unwrap(), estimator_map.get(ms.id.into()).unwrap());
+            }
+        })
+    }); */
+    c.bench_function("threat map 1", |b| {
+        b.iter(|| {
+            for a in &agents {
+                sim.threat_map(a);
+            }
+        })
+    });
     c.bench_function("pathing with observation", |b| {
         b.iter(|| {
             for agent in &agents {

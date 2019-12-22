@@ -7,6 +7,7 @@ use super::position::{Coord, Dir, Position, PositionMap};
 use super::{PhysicalState, World, MAP_HEIGHT, MAP_WIDTH};
 use crate::agent::AgentSystem;
 use crate::entity::{EntityManager, Storage, WorldEntity};
+use crate::Prob;
 
 type Cost = i32;
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -35,6 +36,13 @@ pub trait Observation: Clone {
         predicate: impl Fn(&WorldEntity, &World<Self::CellType>) -> bool + 'a,
     ) -> Box<dyn Iterator<Item = (WorldEntity, Position)> + 'a>;
     fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool>;
+    fn can_pass_prob(&self, entity: &WorldEntity, position: Position) -> Prob {
+        match self.known_can_pass(entity, position) {
+            Some(true) => 1.0,
+            Some(false) => 0.0,
+            None => entity.e_type().pass_rate(),
+        }
+    }
     fn entities_at(&self, position: Position) -> &[WorldEntity];
     fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState>;
     fn observed_position(&self, entity: &WorldEntity) -> Option<Position>;
