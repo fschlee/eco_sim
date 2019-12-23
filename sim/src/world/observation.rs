@@ -80,6 +80,7 @@ pub trait Observation: Clone {
             physical_states,
             positions,
             events: Vec::new(),
+            move_list: Vec::new(),
         };
         let agent_system = AgentSystem::init(agents, &world, false, false, rng);
         (entity_manager, world, agent_system)

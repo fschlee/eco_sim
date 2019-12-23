@@ -7,7 +7,7 @@ use crate::entity::WorldEntity;
 use crate::Position;
 
 //type ProbIterator = impl Iterator<Item=(WorldEntity, Prob)>;
-pub trait Cell: Deref<Target = [WorldEntity]> + Sized + Clone + Sync {
+pub trait Cell: Deref<Target = [WorldEntity]> + Sized + Clone + Sync + std::fmt::Debug {
     type Locator;
     fn empty_init() -> [[Self; MAP_WIDTH]; MAP_HEIGHT];
     fn retain<F: FnMut(&WorldEntity) -> bool>(&mut self, f: F);

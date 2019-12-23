@@ -40,10 +40,15 @@ impl Default for Action {
         Action::Idle
     }
 }
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum FailReason {
+    TargetNotThere(Option<Position>),
+}
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum Outcome {
     Incomplete,
+    InvalidAction(Action, FailReason),
     Moved(Dir),
     Consumed(Meat, EntityType),
     Hurt {
@@ -70,6 +75,7 @@ pub struct World<C: Cell> {
     pub physical_states: Storage<PhysicalState>,
     pub positions: Storage<Position>,
     pub events: Vec<Event>,
+    move_list: Vec<(WorldEntity, Dir)>,
 }
 
 impl<C: Cell> World<C> {
@@ -118,6 +124,7 @@ impl<C: Cell> World<C> {
                 physical_states,
                 positions,
                 events: Vec::new(),
+                move_list: Vec::new(),
             },
             agents,
         )
@@ -164,13 +171,6 @@ impl<C: Cell> World<C> {
                 Ok(outcome) => self.events.push(Event { actor, outcome }),
             }
         }
-        for (actor, dir) in move_list {
-            if let Some(pos) = self.positions.get(actor).and_then(|p| p.step(dir)) {
-                self.move_unchecked(&actor, pos);
-            } else {
-                error!("Processing invalid move {:?} by {}", dir, actor);
-            }
-        }
     }
     fn act_one(&mut self, entity: &WorldEntity, action: Action) -> Result<Outcome, String> {
         let own_pos = self
@@ -188,6 +188,7 @@ impl<C: Cell> World<C> {
                     if phys.partial_move(pos) >= MoveProgress(1.0) {
                         phys.move_target = None;
                         phys.move_progress = MoveProgress::default();
+                        self.move_list.push((*entity, dir));
                         Ok(Outcome::Moved(dir))
                     } else {
                         Ok(Outcome::Incomplete)
@@ -205,14 +206,18 @@ impl<C: Cell> World<C> {
                 None => Err("Invalid move".to_owned()),
             },
             Action::Eat(target) => {
-                if self.positions.get(&target) == Some(own_pos) {
+                let target_pos = self.positions.get(&target);
+                if target_pos == Some(own_pos) {
                     if entity.e_type().can_eat(&target.e_type()) {
                         Ok(self.eat_unchecked(entity, &target, Self::EATING_DECREMENT))
                     } else {
                         Err(format!("Can't eat {} ", target))
                     }
                 } else {
-                    Err("Can only eat things in the same tile".to_owned())
+                    Ok(Outcome::InvalidAction(
+                        action,
+                        FailReason::TargetNotThere(target_pos.map(|p| *p)),
+                    ))
                 }
             }
             Action::Attack(opponent) => {
@@ -282,7 +287,24 @@ impl<C: Cell> World<C> {
     pub fn get_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState> {
         self.physical_states.get(entity)
     }
-    pub fn advance(&mut self) {}
+    pub fn advance(&mut self) {
+        for ps in self.physical_states.iter_mut() {
+            if !ps.is_dead() {
+                *ps -= PhysicalState::SATIATION_DECR;
+            }
+        }
+        let mut move_list = Vec::new();
+        std::mem::swap(&mut move_list, &mut self.move_list);
+        for (actor, dir) in move_list.drain(..) {
+            if let Some(pos) = self.positions.get(actor).and_then(|p| p.step(dir)) {
+                self.move_unchecked(&actor, pos);
+            } else {
+                error!("Processing invalid move {:?} by {}", dir, actor);
+            }
+        }
+        std::mem::swap(&mut move_list, &mut self.move_list);
+        self.move_list.clear();
+    }
     pub fn entities_at(&self, position: Position) -> &[WorldEntity] {
         let x = position.x as usize;
         let y = position.y as usize;
@@ -318,7 +340,7 @@ impl<C: Cell> World<C> {
         }
         self.physical_states
             .get_mut(eater)
-            .map(|ps| ps.satiation.0 += decrement);
+            .map(|ps| *ps += Satiation(decrement));
         if remove {
             self.physical_states.remove(eaten);
             if let Some(pos) = self.positions.remove(eaten) {
@@ -363,6 +385,7 @@ impl World<Occupancy> {
             positions: Storage::new(),
             physical_states: Storage::new(),
             events: Vec::new(),
+            move_list: Vec::new(),
         }
     }
     pub fn confident_act<'a>(
@@ -370,28 +393,13 @@ impl World<Occupancy> {
         actions: impl IntoIterator<Item = &'a (WorldEntity, Action)>,
         observer: WorldEntity,
     ) {
-        let mut move_list = Vec::new();
         for &(actor, action) in actions {
             match self.act_one(&actor, action) {
                 Err(err) => error!(
                     "Observed action of {} as modelled by {} failed: {}",
                     actor, observer, err
                 ),
-                Ok(Outcome::Moved(dir)) => {
-                    move_list.push((actor, dir));
-                    self.events.push(Event {
-                        actor,
-                        outcome: Outcome::Moved(dir),
-                    });
-                }
                 Ok(outcome) => self.events.push(Event { actor, outcome }),
-            }
-        }
-        for (actor, dir) in move_list {
-            if let Some(pos) = self.positions.get(actor).and_then(|p| p.step(dir)) {
-                self.move_unchecked(&actor, pos);
-            } else {
-                warn!("Processing invalid move {:?} by {}", dir, actor);
             }
         }
     }

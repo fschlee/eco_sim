@@ -1,4 +1,5 @@
 use super::position::Position;
+use crate::util::clip;
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Health(pub f32);
@@ -67,6 +68,7 @@ impl std::fmt::Display for PhysicalState {
 }
 
 impl PhysicalState {
+    pub const SATIATION_DECR: Satiation = Satiation(0.1);
     pub fn is_dead(&self) -> bool {
         self.health.0 <= 0.0
     }
@@ -88,5 +90,27 @@ impl PhysicalState {
             attack,
             satiation: Satiation(10.0),
         }
+    }
+}
+
+impl std::ops::AddAssign<Satiation> for PhysicalState {
+    fn add_assign(&mut self, rhs: Satiation) {
+        debug_assert!(!rhs.0.is_nan());
+        let mut val = self.satiation.0 + rhs.0;
+        if val < 0.0 {
+            self.health.0 += 0.1 * val;
+            val = 0.0;
+        }
+        self.satiation.0 = clip(val, 0.0, self.max_health.0);
+    }
+}
+impl std::ops::SubAssign<Satiation> for PhysicalState {
+    fn sub_assign(&mut self, rhs: Satiation) {
+        *self += Satiation(-rhs.0)
+    }
+}
+impl std::ops::SubAssign<f32> for Satiation {
+    fn sub_assign(&mut self, rhs: f32) {
+        self.0 = clip(self.0 - rhs, 0.0, 1.0);
     }
 }

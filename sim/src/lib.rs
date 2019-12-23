@@ -36,10 +36,34 @@ impl SimState {
         self.time_acc += time_step;
         if self.time_acc >= self.sim_step {
             self.time_acc -= self.sim_step;
-            self.agent_system
-                .advance(&mut self.world, &mut self.entity_manager);
+            self.agent_system.advance(&self.world);
+            self.world.events.clear();
             self.world.act(&self.agent_system.actions);
             self.world.advance();
+            self.agent_system.process_feedback(&self.world.events);
+            self.respawn_killed();
+        }
+    }
+    fn respawn_killed(&mut self) {
+        let Self {
+            ref mut world,
+            ref mut entity_manager,
+            agent_system:
+                AgentSystem {
+                    ref mut estimator_map,
+                    ref mut mental_states,
+                    ref killed,
+                    ..
+                },
+            ..
+        } = self;
+        for entity in killed {
+            if let Some(mut ms) = mental_states.remove(entity) {
+                let new_e = world.respawn(&entity, &mut ms, entity_manager);
+                debug_assert_eq!(ms.id, new_e);
+                mental_states.insert(&new_e, ms);
+                estimator_map.rebind_estimator(*entity, new_e);
+            }
         }
     }
     pub fn new(time_step: f32) -> Self {

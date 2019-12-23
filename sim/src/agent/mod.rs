@@ -45,12 +45,6 @@ impl Behavior {
     }
 }
 
-const HUNGER_THRESHOLD: Hunger = Hunger(0.2);
-
-const HUNGER_INCREMENT: f32 = 0.00001;
-
-const FLEE_THREAT: f32 = 5.0;
-
 pub type Reward = f32;
 
 pub type Threat = f32;
@@ -75,6 +69,10 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 }
 
 impl MentalState {
+    const HUNGER_THRESHOLD: Hunger = Hunger(0.2);
+    const HUNGER_INCREMENT: f32 = 0.00001;
+    const FLEE_THREAT: f32 = 20.0;
+    const SAFE_THREAT: f32 = 5.0;
     const UNSEEN_PROB_MULTIPLIER: f32 = 0.9;
     const PROB_REMOVAL_THRESHOLD: f32 = 0.1;
     pub fn new(
@@ -154,7 +152,8 @@ impl MentalState {
         own_position: Position,
         observation: &impl Observation,
     ) {
-        self.emotional_state += Hunger((20.0 - physical_state.satiation.0) * HUNGER_INCREMENT);
+        self.emotional_state +=
+            Hunger((20.0 - physical_state.satiation.0) * Self::HUNGER_INCREMENT);
         match self.current_action {
             Action::Eat(food) => {
                 if self.emotional_state.hunger().0 <= 0.0
@@ -213,6 +212,42 @@ impl MentalState {
                     } => {
                         if *lethal {
                             self.current_action = Action::Idle
+                        }
+                    }
+                    InvalidAction(attempted_action, f) => {
+                        let mut action = Action::Idle;
+                        std::mem::swap(&mut action, &mut self.current_action);
+                        if action != *attempted_action {
+                            error!(
+                                "{} intended to {}, but instead {} was processed",
+                                self.id, action, attempted_action
+                            );
+                        } else {
+                            match f {
+                                FailReason::TargetNotThere(target_pos) => {
+                                    use Action::*;
+                                    match action {
+                                        Move(_) | Idle => unreachable!(),
+                                        Eat(t) | Attack(t) => {
+                                            let believed_pos = self
+                                                .world_model
+                                                .as_ref()
+                                                .and_then(|wm| wm.positions.get(t));
+                                            if target_pos.as_ref() != believed_pos {
+                                                error!("{} believed {} to be at {:?} but it was at {:?}, making {} impossible", self.id, t, believed_pos, target_pos, action);
+                                                if let (Some(wm), Some(pos)) =
+                                                    (self.world_model.as_deref(), believed_pos)
+                                                {
+                                                    error!(
+                                                        "{:?}",
+                                                        wm.cells[pos.y as usize][pos.x as usize]
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -285,15 +320,23 @@ impl MentalState {
                         }),
                 }
             }
+            wm.events.clear();
             wm.confident_act(&confident_actions, self.id);
             for (we, a, pos, p) in expected_actions {
                 wm.act_uncertain(a, we, pos, p).count();
             }
             wm.advance();
+            wm.events.clear();
 
             for (pos, opt_cell) in observation.iter() {
                 if let Some(cell) = opt_cell {
-                    wm.cells[pos.y as usize][pos.x as usize] = Occupancy::Empty;
+                    let mut old = Occupancy::Empty;
+                    std::mem::swap(&mut wm.cells[pos.y as usize][pos.x as usize], &mut old);
+                    for e in old.iter() {
+                        if wm.positions.get(e) == Some(&pos) {
+                            wm.positions.remove(e);
+                        }
+                    }
                     for e in (**cell).iter() {
                         wm.move_unchecked(e, pos);
                         observation
@@ -301,8 +344,13 @@ impl MentalState {
                             .map(|p| wm.physical_states.insert(e, p.clone()));
                     }
                 } else {
+                    let World {
+                        ref mut cells,
+                        ref mut positions,
+                        ..
+                    } = &mut **wm;
                     let mut clear = false;
-                    match &mut wm.cells[pos.y as usize][pos.x as usize] {
+                    match &mut cells[pos.y as usize][pos.x as usize] {
                         Occupancy::Empty => (),
                         Occupancy::Unknown => (),
                         o @ Occupancy::Filled(_) => {
@@ -336,6 +384,9 @@ impl MentalState {
                                         true
                                     } else {
                                         ps.remove(i);
+                                        if Some(&pos) == positions.get(w) {
+                                            positions.remove(w);
+                                        }
                                         false
                                     }
                                 }
@@ -346,7 +397,7 @@ impl MentalState {
                         }
                     }
                     if clear {
-                        wm.cells[pos.y as usize][pos.x as usize] = Occupancy::Unknown;
+                        cells[pos.y as usize][pos.x as usize] = Occupancy::Unknown;
                     }
                 }
             }
@@ -362,22 +413,20 @@ impl MentalState {
     ) {
         assert!(threat_map.len() == MAP_WIDTH * MAP_HEIGHT);
         let own_type = self.id.e_type();
-        if threat_map[own_position.idx()] > FLEE_THREAT {
+        if threat_map[own_position.idx()] > Self::FLEE_THREAT {
             let possible_threat =
                 max_threat(self.calculate_threat(own_position, observation, estimator));
             if let Some((predator, threat)) = possible_threat {
-                if threat > FLEE_THREAT {
-                    self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
-                }
+                self.current_behavior = Some(Behavior::FleeFrom(predator.clone()));
             }
         }
-        use lazysort::SortedBy;
-        if self.current_behavior.is_none() && self.emotional_state.hunger() > HUNGER_THRESHOLD {
+        if self.current_behavior.is_none() && self.emotional_state.hunger() > Self::HUNGER_THRESHOLD
+        {
             if let Some((reward, food, position)) = observation
                 .find_closest(own_position, |e, w| self.id.e_type().can_eat(&e.e_type()))
                 .filter_map(|(e, p)| {
                     if let Some(rw) = self.lookup_preference(e.e_type()) {
-                        if threat_map[p.idx()] > FLEE_THREAT {
+                        if threat_map[p.idx()] > Self::FLEE_THREAT {
                             None
                         } else {
                             let dist = own_position.distance(&p) as f32 * 0.05;
@@ -412,7 +461,9 @@ impl MentalState {
             None => (),
             Some(Behavior::FleeFrom(predator)) => {
                 let mut escaped = false;
-                if observation.known_can_pass(&predator, own_position) == Some(false) {
+                if observation.known_can_pass(&predator, own_position) == Some(false)
+                    || threat_map[own_position.idx()] < Self::SAFE_THREAT
+                {
                     escaped = true;
                 } else {
                     if let Some(pos) = observation.observed_position(&predator) {
@@ -479,9 +530,13 @@ impl MentalState {
                         self.current_action = Action::Move(path[0]);
                     } else {
                         self.current_behavior = None;
+                        self.current_action = Action::Idle;
                     }
                 }
-                _ => self.current_behavior = None,
+                _ => {
+                    self.current_behavior = None;
+                    self.current_action = Action::Idle;
+                }
             },
             Some(Behavior::Search(list)) => {
                 if let Some(_) = observation
@@ -508,11 +563,8 @@ impl MentalState {
             Action::Move(dir) => {
                 if let Some(Behavior::FleeFrom(_)) = self.current_behavior {
                 } else {
-                    match own_position
-                        .step(dir)
-                        .and_then(|p| max_threat(self.calculate_threat(p, observation, estimator)))
-                    {
-                        Some((_, threat)) if threat > FLEE_THREAT => {
+                    match own_position.step(dir) {
+                        Some(pos) if threat_map[pos.idx()] > Self::FLEE_THREAT => {
                             self.current_action = Action::Idle;
                             self.current_behavior = None;
                         }
@@ -800,33 +852,10 @@ pub struct AgentSystem {
 }
 
 impl AgentSystem {
-    pub fn advance<C: Cell>(&mut self, world: &mut World<C>, entity_manager: &mut EntityManager) {
+    pub fn advance<C: Cell>(&mut self, world: &World<C>) {
         use itertools::{Either, Itertools};
         use rayon::prelude::*;
-        for ms in self.mental_states.iter_mut() {
-            ms.update_on_events(&world.events);
-        }
-        {
-            self.estimator_map.par_iter_mut().for_each(|est| {
-                est.update_on_events(&world.events, None);
-            });
-        }
-        {
-            let Self {
-                ref mut estimator_map,
-                ref mut mental_states,
-                ref killed,
-                ..
-            } = self;
-            for entity in killed {
-                if let Some(mut ms) = mental_states.remove(entity) {
-                    let new_e = world.respawn(&entity, &mut ms, entity_manager);
-                    debug_assert_eq!(ms.id, new_e);
-                    mental_states.insert(&new_e, ms);
-                    estimator_map.rebind_estimator(*entity, new_e);
-                }
-            }
-        }
+
         let res: LinkedList<_> = {
             let Self {
                 ref mut mental_states,
@@ -892,6 +921,21 @@ impl AgentSystem {
                         est.learn(*action, *entity, *other_pos, world, &world_models);
                     }
                 }
+            });
+        }
+    }
+    pub fn process_feedback<'a>(
+        &'a mut self,
+        events: impl IntoIterator<Item = &'a Event> + Copy + Sync,
+    ) {
+        use itertools::{Either, Itertools};
+        use rayon::prelude::*;
+        self.mental_states.par_iter_mut().for_each(|ms| {
+            ms.update_on_events(events);
+        });
+        {
+            self.estimator_map.par_iter_mut().for_each(|est| {
+                est.update_on_events(events, None);
             });
         }
     }
