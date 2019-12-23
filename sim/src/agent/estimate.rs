@@ -58,8 +58,15 @@ impl MentalStateRep for PointEstimateRep {
         // let mut valid = Vec::new();
         if let Some(pos) = observation.observed_position(&self.id) {
             let mut ms: MentalState = (&(*self)).into();
-
-            if action == ms.decide(&(self.physical_state), pos, observation, others) {
+            let threat_map = ms.threat_map(observation, others);
+            ms.decide_simple(
+                &(self.physical_state),
+                pos,
+                observation,
+                others,
+                &threat_map,
+            );
+            if action == ms.current_action {
                 self.update(&ms);
             } else {
                 let mut rng: rand_xorshift::XorShiftRng =
@@ -69,7 +76,14 @@ impl MentalStateRep for PointEstimateRep {
                 for i in (0..max_tries).rev() {
                     let scale = (1.0 + i as f32).log2() / (max_tries as f32).log2();
                     let mut sample = self.sample(scale, &mut rng);
-                    if action == sample.decide(&(self.physical_state), pos, observation, others) {
+                    sample.decide_simple(
+                        &(self.physical_state),
+                        pos,
+                        observation,
+                        others,
+                        &threat_map,
+                    );
+                    if action == sample.current_action {
                         // valid.push(sample);
                         self.update(&sample);
                         break;

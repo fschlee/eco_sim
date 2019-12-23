@@ -21,21 +21,20 @@ impl Position {
             && ((self.x as i64) - (other.x as i64)).abs() <= 1
             && ((self.y as i64) - (other.y as i64)).abs() <= 1
     }
-    pub fn neighbours(&self) -> impl IntoIterator<Item = Position> {
+    pub const fn neighbours(&self) -> impl IntoIterator<Item = Position> {
         NeighborIter {
             pos: *self,
             dir: Some(Dir::R),
         }
     }
-    pub fn distance(&self, other: &Position) -> Coord {
+    pub const fn distance(&self, other: &Position) -> Coord {
         let dist = (self.x - other.x).abs() + (self.y - other.y).abs();
-        debug_assert!(dist >= 0);
         dist
     }
-    pub fn within_bounds(&self) -> bool {
+    pub const fn within_bounds(&self) -> bool {
         self.x < MAP_WIDTH as Coord && self.y < MAP_HEIGHT as Coord
     }
-    pub fn step(&self, dir: Dir) -> Option<Position> {
+    pub const fn step(&self, dir: Dir) -> Option<Position> {
         use Dir::*;
         match dir {
             R if self.x + 1 < MAP_WIDTH as Coord => Some(Position {
@@ -62,7 +61,7 @@ impl Position {
             .iter()
             .filter_map(move |dir| self.step(*dir))
     }
-    pub fn dir(&self, other: &Position) -> Dir {
+    pub const fn dir(&self, other: &Position) -> Dir {
         let x_diff = self.x - other.x;
         let y_diff = self.y - other.y;
         if x_diff.abs() > y_diff.abs() {
@@ -85,7 +84,7 @@ impl Position {
             })
         })
     }
-    pub fn idx(&self) -> usize {
+    pub const fn idx(&self) -> usize {
         MAP_WIDTH * self.y as usize + self.x as usize
     }
 }
@@ -97,7 +96,7 @@ pub enum Dir {
     D = 3,
 }
 impl Dir {
-    fn next(self) -> Option<Dir> {
+    const fn next(self) -> Option<Dir> {
         use Dir::*;
         match self {
             R => Some(U),
@@ -106,7 +105,7 @@ impl Dir {
             D => None,
         }
     }
-    pub fn opposite(self) -> Dir {
+    pub const fn opposite(self) -> Dir {
         use Dir::*;
         match self {
             R => L,

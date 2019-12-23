@@ -118,7 +118,14 @@ impl MentalState {
                 unimplemented!()
             // self.decide_mdp(physical_state, own_position, observation, estimator);
             } else {
-                self.decide_simple(physical_state, own_position, observation, estimator);
+                let threat_map = self.threat_map(observation, estimator);
+                self.decide_simple(
+                    physical_state,
+                    own_position,
+                    observation,
+                    estimator,
+                    &threat_map,
+                );
             }
             self.world_model = Some(world_model);
         } else {
@@ -129,7 +136,14 @@ impl MentalState {
                 unimplemented!()
             // self.decide_mdp(physical_state, own_position, observation, estimator);
             } else {
-                self.decide_simple(physical_state, own_position, observation, estimator);
+                let threat_map = self.threat_map(observation, estimator);
+                self.decide_simple(
+                    physical_state,
+                    own_position,
+                    observation,
+                    estimator,
+                    &threat_map,
+                );
             }
         }
         self.current_action
@@ -344,13 +358,17 @@ impl MentalState {
         own_position: Position,
         observation: &impl Observation,
         estimator: &impl Estimator,
+        threat_map: &[f32],
     ) {
+        assert!(threat_map.len() == MAP_WIDTH * MAP_HEIGHT);
         let own_type = self.id.e_type();
-        let possible_threat =
-            max_threat(self.calculate_threat(own_position, observation, estimator));
-        if let Some((predator, threat)) = possible_threat {
-            if threat > FLEE_THREAT {
-                self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
+        if threat_map[own_position.idx()] > FLEE_THREAT {
+            let possible_threat =
+                max_threat(self.calculate_threat(own_position, observation, estimator));
+            if let Some((predator, threat)) = possible_threat {
+                if threat > FLEE_THREAT {
+                    self.current_behavior = Some(Behavior::FleeFrom(predator.clone()))
+                }
             }
         }
         use lazysort::SortedBy;
@@ -359,22 +377,19 @@ impl MentalState {
                 .find_closest(own_position, |e, w| self.id.e_type().can_eat(&e.e_type()))
                 .filter_map(|(e, p)| {
                     if let Some(rw) = self.lookup_preference(e.e_type()) {
-                        let dist = own_position.distance(&p) as f32 * 0.05;
-                        Some((rw - dist, e, p))
+                        if threat_map[p.idx()] > FLEE_THREAT {
+                            None
+                        } else {
+                            let dist = own_position.distance(&p) as f32 * 0.05;
+                            Some((rw - dist, e, p))
+                        }
                     } else {
                         None
                     }
                 })
-                .sorted_by(
+                .max_by(
                     |(rw1, _, _), (rw2, _, _)| f32_cmp(rw2, rw1), // descending sort
                 )
-                .filter(|(_, _, p)| {
-                    match max_threat(self.calculate_threat(*p, observation, estimator)) {
-                        Some((_, threat)) if threat > FLEE_THREAT => false,
-                        _ => true,
-                    }
-                })
-                .next()
             {
                 match observation.observed_physical_state(&food) {
                     Some(ps)
@@ -397,7 +412,9 @@ impl MentalState {
             None => (),
             Some(Behavior::FleeFrom(predator)) => {
                 let mut escaped = false;
-                if observation.known_can_pass(&predator, own_position) != Some(false) {
+                if observation.known_can_pass(&predator, own_position) == Some(false) {
+                    escaped = true;
+                } else {
                     if let Some(pos) = observation.observed_position(&predator) {
                         let d = pos.distance(&own_position);
                         let mut new_pos = own_position;
@@ -428,8 +445,6 @@ impl MentalState {
                     } else {
                         escaped = true;
                     }
-                } else {
-                    escaped = true;
                 }
                 if escaped {
                     self.current_behavior = None;
@@ -812,7 +827,7 @@ impl AgentSystem {
                 }
             }
         }
-        let mut res: LinkedList<_> = {
+        let res: LinkedList<_> = {
             let Self {
                 ref mut mental_states,
                 ref estimator_map,

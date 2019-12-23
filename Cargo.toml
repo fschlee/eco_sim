@@ -12,3 +12,10 @@ default-members = [
     "gui",
     "enum_macros",
 ]
+
+[profile.dev]
+opt-level = 3
+
+[profile.test]
+
+[profile.release]
