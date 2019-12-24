@@ -17,7 +17,7 @@ impl std::fmt::Display for Error {
         use Error::*;
         match self {
             Static(m) => write!(f, "{}", m),
-            Owned((m)) => write!(f, "{}", m),
+            Owned(m) => write!(f, "{}", m),
             ConBack(e) => write!(f, "{}", e),
         }
     }

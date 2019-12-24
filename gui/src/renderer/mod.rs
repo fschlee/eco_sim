@@ -504,26 +504,6 @@ impl<IS: InstSurface> Renderer<IS> {
         let transfer_queue = &mut self.queue_group.queues[l - 1];
         self.texture_manager.add_texture(spec, transfer_queue)
     }
-    fn padded_size(&self, proper_size: usize) -> usize {
-        ((proper_size + self.mem_atom - 1) / self.mem_atom) * self.mem_atom
-    }
-    fn temp_buffer<T: Sized + Copy>(
-        &mut self,
-        slice: &[T],
-        usage: BufferUsage,
-    ) -> Result<usize, Error> {
-        let idx = self.old_buffers.len();
-        {
-            let size = size_of::<T>() * slice.len();
-            let pad = self.padded_size(size);
-            let buff = BufferBundle::new(self.adapter.deref(), self.device.deref(), pad, usage)?;
-            let res = unsafe { buff.write_range(&self.device, 0..(pad as u64), slice) };
-            self.old_buffers.push(buff);
-            self.old_buffer_expirations.push(4);
-            res?;
-        }
-        Ok(idx)
-    }
 }
 
 impl<IS: InstSurface> Drop for Renderer<IS> {

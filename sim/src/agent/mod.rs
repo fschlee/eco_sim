@@ -5,11 +5,7 @@ pub mod estimator;
 use log::{error, info};
 use ordered_float::OrderedFloat;
 use rand::Rng;
-use std::borrow::Borrow;
-use std::cmp::Ordering;
-use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, LinkedList};
-use std::ops::Deref;
 
 use super::entity::*;
 use super::entity_type::EntityType;
@@ -20,9 +16,8 @@ use crate::world::cell::Cell;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
 
-use crate::agent::estimator::{Estimator, LearningEstimator};
+use crate::agent::estimator::{Estimator};
 pub use emotion::{EmotionalState, Hunger};
-use estimate::PointEstimateRep;
 use estimator::{EstimatorMap, MentalStateRep};
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
@@ -207,8 +202,8 @@ impl MentalState {
                         }
                     }
                     Hurt {
-                        damage,
-                        target,
+                        damage: _,
+                        target: _,
                         lethal,
                     } => {
                         if *lethal {
@@ -283,7 +278,7 @@ impl MentalState {
                 actions.into_iter().partition_map(std::convert::identity);
 
             let mut expected_actions = Vec::new();
-            for (pos, c) in wm.iter_cells().filter(|(p, c)| observation.is_observed(p)) {
+            for (pos, c) in wm.iter_cells().filter(|(p, _c)| observation.is_observed(p)) {
                 use Occupancy::*;
                 match c {
                     Empty => (),
@@ -406,25 +401,24 @@ impl MentalState {
     }
     fn decide_simple(
         &mut self,
-        physical_state: &PhysicalState,
+        _physical_state: &PhysicalState,
         own_position: Position,
         observation: &impl Observation,
         estimator: &impl Estimator,
         threat_map: &[f32],
     ) {
         assert!(threat_map.len() == MAP_WIDTH * MAP_HEIGHT);
-        let own_type = self.id.e_type();
         if threat_map[own_position.idx()] > Self::FLEE_THREAT {
             let possible_threat =
                 max_threat(self.calculate_threat(own_position, observation, estimator));
-            if let Some((predator, threat)) = possible_threat {
+            if let Some((predator, _threat)) = possible_threat {
                 self.current_behavior = Some(Behavior::FleeFrom(predator.clone()));
             }
         }
         if self.current_behavior.is_none() && self.emotional_state.hunger() > Self::HUNGER_THRESHOLD
         {
-            if let Some((reward, food, position)) = observation
-                .find_closest(own_position, |e, w| self.id.e_type().can_eat(&e.e_type()))
+            if let Some((_reward, food, position)) = observation
+                .find_closest(own_position, |e, _w| self.id.e_type().can_eat(&e.e_type()))
                 .filter_map(|(e, p)| {
                     if let Some(rw) = self.lookup_preference(e.e_type()) {
                         if threat_map[p.idx()] > Self::FLEE_THREAT {
@@ -454,7 +448,7 @@ impl MentalState {
                 }
             } else {
                 self.current_behavior = Some(Behavior::Search(
-                    self.food_preferences().map(|(f, r)| f.clone()).collect(),
+                    self.food_preferences().map(|(f, _r)| f.clone()).collect(),
                 ));
             }
         }
@@ -467,7 +461,7 @@ impl MentalState {
                 {
                     escaped = true;
                 } else {
-                    if let Some(pos) = observation.observed_position(&predator) {
+                    if let Some(_) = observation.observed_position(&predator) {
                         let mut safe_enough = Self::SAFE_THREAT;
                         for _ in 0..2 {
                             let start_cost = OrderedFloat(threat_map[own_position.idx()]);
@@ -540,7 +534,7 @@ impl MentalState {
             },
             Some(Behavior::Search(list)) => {
                 if let Some(_) = observation
-                    .find_closest(own_position, |e, w| list.contains(&e.e_type()))
+                    .find_closest(own_position, |e, _w| list.contains(&e.e_type()))
                     .next()
                 {
                     self.current_behavior = None;
@@ -743,7 +737,7 @@ impl MentalState {
     ) -> impl Iterator<Item = (WorldEntity, Threat)> + 'a {
         let mut rng = self.rng.clone();
         observation
-            .find_closest(own_position, move |e, w| {
+            .find_closest(own_position, move |e, _w| {
                 e.e_type().can_eat(&self.id.e_type())
             })
             .filter_map(move |(entity, position)| {
@@ -889,7 +883,7 @@ pub struct AgentSystem {
 
 impl AgentSystem {
     pub fn advance<C: Cell>(&mut self, world: &World<C>) {
-        use itertools::{Either, Itertools};
+        use itertools::{Either};
         use rayon::prelude::*;
 
         let res: LinkedList<_> = {
@@ -964,7 +958,6 @@ impl AgentSystem {
         &'a mut self,
         events: impl IntoIterator<Item = &'a Event> + Copy + Sync,
     ) {
-        use itertools::{Either, Itertools};
         use rayon::prelude::*;
         self.mental_states.par_iter_mut().for_each(|ms| {
             ms.update_on_events(events);
@@ -983,7 +976,7 @@ impl AgentSystem {
     }
     pub fn init<C: Cell>(
         agents: Vec<WorldEntity>,
-        world: &World<C>,
+        _world: &World<C>,
         use_mdp: bool,
         have_world_model: bool,
         mut rng: impl Rng,

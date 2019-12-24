@@ -3,7 +3,7 @@ use conrod_winit::WinitWindow;
 use winit::{
     dpi::{LogicalPosition, LogicalSize},
     event::{
-        ElementState, Event, ModifiersState, MouseButton, MouseScrollDelta, Touch, TouchPhase,
+        ElementState, Event, MouseButton, MouseScrollDelta, Touch, TouchPhase,
         VirtualKeyCode, WindowEvent,
     },
     window::CursorIcon,

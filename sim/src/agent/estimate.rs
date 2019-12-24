@@ -4,7 +4,7 @@ use std::borrow::Borrow;
 
 use super::estimator::MentalStateRep;
 use crate::agent::estimator::Estimator;
-use crate::agent::{Behavior, Hunger, MentalState, Reward};
+use crate::agent::{Behavior, Hunger, MentalState};
 use crate::entity::WorldEntity;
 use crate::entity_type::EntityType;
 use crate::position::Coord;
@@ -156,7 +156,7 @@ impl MentalStateRep for PointEstimateRep {
     fn update_on_events<'a>(
         &'a mut self,
         events: impl IntoIterator<Item = &'a Event> + Copy,
-        world_model: Option<&'a World<Occupancy>>,
+        _world_model: Option<&'a World<Occupancy>>,
     ) {
         {
             let mut new: MentalState = (&(*self)).into();

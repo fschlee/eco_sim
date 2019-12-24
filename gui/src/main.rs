@@ -8,7 +8,6 @@ use strum_macros::{Display, EnumString};
 use winit::dpi::LogicalSize;
 use winit::{
     event_loop::EventLoop,
-    platform::desktop::EventLoopExtDesktop,
     window::{Window, WindowBuilder},
 };
 

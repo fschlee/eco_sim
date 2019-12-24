@@ -1,5 +1,4 @@
 use crate::world::{MAP_HEIGHT, MAP_WIDTH};
-use std::collections::HashMap;
 
 pub type Coord = i16; // Needs to be signed and to be able to store values of at least 2 * max(MAP_WIDTH, MAP_HEIGHT)
 

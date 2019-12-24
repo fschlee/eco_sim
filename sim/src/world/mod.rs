@@ -411,7 +411,7 @@ impl World<Occupancy> {
         mut prob: f32,
     ) -> impl Iterator<Item = (Event, f32)> + 'a {
         assert!(prob > 0.0 && prob <= 1.0);
-        if (prob > 0.0) {
+        if prob > 0.0 {
             let res: Result<Result<_, _>, _> = try {
                 match action {
                     Action::Move(dir) => match position.step(dir) {

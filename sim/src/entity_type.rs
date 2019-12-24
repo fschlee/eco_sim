@@ -94,7 +94,6 @@ impl EntityType {
     }
     #[inline]
     pub const fn pass_rate(&self) -> f32 {
-        use EntityType::*;
         let mut rate = 1.0;
         let mut i = 0;
         while i < EntityType::COUNT {

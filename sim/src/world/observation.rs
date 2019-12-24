@@ -54,8 +54,8 @@ pub trait Observation: Clone {
     }
     fn into_expected<C: Cell>(
         &self,
-        filler: impl Fn(Position) -> C,
-        mut rng: impl Rng,
+        _filler: impl Fn(Position) -> C,
+        rng: impl Rng,
     ) -> (EntityManager, World<C>, AgentSystem) {
         let mut cells = C::empty_init();
         let mut entity_manager = EntityManager::default();
@@ -69,7 +69,6 @@ pub trait Observation: Clone {
             x: (MAP_WIDTH / 2) as Coord,
             y: (MAP_HEIGHT / 2) as Coord,
         };
-        let radius = std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as u32;
         for (e, p) in self.find_closest(pos, |_, _| true) {
             if let Ok(ent) = entity_manager.put(e) {
                 let new_e = WorldEntity::new(ent, e.e_type());
@@ -103,7 +102,7 @@ pub trait Observation: Clone {
             pos: start,
             exp_cost: start.distance(&goal) as Cost,
         });
-        while let Some(PathNode { pos, exp_cost }) = queue.pop() {
+        while let Some(PathNode { pos, exp_cost:_ }) = queue.pop() {
             let base_cost = *cost.get(&pos).unwrap();
             for d in pos.dir(&goal).closest() {
                 if let Some(n) = pos.step(*d) {
@@ -156,7 +155,7 @@ pub trait Observation: Clone {
             pos: start,
             exp_cost: start_cost,
         });
-        while let Some(PathNode { pos, exp_cost }) = queue.pop() {
+        while let Some(PathNode { pos, exp_cost: _ }) = queue.pop() {
             let base_cost = *costs.get(&pos).unwrap();
             for n in pos.neighbours() {
                 if self.known_can_pass(entity, n) == Some(false) {
@@ -211,7 +210,7 @@ impl<'b, C: Cell> Observation for &'b World<C> {
                 starting_point,
                 std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as Coord,
             )
-            .filter(move |(e, p)| predicate(e, self)),
+            .filter(move |(e, _)| predicate(e, self)),
         )
     }
     fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool> {
@@ -229,7 +228,7 @@ impl<'b, C: Cell> Observation for &'b World<C> {
     fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a> {
         Box::new(self.iter_cells().map(|(p, c)| (p, Some(c))))
     }
-    fn is_observed(&self, pos: &Position) -> bool {
+    fn is_observed(&self, _pos: &Position) -> bool {
         true
     }
     fn cell_at(&self, pos: Position) -> Option<&Self::CellType> {

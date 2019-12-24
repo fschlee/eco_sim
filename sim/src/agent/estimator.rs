@@ -125,7 +125,7 @@ impl<E: MentalStateRep + 'static> LearningEstimator<E> {
     }
     fn learn_helper(
         &mut self,
-        agent: WorldEntity,
+        _agent: WorldEntity,
         other: WorldEntity,
         action: Action,
         sight: Coord,

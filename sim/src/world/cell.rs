@@ -146,7 +146,7 @@ impl std::ops::Deref for Occupancy {
         match self {
             Empty | Unknown => &[],
             Filled(v) => &*v,
-            ExpectedFilled(wes, probs) => &*wes,
+            ExpectedFilled(wes, _probs) => &*wes,
         }
     }
 }
