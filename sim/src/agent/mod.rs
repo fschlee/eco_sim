@@ -3,6 +3,7 @@ pub mod estimate;
 pub mod estimator;
 
 use log::{error, info};
+use ordered_float::OrderedFloat;
 use rand::Rng;
 use std::borrow::Borrow;
 use std::cmp::Ordering;
@@ -71,8 +72,8 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 impl MentalState {
     const HUNGER_THRESHOLD: Hunger = Hunger(0.2);
     const HUNGER_INCREMENT: f32 = 0.00001;
-    const FLEE_THREAT: f32 = 20.0;
-    const SAFE_THREAT: f32 = 5.0;
+    const FLEE_THREAT: f32 = 30.0;
+    const SAFE_THREAT: f32 = 8.0;
     const UNSEEN_PROB_MULTIPLIER: f32 = 0.9;
     const PROB_REMOVAL_THRESHOLD: f32 = 0.1;
     pub fn new(
@@ -467,31 +468,30 @@ impl MentalState {
                     escaped = true;
                 } else {
                     if let Some(pos) = observation.observed_position(&predator) {
-                        let d = pos.distance(&own_position);
-                        let mut new_pos = own_position;
-                        let mut value = 0;
-                        for n in own_position.neighbours() {
-                            if observation.known_can_pass(&self.id, n) == Some(true) {
-                                let v = match (
-                                    observation.known_can_pass(&predator, n),
-                                    pos.distance(&n).cmp(&d),
-                                ) {
-                                    (Some(false), _) => 10,
-                                    (None, Ordering::Greater) => 4,
-                                    (None, Ordering::Equal) => 2,
-                                    (None, Ordering::Less) => 1,
-                                    (Some(true), Ordering::Greater) => 3,
-                                    (Some(true), Ordering::Equal) => 1,
-                                    (Some(true), Ordering::Less) => 0,
-                                };
-                                if v > value {
-                                    value = v;
-                                    new_pos = n;
+                        let mut safe_enough = Self::SAFE_THREAT;
+                        for _ in 0..2 {
+                            let start_cost = OrderedFloat(threat_map[own_position.idx()]);
+                            if let Some((path, cost)) = observation.find_with_path_as(
+                                own_position,
+                                start_cost,
+                                &self.id,
+                                |pos, old_c, _| OrderedFloat(old_c.0 + threat_map[pos.idx()]),
+                                |pos, _| threat_map[pos.idx()] <= safe_enough,
+                            ) {
+                                debug_assert!(path[0].is_neighbour(&own_position));
+                                self.current_action = Action::Move(own_position.dir(&path[0]));
+                            } else {
+                                if let Some(pos) = Position::iter()
+                                    .filter(|p| observation.can_pass_prob(&self.id, *p) > 0.5)
+                                    .min_by(|p0, p1| {
+                                        f32_cmp(&threat_map[p0.idx()], &threat_map[p1.idx()])
+                                    })
+                                {
+                                    safe_enough = threat_map[pos.idx()];
+                                } else {
+                                    safe_enough = threat_map[own_position.idx()] * 0.9;
                                 }
                             }
-                        }
-                        if new_pos != own_position {
-                            self.current_action = Action::Move(own_position.dir(&new_pos));
                         }
                     } else {
                         escaped = true;
@@ -545,7 +545,43 @@ impl MentalState {
                 {
                     self.current_behavior = None;
                 } else {
-                    self.random_step(own_position, observation);
+                    use lazysort::SortedBy;
+                    if let Some(path) = observation
+                        .iter()
+                        .filter_map(|(p, opt_c)| {
+                            if threat_map[p.idx()] > Self::FLEE_THREAT {
+                                return None;
+                            }
+                            match opt_c {
+                                None => Some(p),
+                                Some(c) if c.is_unknown() => Some(p),
+                                Some(_) => None,
+                            }
+                        })
+                        .sorted_by(|p1, p2| {
+                            own_position.distance(p2).cmp(&own_position.distance(p1))
+                        })
+                        .filter_map(|p| {
+                            if let Some(path) = self.path(own_position, p, observation) {
+                                let mut current = own_position;
+                                for dir in &path {
+                                    if let Some(step) = current.step(*dir) {
+                                        current = step;
+                                        if threat_map[current.idx()] >= Self::FLEE_THREAT {
+                                            return None;
+                                        }
+                                    } else {
+                                        return None;
+                                    }
+                                }
+                                return Some(path);
+                            }
+                            None
+                        })
+                        .next()
+                    {
+                        self.current_action = Action::Move(path[0])
+                    }
                 }
             }
             Some(Behavior::Travel(goal)) => {

@@ -14,6 +14,9 @@ pub trait Cell: Deref<Target = [WorldEntity]> + Sized + Clone + Sync + std::fmt:
     fn push(&mut self, we: WorldEntity);
     fn unknown() -> Self;
     fn is_empty(&self) -> bool;
+    fn is_unknown(&self) -> bool {
+        false
+    }
     fn iter_probs<'a>(&'a self) -> OccupancyIter<'a>;
     fn pass_rate(&self, entity: WorldEntity) -> f32 {
         if self
@@ -229,6 +232,13 @@ impl Cell for Occupancy {
                 });
                 prob
             }
+        }
+    }
+    fn is_unknown(&self) -> bool {
+        use Occupancy::*;
+        match self {
+            Unknown => true,
+            Empty | Filled(_) | ExpectedFilled(_, _) => false,
         }
     }
 }

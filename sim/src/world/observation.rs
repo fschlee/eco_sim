@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
 use super::cell::Cell;
-use super::position::{Coord, Dir, Position, PositionMap};
+use super::position::{Coord, Dir, Position, PositionMap, PositionWalker};
 use super::{PhysicalState, World, MAP_HEIGHT, MAP_WIDTH};
 use crate::agent::AgentSystem;
 use crate::entity::{EntityManager, Storage, WorldEntity};
@@ -11,17 +11,20 @@ use crate::Prob;
 
 type Cost = i32;
 #[derive(Eq, PartialEq, Clone, Debug)]
-pub struct PathNode {
+pub struct PathNode<T: Eq + PartialEq + PartialOrd> {
     pub pos: Position,
-    pub exp_cost: Cost,
+    pub exp_cost: T,
 }
 
-impl Ord for PathNode {
+impl<T: Eq + PartialEq + PartialOrd> Ord for PathNode<T> {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.exp_cost.cmp(&self.exp_cost)
+        other
+            .exp_cost
+            .partial_cmp(&self.exp_cost)
+            .expect("Non-comparable cost value, probably NaN")
     }
 }
-impl PartialOrd for PathNode {
+impl<T: Eq + PartialEq + PartialOrd> PartialOrd for PathNode<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         other.exp_cost.partial_cmp(&self.exp_cost)
     }
@@ -35,6 +38,12 @@ pub trait Observation: Clone {
         starting_point: Position,
         predicate: impl Fn(&WorldEntity, &World<Self::CellType>) -> bool + 'a,
     ) -> Box<dyn Iterator<Item = (WorldEntity, Position)> + 'a>;
+    fn entities_at(&self, position: Position) -> &[WorldEntity];
+    fn cell_at(&self, pos: Position) -> Option<&Self::CellType>;
+    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a>;
+    fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState>;
+    fn observed_position(&self, entity: &WorldEntity) -> Option<Position>;
+    fn is_observed(&self, pos: &Position) -> bool;
     fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool>;
     fn can_pass_prob(&self, entity: &WorldEntity, position: Position) -> Prob {
         match self.known_can_pass(entity, position) {
@@ -43,9 +52,6 @@ pub trait Observation: Clone {
             None => entity.e_type().pass_rate(),
         }
     }
-    fn entities_at(&self, position: Position) -> &[WorldEntity];
-    fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState>;
-    fn observed_position(&self, entity: &WorldEntity) -> Option<Position>;
     fn into_expected<C: Cell>(
         &self,
         filler: impl Fn(Position) -> C,
@@ -134,8 +140,58 @@ pub trait Observation: Clone {
         }
         None
     }
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a>;
-    fn is_observed(&self, pos: &Position) -> bool;
+    fn find_with_path_as<C: Copy + Eq + PartialOrd>(
+        &self,
+        start: Position,
+        start_cost: C,
+        entity: &WorldEntity,
+        cost_acc: impl Fn(Position, &C, &Self) -> C,
+        found: impl Fn(Position, &Self) -> bool,
+    ) -> Option<(Vec<Position>, C)> {
+        let mut came_from: PositionMap<Position> = PositionMap::new();
+        let mut costs = PositionMap::new();
+        let mut queue = BinaryHeap::new();
+        costs.insert(start, start_cost);
+        queue.push(PathNode {
+            pos: start,
+            exp_cost: start_cost,
+        });
+        while let Some(PathNode { pos, exp_cost }) = queue.pop() {
+            let base_cost = *costs.get(&pos).unwrap();
+            for n in pos.neighbours() {
+                if self.known_can_pass(entity, n) == Some(false) {
+                    continue;
+                }
+                let cost = cost_acc(n, &base_cost, &self);
+                if found(n, &self) {
+                    let mut v = vec![n];
+                    let mut current = pos;
+                    while let Some(&from) = came_from.get(&current) {
+                        v.push(current);
+                        current = from;
+                    }
+                    v.reverse();
+                    return Some((v, cost));
+                } else {
+                    let mut insert = true;
+                    if let Some(c) = costs.get(&n) {
+                        if *c <= cost {
+                            insert = false;
+                        }
+                    }
+                    if insert {
+                        costs.insert(n, cost);
+                        came_from.insert(n, pos);
+                        queue.push(PathNode {
+                            pos: n,
+                            exp_cost: cost,
+                        })
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 impl<'b, C: Cell> Observation for &'b World<C> {
@@ -176,7 +232,19 @@ impl<'b, C: Cell> Observation for &'b World<C> {
     fn is_observed(&self, pos: &Position) -> bool {
         true
     }
+    fn cell_at(&self, pos: Position) -> Option<&Self::CellType> {
+        Some(&self[pos])
+    }
 }
+
+impl<C: Cell> std::ops::Index<Position> for &World<C> {
+    type Output = C;
+
+    fn index(&self, index: Position) -> &Self::Output {
+        &self.cells[index.y as usize][index.x as usize]
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RadiusObservation<'a, C: Cell> {
     radius: Coord,
@@ -249,7 +317,15 @@ impl<'b, C: Cell> Observation for RadiusObservation<'b, C> {
     fn is_observed(&self, pos: &Position) -> bool {
         self.center.distance(pos) <= self.radius
     }
+    fn cell_at(&self, pos: Position) -> Option<&Self::CellType> {
+        if self.is_observed(&pos) {
+            Some(&self.world[pos])
+        } else {
+            None
+        }
+    }
 }
+
 struct EntityWalker<'a, C: Cell> {
     position_walker: PositionWalker,
     world: &'a World<C>,
@@ -282,80 +358,6 @@ impl<'a, C: Cell> Iterator for EntityWalker<'a, C> {
             self.current_pos = pos;
             self.subindex = 0;
             return self.next();
-        }
-        None
-    }
-}
-
-pub struct PositionWalker {
-    center: Position,
-    current_pos: Option<Position>,
-    radius: Coord,
-    max_radius: Coord,
-    delta: Coord,
-}
-impl PositionWalker {
-    pub fn new(center: Position, max_radius: Coord) -> Self {
-        Self {
-            center,
-            current_pos: Some(center.clone()),
-            radius: 0,
-            max_radius,
-            delta: 0,
-        }
-    }
-    pub fn empty() -> Self {
-        Self {
-            center: Position { x: 0, y: 0 },
-            current_pos: None,
-            radius: 1,
-            max_radius: 0,
-            delta: 0,
-        }
-    }
-    pub fn get_current(&self) -> Option<Position> {
-        self.current_pos
-    }
-}
-impl Iterator for PositionWalker {
-    type Item = Position;
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(current) = self.current_pos {
-            if current.x > self.center.x {
-                let x = self.center.x + self.delta - self.radius;
-                if x >= 0 {
-                    self.current_pos = Some(Position { x: x, y: current.y });
-                    return Some(current);
-                }
-            }
-            if current.y > self.center.y {
-                let x = self.center.x + self.radius - self.delta;
-                let y = self.center.y - self.delta;
-                if x >= 0 && y >= 0 {
-                    self.current_pos = Some(Position { x, y });
-                    return Some(current);
-                }
-            }
-            if self.delta < self.radius {
-                self.delta += 1;
-                self.current_pos = Some(Position {
-                    x: self.center.x + self.radius - self.delta,
-                    y: self.center.y + self.delta,
-                });
-                return Some(current);
-            }
-            let v = self.center.x + self.center.y;
-            if self.radius < self.max_radius
-                && (self.radius < v || self.radius < (MAP_WIDTH + MAP_HEIGHT) as Coord - v)
-            {
-                self.radius += 1;
-                self.delta = 0;
-                self.current_pos = Some(Position {
-                    x: self.center.x + self.radius,
-                    y: self.center.y,
-                });
-                return Some(current);
-            }
         }
         None
     }

@@ -7,7 +7,6 @@
 #![feature(const_in_array_repeat_expressions)]
 #![feature(const_generics)]
 
-
 pub mod entity;
 pub mod entity_type;
 pub mod world;

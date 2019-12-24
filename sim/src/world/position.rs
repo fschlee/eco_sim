@@ -87,6 +87,25 @@ impl Position {
     pub const fn idx(&self) -> usize {
         MAP_WIDTH * self.y as usize + self.x as usize
     }
+    pub fn iter_outwards(&self) -> impl Iterator<Item = Position> {
+        PositionWalker::new(*self, (MAP_WIDTH + MAP_HEIGHT) as Coord)
+    }
+    pub fn iter_ring(
+        &self,
+        min_radius: Coord,
+        max_radius: Coord,
+    ) -> impl Iterator<Item = Position> {
+        PositionWalker {
+            center: *self,
+            current_pos: Some(Position {
+                x: self.x + (min_radius - 1).min(0),
+                y: self.y,
+            }),
+            radius: min_radius,
+            max_radius,
+            delta: 0,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Dir {
@@ -150,26 +169,25 @@ impl Iterator for NeighborIter {
 
 pub(crate) struct PositionMap<T: Clone + Sized>(Map<Option<T>>);
 
-impl<T: Clone + Sized> PositionMap<T>{
+impl<T: Clone + Sized> PositionMap<T> {
     pub fn new() -> Self {
-       Self(Map::new())
-
+        Self(Map::new())
     }
     pub fn get(&self, k: &Position) -> Option<&T> {
         self.0[*k].as_ref()
     }
     pub fn insert(&mut self, k: Position, v: T) -> Option<T> {
-        let mut ret =  Some(v);
-        std::mem::swap(&mut ret, & mut self.0[k]);
+        let mut ret = Some(v);
+        std::mem::swap(&mut ret, &mut self.0[k]);
         ret
     }
 }
 
 pub trait ConstDefault {
-    const DEFAULT : Self;
+    const DEFAULT: Self;
 }
 impl<T> ConstDefault for Option<T> {
-    const DEFAULT : Self = None;
+    const DEFAULT: Self = None;
 }
 
 pub struct Map<T>([[T; MAP_WIDTH]; MAP_HEIGHT]);
@@ -188,6 +206,80 @@ impl<T> std::ops::Index<Position> for Map<T> {
 }
 impl<T> std::ops::IndexMut<Position> for Map<T> {
     fn index_mut(&mut self, index: Position) -> &mut Self::Output {
-        & mut self.0[index.y as usize][index.x as usize]
+        &mut self.0[index.y as usize][index.x as usize]
+    }
+}
+
+pub struct PositionWalker {
+    center: Position,
+    current_pos: Option<Position>,
+    radius: Coord,
+    max_radius: Coord,
+    delta: Coord,
+}
+impl PositionWalker {
+    pub fn new(center: Position, max_radius: Coord) -> Self {
+        Self {
+            center,
+            current_pos: Some(center.clone()),
+            radius: 0,
+            max_radius,
+            delta: 0,
+        }
+    }
+    pub fn empty() -> Self {
+        Self {
+            center: Position { x: 0, y: 0 },
+            current_pos: None,
+            radius: 1,
+            max_radius: 0,
+            delta: 0,
+        }
+    }
+    pub fn get_current(&self) -> Option<Position> {
+        self.current_pos
+    }
+}
+impl Iterator for PositionWalker {
+    type Item = Position;
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(current) = self.current_pos {
+            if current.x > self.center.x {
+                let x = self.center.x + self.delta - self.radius;
+                if x >= 0 {
+                    self.current_pos = Some(Position { x: x, y: current.y });
+                    return Some(current);
+                }
+            }
+            if current.y > self.center.y {
+                let x = self.center.x + self.radius - self.delta;
+                let y = self.center.y - self.delta;
+                if x >= 0 && y >= 0 {
+                    self.current_pos = Some(Position { x, y });
+                    return Some(current);
+                }
+            }
+            if self.delta < self.radius {
+                self.delta += 1;
+                self.current_pos = Some(Position {
+                    x: self.center.x + self.radius - self.delta,
+                    y: self.center.y + self.delta,
+                });
+                return Some(current);
+            }
+            let v = self.center.x + self.center.y;
+            if self.radius < self.max_radius
+                && (self.radius < v || self.radius < (MAP_WIDTH + MAP_HEIGHT) as Coord - v)
+            {
+                self.radius += 1;
+                self.delta = 0;
+                self.current_pos = Some(Position {
+                    x: self.center.x + self.radius,
+                    y: self.center.y,
+                });
+                return Some(current);
+            }
+        }
+        None
     }
 }
