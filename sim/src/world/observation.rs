@@ -102,7 +102,7 @@ pub trait Observation: Clone {
             pos: start,
             exp_cost: start.distance(&goal) as Cost,
         });
-        while let Some(PathNode { pos, exp_cost:_ }) = queue.pop() {
+        while let Some(PathNode { pos, exp_cost: _ }) = queue.pop() {
             let base_cost = *cost.get(&pos).unwrap();
             for d in pos.dir(&goal).closest() {
                 if let Some(n) = pos.step(*d) {

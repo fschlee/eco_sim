@@ -1,4 +1,5 @@
 use crate::world::{MAP_HEIGHT, MAP_WIDTH};
+use std::fmt::Display;
 
 pub type Coord = i16; // Needs to be signed and to be able to store values of at least 2 * max(MAP_WIDTH, MAP_HEIGHT)
 
@@ -31,7 +32,7 @@ impl Position {
         dist
     }
     pub const fn within_bounds(&self) -> bool {
-        self.x < MAP_WIDTH as Coord && self.y < MAP_HEIGHT as Coord
+        self.x >= 0 && self.y >= 0 && self.x < MAP_WIDTH as Coord && self.y < MAP_HEIGHT as Coord
     }
     pub const fn step(&self, dir: Dir) -> Option<Position> {
         use Dir::*;
@@ -106,6 +107,12 @@ impl Position {
         }
     }
 }
+impl std::fmt::Display for Position {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialOrd, Ord, PartialEq, Eq)]
 pub enum Dir {
     R = 0,

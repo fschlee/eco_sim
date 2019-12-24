@@ -102,6 +102,7 @@ pub enum Action {
     HighlightVisibility(eco_sim::WorldEntity),
     ClearHighlight,
     ToggleThreatMode,
+    ToggleMapKnowledgeMode,
 }
 static CAMERA_STEP: f32 = 0.05;
 
@@ -185,7 +186,7 @@ impl UIState {
                     self.actions.push_back(Action::Hover(position));
                 }
                 WindowEvent::MouseInput {
-                    button: MouseButton::Right,
+                    button: MouseButton::Left,
                     state: ElementState::Pressed,
                     modifiers,
                     ..
@@ -207,7 +208,7 @@ impl UIState {
                     }
                 }
                 WindowEvent::MouseInput {
-                    button: MouseButton::Left,
+                    button: MouseButton::Right,
                     state: ElementState::Pressed,
                     ..
                 } => {
@@ -432,6 +433,21 @@ impl UIState {
                                 .mid_top_of(self.ids.tooltip)
                                 .set(self.ids.tooltip_head, ui);
                         }
+                    } else if pos.within_bounds() {
+                        let (w, h) = (90.0, 30.0);
+                        cc::widget::Canvas::new()
+                            .pad(1.0)
+                            .w_h(w, h)
+                            .x_y(mouse_pos.0 + 0.5 * w, mouse_pos.1 - 0.5 * h)
+                            .rgb(0.0, 0.0, 0.0)
+                            .border_color(cc::color::WHITE)
+                            .parent(self.ids.canvas)
+                            .set(self.ids.tooltip, ui);
+                        let head = format!("{}", pos);
+                        cc::widget::Text::new(&head)
+                            .font_size(12)
+                            .mid_top_of(self.ids.tooltip)
+                            .set(self.ids.tooltip_head, ui);
                     }
                 }
                 _ => (),
@@ -474,6 +490,7 @@ impl UIState {
                 self.tooltip_index += 1;
             }
             VirtualKeyCode::T => self.actions.push_back(Action::ToggleThreatMode),
+            VirtualKeyCode::M => self.actions.push_back(Action::ToggleMapKnowledgeMode),
             _ => (),
         }
     }

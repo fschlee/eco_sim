@@ -46,16 +46,24 @@ pub struct RenderData<'a> {
     pub update: Option<Update<'a>>,
     pub models: &'a [Model],
 }
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum MapMode {
+    Normal,
+    Threats,
+    MapKnowledge,
+}
 
 pub struct GameState {
     eco_sim: eco_sim::SimState,
     base_data: BaseData,
     re_register: bool,
     models: [Model; EntityType::COUNT + Self::NON_ENTITY_MODELS],
+    last_drawn: u64,
+    redraw: bool,
     paused: bool,
     highlighted: HashSet<(usize, usize)>,
     highlight_visible: Option<WorldEntity>,
-    threat_mode: bool,
+    map_mode: MapMode,
     cell_width: f32,
     cell_height: f32,
     margin: f32,
@@ -74,13 +82,15 @@ impl GameState {
             base_data,
             re_register: true,
             models,
+            last_drawn: 0,
+            redraw: false,
             paused: true,
             highlighted: HashSet::new(),
             highlight_visible: None,
             cell_width: 80.0,
             cell_height: 80.0,
             margin: 80.0,
-            threat_mode: false,
+            map_mode: MapMode::Normal,
         }
     }
     fn init_models() -> (
@@ -171,9 +181,30 @@ impl GameState {
                         self.eco_sim.update_mental_state(new_ms);
                     }
                 }
-                Action::ClearHighlight => self.highlight_visible = None,
-                Action::HighlightVisibility(ent) => self.highlight_visible = Some(ent),
-                Action::ToggleThreatMode => self.threat_mode = !self.threat_mode,
+                Action::ClearHighlight => {
+                    self.redraw = true;
+                    self.highlight_visible = None
+                }
+                Action::HighlightVisibility(ent) => {
+                    self.redraw = true;
+                    self.highlight_visible = Some(ent);
+                }
+                Action::ToggleThreatMode => {
+                    self.redraw = true;
+                    if self.map_mode == MapMode::Threats {
+                        self.map_mode = MapMode::Normal;
+                    } else {
+                        self.map_mode = MapMode::Threats
+                    }
+                }
+                Action::ToggleMapKnowledgeMode => {
+                    self.redraw = true;
+                    if self.map_mode == MapMode::MapKnowledge {
+                        self.map_mode = MapMode::Normal;
+                    } else {
+                        self.map_mode = MapMode::MapKnowledge
+                    }
+                }
             }
         }
         if !self.paused {
@@ -181,6 +212,14 @@ impl GameState {
         }
     }
     pub fn get_render_data(&mut self) -> RenderData {
+        if self.last_drawn >= self.eco_sim.next_step_count && !self.redraw {
+            return RenderData {
+                update: None,
+                models: &self.models,
+            };
+        }
+        self.last_drawn = self.eco_sim.next_step_count;
+        self.redraw = false;
         for m in self.models.iter_mut() {
             m.vec.clear()
         }
@@ -189,7 +228,7 @@ impl GameState {
             for eco_sim::Position { x, y } in self.eco_sim.get_visibility(&ent) {
                 self.highlighted.insert((x as usize, y as usize));
             }
-            if self.threat_mode && self.highlight_visible.is_some() {
+            if self.map_mode == MapMode::Threats && self.highlight_visible.is_some() {
                 self.eco_sim.threat_map(&ent)
             } else {
                 Vec::new()
@@ -197,37 +236,58 @@ impl GameState {
         } else {
             Vec::new()
         };
-        for (i, j, dat) in self
-            .eco_sim
-            .get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT)
         {
-            let x_offset = self.cell_width * i as f32;
-            let y_offset = self.cell_height * j as f32;
-            let idx = eco_sim::MAP_WIDTH * j + i;
-            let col = match self.highlighted.contains(&(i, j)) {
-                x if danger.len() > idx && self.threat_mode => {
-                    x as u32 * 256 | 512 | (danger[idx].floor() as u32).min(255)
-                }
-                true => 256,
-                false => 0,
-            };
-            let mut z = 0.01;
-            self.models[Self::SQUARE].vec.push(Instance {
-                x_offset,
-                y_offset,
-                highlight: col,
-                z,
-            });
-            for ent in dat {
-                z += 0.01;
-                self.models[ent.e_type().idx()].vec.push(Instance {
+            let Self {
+                ref map_mode,
+                ref mut models,
+                ref cell_width,
+                ref cell_height,
+                ref highlighted,
+                ref eco_sim,
+                ..
+            } = self;
+            let drawer = |(i, j, dat): (usize, usize, &[eco_sim::ViewData])| {
+                let x_offset = cell_width * i as f32;
+                let y_offset = cell_height * j as f32;
+                let idx = eco_sim::MAP_WIDTH * j + i;
+                let col = match highlighted.contains(&(i, j)) {
+                    x if danger.len() > idx && *map_mode == MapMode::Threats => {
+                        x as u32 * 256 | 512 | (danger[idx].floor() as u32).min(255)
+                    }
+                    true => 256,
+                    false => 0,
+                };
+                let mut z = 0.01;
+                models[Self::SQUARE].vec.push(Instance {
                     x_offset,
                     y_offset,
-                    highlight: 0,
+                    highlight: col,
                     z,
                 });
+                for ent in dat {
+                    z += 0.01;
+                    models[ent.e_type().idx()].vec.push(Instance {
+                        x_offset,
+                        y_offset,
+                        highlight: 0,
+                        z,
+                    });
+                }
+            };
+            match map_mode {
+                MapMode::MapKnowledge => eco_sim
+                    .get_world_knowledge_view(
+                        0..eco_sim::MAP_WIDTH,
+                        0..eco_sim::MAP_HEIGHT,
+                        self.highlight_visible.unwrap(),
+                    )
+                    .for_each(drawer),
+                MapMode::Normal | MapMode::Threats => eco_sim
+                    .get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT)
+                    .for_each(drawer),
             }
         }
+
         let update = if self.re_register {
             self.re_register = false;
             Some(Update::Replace(&self.base_data))

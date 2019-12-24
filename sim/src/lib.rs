@@ -31,6 +31,7 @@ pub struct SimState {
     entity_manager: EntityManager,
     sim_step: f32,
     time_acc: f32,
+    pub next_step_count: u64,
 }
 
 impl SimState {
@@ -44,6 +45,7 @@ impl SimState {
             self.world.advance();
             self.agent_system.process_feedback(&self.world.events);
             self.respawn_killed();
+            self.next_step_count += 1;
         }
     }
     fn respawn_killed(&mut self) {
@@ -82,6 +84,7 @@ impl SimState {
             agent_system,
             world: world,
             entity_manager,
+            next_step_count: 1,
         }
     }
     pub fn get_view(
@@ -90,6 +93,19 @@ impl SimState {
         y: Range<usize>,
     ) -> impl Iterator<Item = (usize, usize, &[ViewData])> + '_ {
         self.world.get_view(x, y)
+    }
+    pub fn get_world_knowledge_view(
+        &self,
+        x: Range<usize>,
+        y: Range<usize>,
+        we: WorldEntity,
+    ) -> impl Iterator<Item = (usize, usize, &[ViewData])> + '_ {
+        self.agent_system
+            .mental_states
+            .get(we)
+            .and_then(|ms| ms.world_model.as_deref())
+            .into_iter()
+            .flat_map(move |w| w.get_view(x.clone(), y.clone()))
     }
     pub fn entities_at(&self, position: Position) -> &[WorldEntity] {
         (&self.world).entities_at(position)

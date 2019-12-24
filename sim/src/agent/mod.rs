@@ -16,7 +16,7 @@ use crate::world::cell::Cell;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
 
-use crate::agent::estimator::{Estimator};
+use crate::agent::estimator::Estimator;
 pub use emotion::{EmotionalState, Hunger};
 use estimator::{EstimatorMap, MentalStateRep};
 
@@ -883,7 +883,7 @@ pub struct AgentSystem {
 
 impl AgentSystem {
     pub fn advance<C: Cell>(&mut self, world: &World<C>) {
-        use itertools::{Either};
+        use itertools::Either;
         use rayon::prelude::*;
 
         let res: LinkedList<_> = {
