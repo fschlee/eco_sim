@@ -4,6 +4,9 @@
 #![feature(const_fn)]
 #![feature(const_loop)]
 #![feature(const_if_match)]
+#![feature(const_in_array_repeat_expressions)]
+#![feature(const_generics)]
+
 
 pub mod entity;
 pub mod entity_type;

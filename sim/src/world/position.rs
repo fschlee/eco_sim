@@ -148,46 +148,46 @@ impl Iterator for NeighborIter {
     }
 }
 
-pub(crate) enum PositionMap<T: Sized> {
-    Vec(Vec<(Position, T)>),
-    Map(HashMap<Position, T>),
-}
-impl<T: Sized> PositionMap<T> {
+pub(crate) struct PositionMap<T: Clone + Sized>(Map<Option<T>>);
+
+impl<T: Clone + Sized> PositionMap<T>{
     pub fn new() -> Self {
-        Self::Vec(Vec::new())
+       Self(Map::new())
+
     }
     pub fn get(&self, k: &Position) -> Option<&T> {
-        match self {
-            Self::Vec(vec) => vec
-                .iter()
-                .find_map(|(p, t)| if *p == *k { Some(t) } else { None }),
-            Self::Map(m) => m.get(k),
-        }
+        self.0[*k].as_ref()
     }
     pub fn insert(&mut self, k: Position, v: T) -> Option<T> {
-        match self {
-            Self::Vec(vec) => {
-                if MAP_HEIGHT * MAP_WIDTH > 200 && vec.len() > 100 {
-                    let mut map = HashMap::new();
-                    for (p, t) in vec.drain(..) {
-                        map.insert(p, t);
-                    }
-                    *self = Self::Map(map);
-                    return self.insert(k, v);
-                }
-                match vec.iter_mut().find(|(p, t)| *p == k) {
-                    Some((_p, t)) => {
-                        let mut r = v;
-                        std::mem::swap(t, &mut r);
-                        Some(r)
-                    }
-                    None => {
-                        vec.push((k, v));
-                        None
-                    }
-                }
-            }
-            Self::Map(m) => m.insert(k, v),
-        }
+        let mut ret =  Some(v);
+        std::mem::swap(&mut ret, & mut self.0[k]);
+        ret
+    }
+}
+
+pub trait ConstDefault {
+    const DEFAULT : Self;
+}
+impl<T> ConstDefault for Option<T> {
+    const DEFAULT : Self = None;
+}
+
+pub struct Map<T>([[T; MAP_WIDTH]; MAP_HEIGHT]);
+
+impl<T: ConstDefault> Map<T> {
+    pub const fn new() -> Self {
+        Self([[T::DEFAULT; MAP_WIDTH]; MAP_HEIGHT])
+    }
+}
+impl<T> std::ops::Index<Position> for Map<T> {
+    type Output = T;
+
+    fn index(&self, index: Position) -> &Self::Output {
+        &self.0[index.y as usize][index.x as usize]
+    }
+}
+impl<T> std::ops::IndexMut<Position> for Map<T> {
+    fn index_mut(&mut self, index: Position) -> &mut Self::Output {
+        & mut self.0[index.y as usize][index.x as usize]
     }
 }

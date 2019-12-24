@@ -1,3 +1,5 @@
+#![feature(const_in_array_repeat_expressions)]
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use eco_sim::agent::{AgentSystem, MentalState};
 use eco_sim::entity::{EntityManager, WorldEntity};
@@ -7,6 +9,38 @@ use rand::{thread_rng, Rng, RngCore};
 
 fn sim(c: &mut Criterion) {
     let mut sim = eco_sim::SimState::new_with_seed(1.0, 0);
+    /*
+    c.bench_function("array of arrays", |b| {
+        b.iter(|| {
+            let mut arr = [[0; 11]; 11];
+            let s = black_box(0);
+            for p in Position::iter() {
+                arr[p.y as usize][p.x as usize] += s;
+            }
+            arr[black_box(0)][black_box(0)]
+        })
+    });
+    c.bench_function("array", |b| {
+        b.iter(|| {
+            let mut arr = [0; 11 *  11];
+            let s = black_box(0);
+            for p in Position::iter() {
+                arr[p.idx()] += s;
+            }
+            arr[black_box(0)]
+        })
+    });
+    c.bench_function("vec", |b| {
+        b.iter(|| {
+            let mut arr = vec![0; 11 *  11];
+            let s = black_box(0);
+            for p in Position::iter() {
+                arr[p.idx()] += s;
+            }
+            arr[black_box(0)]
+        })
+    });
+    */
     c.bench_function("sim", |b| {
         b.iter(|| {
             sim.advance(1.0);
