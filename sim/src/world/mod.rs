@@ -14,7 +14,7 @@ pub use position::*;
 
 use super::entity::*;
 use super::entity_type::*;
-use crate::position::{Coord, Dir, Position};
+pub use crate::position::{Coord, Dir, Position};
 use crate::MentalState;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
@@ -185,7 +185,7 @@ impl<C: Cell> World<C> {
                         .physical_states
                         .get_mut(entity)
                         .ok_or("Entity has no physical state but tries to move")?;
-                    if phys.partial_move(pos) >= MoveProgress(1.0) {
+                    if phys.partial_move(dir) >= MoveProgress(1.0) {
                         phys.move_target = None;
                         phys.move_progress = MoveProgress::default();
                         self.move_list.push((*entity, dir));
@@ -421,7 +421,7 @@ impl World<Occupancy> {
                                 .physical_states
                                 .get_mut(entity)
                                 .ok_or("Entity has no physical state but tries to move")?;
-                            if phys.partial_move(pos) >= MoveProgress(1.0) {
+                            if phys.partial_move(dir) >= MoveProgress(1.0) {
                                 phys.move_target = None;
                                 phys.move_progress = MoveProgress::default();
                                 self.move_uncertain(&entity, pos, prob);

@@ -66,7 +66,7 @@ impl EntityType {
             Wolf => Some(PhysicalState::new(
                 Health(300.0),
                 Speed(0.3),
-                Some(Attack(60.0)),
+                Some(Attack(40.0)),
             )),
             Rock | Grass | Clover | Tree | Burrow => None,
         }

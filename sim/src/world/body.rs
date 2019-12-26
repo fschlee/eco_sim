@@ -1,4 +1,4 @@
-use super::position::Position;
+use super::position::{Dir, Position};
 use crate::util::clip;
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
@@ -47,7 +47,7 @@ pub struct PhysicalState {
     pub meat: Meat,
     pub speed: Speed,
     pub move_progress: MoveProgress,
-    pub move_target: Option<Position>,
+    pub move_target: Option<Dir>,
     pub attack: Option<Attack>,
     pub satiation: Satiation,
 }
@@ -72,9 +72,10 @@ impl PhysicalState {
     pub fn is_dead(&self) -> bool {
         self.health.0 <= 0.0
     }
-    pub fn partial_move(&mut self, goal: Position) -> MoveProgress {
-        if Some(goal) != self.move_target {
-            self.move_target = Some(goal);
+    pub fn partial_move(&mut self, dir: Dir) -> MoveProgress {
+        if Some(dir) != self.move_target {
+            self.move_target = Some(dir);
+            self.move_progress = MoveProgress(0.0);
         }
         self.move_progress += self.speed * (self.health.0 / self.max_health.0);
         self.move_progress

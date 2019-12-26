@@ -1,0 +1,31 @@
+[package]
+name = "eco_sim_py"
+version = "0.1.0"
+authors = ["Feisal Schlee <fschlee@techfak.uni-bielefeld.de>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+"eco_sim" = { path="../../sim", features =["reinforce"] }
+
+"eco_sim_gui" = { path="../../gui", optional = true }
+
+numpy = "0.7.0"
+ndarray = "0.13"
+
+"itertools" = "^0.8"
+
+[dependencies.pyo3]
+version = "0.8.4"
+features = ["extension-module"]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+  "-C", "link-arg=-undefined",
+  "-C", "link-arg=dynamic_lookup",
+]
+
+[lib]
+name = "eco_sim"
+crate-type = ["cdylib"]

@@ -5,12 +5,14 @@ members = [
     "sim",
     "gui",
     "enum_macros",
+    "eco_sim_py/ffi",
 ]
 
 default-members = [
     "sim",
     "gui",
     "enum_macros",
+    "eco_sim_py/ffi",
 ]
 
 [profile.dev]

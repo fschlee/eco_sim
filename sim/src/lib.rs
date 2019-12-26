@@ -12,6 +12,10 @@ pub mod entity_type;
 pub mod world;
 
 pub mod agent;
+
+#[cfg(any(feature = "torch", feature = "reinforce"))]
+pub mod rl_env_helper;
+
 pub mod util;
 
 pub use crate::agent::*;
@@ -41,6 +45,13 @@ impl SimState {
             self.time_acc -= self.sim_step;
             self.agent_system.advance(&self.world);
             self.world.events.clear();
+            /*
+            #[cfg(feature = "torch")]
+            {
+                let ms : &MentalState = self.agent_system.mental_states.iter().next().unwrap();
+                let w = rl_env_helper::ObsvWriter::new(&self.world, *self.world.positions.get(ms.id).unwrap(), ms.sight_radius);
+                w.encode_observation_in_tensor();
+            } */
             self.world.act(&self.agent_system.actions);
             self.world.advance();
             self.agent_system.process_feedback(&self.world.events);
@@ -74,6 +85,8 @@ impl SimState {
         Self::new_with_seed(time_step, 0)
     }
     pub fn new_with_seed(time_step: f32, seed: u64) -> Self {
+        #[cfg(feature = "torch")]
+        println!("using torch");
         let mut entity_manager = EntityManager::default();
         let rng = XorShiftRng::seed_from_u64(seed);
         let (world, agents) = World::init(rng.clone(), &mut entity_manager);
