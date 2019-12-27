@@ -29,11 +29,11 @@ class ActionValues(torch.nn.Module):
         # stack (map_height: D, map_width : W, max_reps_per_square : H, rep_size : C)T => (N, C, H, W, D)
         # kernel (h, w, d)
         kernel = (max_reps_per_square, 1, 1)
-        self.c1 = 8
+        self.c1 = 16
         self.c2 = 16
         self.c3 = 16
         hsz = self.c3 * map_height * map_width
-        self.state = torch.zeros(hsz)
+        self.state = (torch.zeros(1, 1, hsz), torch.zeros(1, 1, hsz))
         self.conv1 = torch.nn.Conv3d(rep_size, self.c1, groups=1, kernel_size=kernel)
         #(N, c1, 1, W, D) => (N, c1, W, D)
         self.bn1 = torch.nn.BatchNorm3d(self.c1)
@@ -55,47 +55,64 @@ class ActionValues(torch.nn.Module):
         return act
 
     def reset_state(self):
-        self.state = torch.zeros(self.state.size())
+        self.state = None
+
+    def detach_state(self):
+        self.state = (self.state[0].detach(), self.state[1].detach())
 
 
 class QLearner:
     def __init__(self, seed):
         self.env = Environment(seed, False)
+        self.next_seed = seed + 1
         self.policy = ActionValues()
-        self.value = ActionValues()
+        self.value = ActionValues().eval()
         self.optimizer = torch.optim.RMSprop(self.policy.parameters())
 
-    def run(self):
+    def run(self, epochs=400):
+        losses = []
+        running_loss = 0.0
         total_count = 0
-        current_count = 0
+        for epoch in range(0, epochs):
+            self.policy.reset_state()
+            self.value.reset_state()
+            current_count = 0
+            self.env.reset(self.next_seed)
+            self.next_seed += 1
+            obsv, reward, suggested_action, done = self.env.state()
+            rand = random.Random()
+            inp = torch.stack([transposed_tensor(obsv)])
+            while not done:
+                total_count += 1
+                current_count += 1
+                pol = self.policy.forward(inp)
+                policy_action = torch.argmax(pol)
+                random_action = rand.choice(range(0, len(pol)))
+                action = rand.choices((random_action, suggested_action, policy_action), weights=(0.1, 0.3, 0.6), k=1)[0]
+                obsv, new_reward, new_suggested_action, stop = self.env.step(action)
+                done = stop
+                inp = torch.stack([transposed_tensor(obsv)])
+                expected_reward = new_reward - reward
+                if not done:
+                    with torch.no_grad():
+                        expected_reward += torch.max(self.value.forward(inp))
+                reward = new_reward
+                loss = fun.smooth_l1_loss(pol[:, :, action], torch.tensor([[expected_reward]]))
+                running_loss += loss.item()
+                if done or current_count > 20:
 
-        obsv, reward, suggested_action, done = self.env.state()
-        rand = random.Random()
-        input = transposed_tensor(obsv)
-        while not done:
-            pol = self.policy.forward(input)
-            policy_action = torch.argmax(pol)
-
-            random_action = rand.choice(range(0, len(pol)))
-            action = rand.choices((random_action, suggested_action, policy_action), weights=(0.1, 0.3, 0.6))
-            obsv, new_reward, new_suggested_action, stop = self.env.step(action)
-            done = stop
-            input = transposed_tensor(obsv)
-
-            expected_reward = new_reward - reward if done else new_reward - reward + torch.max(self.value.forward(input))
-            reward = new_reward
-            loss = fun.smooth_l1_loss(action, expected_reward)
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            total_count += 1
-            current_count += 1
-            if done or current_count > 100:
-                self.value.load_state_dict(self.policy.state_dict())
-                current_count = 0
-
-
-
+                    self.value.load_state_dict(self.policy.state_dict())
+                    loss.backward()
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+                    avg_loss = running_loss / current_count
+                    print(avg_loss)
+                    losses.append(avg_loss)
+                    current_count = 0
+                    running_loss = 0.0
+                    self.policy.detach_state()
+                else:
+                    loss.backward(retain_graph=True)
 
 
 QLearner(0).run()

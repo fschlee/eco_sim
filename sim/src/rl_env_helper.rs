@@ -1,5 +1,5 @@
 use log::error;
-use ndarray::{s, Array4, ArrayBase, ArrayViewMut, Ix4};
+use ndarray::{s, Array4, ArrayBase, ArrayViewMut, Ix4, RawData, DataMut};
 #[cfg(feature = "torch")]
 use tch::{Device, IndexOp, Kind, Tensor};
 
@@ -120,7 +120,7 @@ impl<'a> ObsvWriter<'a> {
         ten.print();
         ten
     }
-    pub fn encode_observation(&self, target: &mut Array4<f32>) {
+    pub fn encode_observation<S: DataMut + RawData<Elem=f32>>(& self, target: & mut ArrayBase<S, Ix4>) {
         for (pos, cell) in self.world.iter_cells() {
             for (i, we) in cell.iter().enumerate().take(MAX_REP_PER_CELL) {
                 let rep = self.encode_entity(*we);

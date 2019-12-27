@@ -12,7 +12,7 @@ use pyo3::types::PyType;
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
-type EnvObservation = Py<PyArray4<f32>>;
+type EnvObservation = PyArray4<f32>;
 
 type EnvAction = usize;
 type Reward = f32;
@@ -22,6 +22,7 @@ struct Environment {
     sim: Arc<RwLock<SimState>>,
     agent: WorldEntity,
     old_reward: f32,
+    ndarr: Array4<f32>,
     sight: Coord,
 }
 
@@ -43,6 +44,7 @@ impl Environment {
             agent,
             old_reward: 0.0,
             sight,
+            ndarr : Array4::zeros((MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE))
         });
     }
     fn reset(&mut self, seed: u64) {
@@ -56,7 +58,7 @@ impl Environment {
         self.sight = ms.sight_radius;
         self.old_reward = ms.score
     }
-    fn state(&self, py: Python<'_>) -> PyResult<(EnvObservation, Reward, EnvAction, bool)> {
+    fn state<'py>(& mut self, py: Python<'py>) -> PyResult<(&'py EnvObservation, Reward, EnvAction, bool)> {
         let sim = self.sim.read().unwrap();
         let world = &sim.world;
         let (reward, act, done) = if let (Some(ms), Some(pos)) = (
@@ -74,15 +76,18 @@ impl Environment {
         let obsv_writer =
             ObsvWriter::new(world, *world.positions.get(self.agent).unwrap(), self.sight);
         let suggested = obsv_writer.encode_action(act);
-        let mut obs = Array4::zeros((MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE));
-        obsv_writer.encode_observation(&mut obs);
-        Ok((obs.into_pyarray(py).to_owned(), reward, suggested, done))
+        let mut pyarr = PyArray4::zeros(py, (MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE), false);
+       //  let mut obs = Array4::zeros((MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE));
+        {
+            obsv_writer.encode_observation(&mut pyarr.as_array_mut());
+        }
+        Ok((pyarr, reward, suggested, done))
     }
-    fn step(
+    fn step<'py>(
         &mut self,
-        py: Python<'_>,
+        py: Python<'py>,
         action: EnvAction,
-    ) -> PyResult<(EnvObservation, Reward, EnvAction, bool)> {
+    ) -> PyResult<(& 'py EnvObservation, Reward, EnvAction, bool)> {
         {
             let world = &self.sim.read().unwrap().world;
             let obsv_writer =

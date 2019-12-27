@@ -45,13 +45,14 @@ impl SimState {
             self.time_acc -= self.sim_step;
             self.agent_system.advance(&self.world);
             self.world.events.clear();
-            /*
+
             #[cfg(feature = "torch")]
             {
                 let ms : &MentalState = self.agent_system.mental_states.iter().next().unwrap();
                 let w = rl_env_helper::ObsvWriter::new(&self.world, *self.world.positions.get(ms.id).unwrap(), ms.sight_radius);
-                w.encode_observation_in_tensor();
-            } */
+                let mut arr = ndarray::Array4::zeros((MAP_HEIGHT, MAP_WIDTH, 8, 9));
+                w.encode_observation(& mut arr);
+            }
             self.world.act(&self.agent_system.actions);
             self.world.advance();
             self.agent_system.process_feedback(&self.world.events);
