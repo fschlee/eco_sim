@@ -3,6 +3,7 @@ name = "eco_sim_gui"
 version = "0.1.0"
 authors = ["Feisal Schlee <fschlee@techfak.uni-bielefeld.de>"]
 edition = "2018"
+publish = false
 
 [features]
 default=["metal", "vulkan"]
@@ -17,6 +18,8 @@ x11 = ["gfx-backend-vulkan/x11"]
 xcb = ["gfx-backend-vulkan/xcb"]
 
 torch = ["eco_sim/torch"]
+
+standalone = []
 
 [dependencies]
 "eco_sim" = { path="../sim" }
@@ -65,3 +68,6 @@ torch = ["eco_sim/torch"]
 [[bin]]
 name = "eco_sim"
 path = "src/main.rs"
+
+[lib]
+ path = "src/main.rs"

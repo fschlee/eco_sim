@@ -15,7 +15,7 @@ pub type Texture<B> = texture::LoadedTexture<B>;
 
 pub enum Tex {}
 
-trait BufferType {
+pub trait BufferType {
     fn usage() -> BufferUsage;
 }
 
@@ -358,7 +358,7 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         ((proper_size + self.mem_atom - 1) / self.mem_atom) * self.mem_atom
     }
 
-    pub fn register_buffer<T: Sized + Copy, U: BufferType>(
+    pub(crate) fn register_buffer<T: Sized + Copy, U: BufferType>(
         &mut self,
         slice: &[T],
     ) -> Result<Id<U>, Error> {

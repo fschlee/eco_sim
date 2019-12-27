@@ -16,6 +16,7 @@ use winit::{
     event_loop::EventLoop,
     window::Window,
 };
+use crate::BackendSelection;
 
 pub type Queue<T> = std::collections::VecDeque<T>;
 
@@ -40,6 +41,12 @@ widget_ids! {
         tooltip,
         tooltip_head,
         tooltip_text,
+
+        menu_canvas,
+        backends,
+        adapters,
+        select_button,
+
     }
 }
 
@@ -81,7 +88,6 @@ pub fn theme() -> conrod_core::Theme {
 }
 
 pub enum UIUpdate {
-    // ToolTip{ pos : LogicalPosition, txt : String},
     MoveCamera {
         transformation: nalgebra::Translation3<f32>,
     },
@@ -89,6 +95,20 @@ pub enum UIUpdate {
         size: PhysicalSize,
     },
     Refresh,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AppState {
+    Continue,
+    Exit,
+    ChangeAdapter(BackendSelection, usize)
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum UiStatus {
+    Running,
+    Paused,
+    Menu,
 }
 
 #[derive(Debug, Clone)]
@@ -107,26 +127,46 @@ pub enum Action {
 static CAMERA_STEP: f32 = 0.05;
 
 pub struct UIState {
+
+    // general
+
     pub window: Window,
     event_happened: bool,
+    size: LogicalSize,
+    pub conrod: cc::Ui,
+    pub ids: WidgetIds,
+    pub actions: Queue<Action>,
+    pub ui_updates: Queue<UIUpdate>,
+    pub app_state: AppState,
+    ui_status: UiStatus,
+
+    // for sim
+
     last_draw: Instant,
     mouse_pos: LogicalPosition,
     hover_pos: Option<eco_sim::Position>,
     hover_start_time: Instant,
     tooltip_index: usize,
     tooltip_active: bool,
+    receiving_text: bool,
+    paused: bool,
     edit_ent: Option<eco_sim::WorldEntity>,
     mental_model: Option<eco_sim::WorldEntity>,
-    size: LogicalSize,
-    pub conrod: cc::Ui,
-    pub ids: WidgetIds,
-    paused: bool,
-    pub actions: Queue<Action>,
-    pub ui_updates: Queue<UIUpdate>,
+
+    // for menu
+
+    adapter_list: Vec<(BackendSelection, Vec<(String, usize)>)>,
+    backends: Vec<String>,
+    backend_selected: Option<usize>,
+    adapters: Vec<String>,
+    adapter_selected: Option<usize>,
+
+
+
 }
 
 impl UIState {
-    pub fn new(window: Window) -> UIState {
+    pub fn new(window: Window, adapter_list: Vec<(BackendSelection, Vec<(String, usize)>)>) -> UIState {
         let size = window.inner_size();
         let dim = [size.width, size.height];
         let mut conrod = cc::UiBuilder::new(dim).theme(theme()).build();
@@ -138,6 +178,7 @@ impl UIState {
             EntityType::iter().count(),
             &mut conrod.widget_id_generator(),
         );
+        let max_adapters = adapter_list.iter().map(|(b, v)| v.len()).max().unwrap_or(0);
         ids.mental_models
             .resize(10, &mut conrod.widget_id_generator());
         Self {
@@ -153,21 +194,29 @@ impl UIState {
             hover_start_time: Instant::now(),
             tooltip_index: 0,
             tooltip_active: false,
+            receiving_text: false,
             event_happened: false,
             last_draw: Instant::now(),
             actions: Queue::new(),
             ui_updates: Queue::new(),
+            app_state: AppState::Continue,
+            ui_status: UiStatus::Running,
+
+            adapters: Vec::new(),
+            backends: adapter_list.iter().map(|(b, v)| b.to_string()).collect(),
+            adapter_list,
+            backend_selected: None,
+            adapter_selected: None,
         }
     }
-    pub fn process(&mut self, event: Event<()>, game_state: &GameState) -> bool {
-        let mut should_close = false;
+    pub fn process(&mut self, event: Event<()>, game_state: &GameState) -> AppState {
 
         if let Some(event) = crate::conrod_winit::convert_event(event.clone(), self) {
             self.conrod.handle_event(event);
         }
         match event {
             Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => should_close = true,
+                WindowEvent::CloseRequested => self.app_state = AppState::Exit,
                 WindowEvent::Resized(logical_size) => {
                     self.ui_updates.push_back(UIUpdate::Resized {
                         size: logical_size.to_physical(self.window.hidpi_factor()),
@@ -237,9 +286,38 @@ impl UIState {
         if self.conrod.global_input().events().next().is_some() {
             self.event_happened = true;
         }
-        should_close
+        self.app_state
     }
     pub fn update(&mut self, game_state: &GameState) {
+        match self.ui_status {
+            UiStatus::Running if self.event_happened || !self.paused => self.redraw(game_state),
+            UiStatus::Menu => {
+                let ui = &mut self.conrod.set_widgets();
+                cc::widget::Canvas::new().pad(10.0).w_h(self.size.width, self.size.height).set(self.ids.menu_canvas, ui);
+                for idx in cc::widget::DropDownList::new(&self.backends, self.backend_selected).top_left_of(self.ids.menu_canvas).set(self.ids.backends, ui) {
+                    if Some(idx) != self.backend_selected {
+                        self.backend_selected = Some(idx);
+                        let (_, v) = &self.adapter_list[idx];
+                        self.adapters = v.iter().map(|(s, i)| s.clone()).collect();
+                    }
+                }
+                for idx in cc::widget::DropDownList::new(&self.adapters, self.adapter_selected).top_right_of(self.ids.menu_canvas).set(self.ids.adapters, ui) {
+                    if Some(idx) != self.adapter_selected {
+                        self.adapter_selected = Some(idx);
+                    }
+                }
+                for btn in cc::widget::Button::new().parent(self.ids.menu_canvas).down_from(self.ids.adapters, 240.0).set(self.ids.select_button, ui) {
+                    if let (Some(b_idx), Some(a_idx)) = (self.backend_selected, self.adapter_selected) {
+                        if let Some((back, idx)) = self.adapter_list.get(b_idx).and_then(|(b, v)| v.get(a_idx).map(|(_,i)|(b, i))) {
+                            self.app_state = AppState::ChangeAdapter(*back, *idx);
+                        }
+                    }
+                }
+            },
+            _ => ()
+        }
+    }
+    fn redraw(&mut self, game_state: &GameState){
         let mut extend = 0;
         {
             let now = Instant::now();
@@ -247,7 +325,7 @@ impl UIState {
                 self.tooltip_active = true;
             }
         }
-        if self.event_happened || !self.paused {
+        {
             let mouse_pos = self.logical_to_conrod(self.mouse_pos);
             let ui = &mut self.conrod.set_widgets();
 
@@ -463,21 +541,22 @@ impl UIState {
     fn process_key(&mut self, key: VirtualKeyCode, modifiers: ModifiersState) {
         use VirtualKeyCode::*;
         match key {
-            VirtualKeyCode::Up => self.ui_updates.push_back(UIUpdate::MoveCamera {
+            Space | M | T if self.receiving_text => (),
+            Up => self.ui_updates.push_back(UIUpdate::MoveCamera {
                 transformation: nalgebra::Translation3::new(0.0, -CAMERA_STEP, 0.0),
             }),
-            VirtualKeyCode::Down => self.ui_updates.push_back(UIUpdate::MoveCamera {
+            Down => self.ui_updates.push_back(UIUpdate::MoveCamera {
                 transformation: nalgebra::Translation3::new(0.0, CAMERA_STEP, 0.0),
             }),
-            VirtualKeyCode::Left => self.ui_updates.push_back(UIUpdate::MoveCamera {
+            Left => self.ui_updates.push_back(UIUpdate::MoveCamera {
                 transformation: nalgebra::Translation3::new(-CAMERA_STEP, 0.0, 0.0),
             }),
-            VirtualKeyCode::Right => self.ui_updates.push_back(UIUpdate::MoveCamera {
+            Right => self.ui_updates.push_back(UIUpdate::MoveCamera {
                 transformation: nalgebra::Translation3::new(CAMERA_STEP, 0.0, 0.0),
             }),
             F5 => self.actions.push_back(Action::Reset(self.paused)),
             F12 => self.ui_updates.push_back(UIUpdate::Refresh),
-            VirtualKeyCode::Pause | VirtualKeyCode::Space => {
+            Pause | Space => {
                 if self.paused {
                     self.paused = false;
                     self.actions.push_back(Action::Unpause);
@@ -486,11 +565,16 @@ impl UIState {
                     self.actions.push_back(Action::Pause);
                 }
             }
-            VirtualKeyCode::Tab => {
+            Tab => {
                 self.tooltip_index += 1;
             }
-            VirtualKeyCode::T => self.actions.push_back(Action::ToggleThreatMode),
-            VirtualKeyCode::M => self.actions.push_back(Action::ToggleMapKnowledgeMode),
+            T => self.actions.push_back(Action::ToggleThreatMode),
+            M => self.actions.push_back(Action::ToggleMapKnowledgeMode),
+            Escape => match self.ui_status {
+                UiStatus::Running | UiStatus::Paused  => self.ui_status = UiStatus::Menu,
+                UiStatus::Menu => self.ui_status = UiStatus::Running,
+
+            },
             _ => (),
         }
     }
