@@ -1,5 +1,7 @@
 /target
+/*/target
 **/*.rs.bk
 *.iml
 .*/
 *.code-workspace
+*.pyd
