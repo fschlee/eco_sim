@@ -318,82 +318,93 @@ fn name_score(name: &str) -> i32 {
     score
 }
 
-
 pub(crate) fn adapter_list() -> Vec<(BackendSelection, Vec<(String, usize)>)> {
     let mut al = Vec::new();
     let name = "test";
     let version = 1;
     #[cfg(all(feature = "vulkan", not(macos)))]
-        {
-            gfx_backend_vulkan::Instance::create(name, version).map(|inst|{
+    {
+        gfx_backend_vulkan::Instance::create(name, version)
+            .map(|inst| {
                 inst.enumerate_adapters()
                     .into_iter()
                     .enumerate()
                     .filter_map(|(idx, a)| {
                         if a.queue_families
                             .iter()
-                            .any(|qf| qf.queue_type().supports_graphics()) {
+                            .any(|qf| qf.queue_type().supports_graphics())
+                        {
                             Some((a.info.name.clone(), idx))
                         } else {
                             None
                         }
                     })
                     .collect()
-            }).map(|v| al.push((BackendSelection::Vulkan, v)));
-        }
+            })
+            .map(|v| al.push((BackendSelection::Vulkan, v)));
+    }
     #[cfg(all(feature = "metal", macos))]
-        {
-            gfx_backend_metal::Instance::create(name, version).map(|inst|{
+    {
+        gfx_backend_metal::Instance::create(name, version)
+            .map(|inst| {
                 inst.enumerate_adapters()
                     .into_iter()
                     .enumerate()
                     .filter_map(|(idx, a)| {
                         if a.queue_families
                             .iter()
-                            .any(|qf| qf.queue_type().supports_graphics()) {
+                            .any(|qf| qf.queue_type().supports_graphics())
+                        {
                             Some((a.info.name.clone(), idx))
                         } else {
                             None
                         }
                     })
                     .collect()
-            }).map(|v| al.push((BackendSelection::Metal, v)));
-        }
+            })
+            .map(|v| al.push((BackendSelection::Metal, v)));
+    }
     #[cfg(feature = "dx12")]
-        {
-            gfx_backend_dx12::Instance::create(name, version).map(|inst|{
+    {
+        gfx_backend_dx12::Instance::create(name, version)
+            .map(|inst| {
                 inst.enumerate_adapters()
                     .into_iter()
                     .enumerate()
                     .filter_map(|(idx, a)| {
                         if a.queue_families
                             .iter()
-                            .any(|qf| qf.queue_type().supports_graphics()) {
+                            .any(|qf| qf.queue_type().supports_graphics())
+                        {
                             Some((a.info.name.clone(), idx))
                         } else {
                             None
                         }
                     })
                     .collect()
-            }).map(|v| al.push((BackendSelection::Dx12,  v)));
-        }
+            })
+            .map(|v| al.push((BackendSelection::Dx12, v)));
+    }
     #[cfg(feature = "dx11")]
-        {
-            gfx_backend_dx11::Instance::create(name, version).map(|inst|{
+    {
+        gfx_backend_dx11::Instance::create(name, version)
+            .map(|inst| {
                 inst.enumerate_adapters()
                     .into_iter()
                     .enumerate()
                     .filter_map(|(idx, a)| {
                         if a.queue_families
                             .iter()
-                            .any(|qf| qf.queue_type().supports_graphics()) {
+                            .any(|qf| qf.queue_type().supports_graphics())
+                        {
                             Some((a.info.name.clone(), idx))
                         } else {
                             None
                         }
                     })
                     .collect()
-            }).map(|v| al.push((BackendSelection::Dx11, v)));
-        }
+            })
+            .map(|v| al.push((BackendSelection::Dx11, v)));
+    }
     al
 }

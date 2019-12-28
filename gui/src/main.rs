@@ -7,10 +7,10 @@ use std::time::Instant;
 use strum_macros::{Display, EnumString};
 use winit::dpi::LogicalSize;
 use winit::{
-    event_loop::EventLoop,
-    window::{Window, WindowBuilder},
     event::Event::EventsCleared,
+    event_loop::EventLoop,
     platform::desktop::EventLoopExtDesktop,
+    window::{Window, WindowBuilder},
 };
 
 pub mod conrod_winit;
@@ -19,10 +19,10 @@ mod renderer;
 pub mod simulation;
 pub mod ui;
 
+use crate::renderer::Renderer;
 use error::LogError;
 use renderer::init::{init_device, DeviceInit, InstSurface};
 use ui::AppState;
-use crate::renderer::Renderer;
 
 const MAX_RENDER_FAILS: u32 = 100;
 
@@ -178,72 +178,73 @@ fn game_loop<IS: InstSurface + 'static>(
     let mut instant = Instant::now();
     let mut ui_cmds = Vec::new();
     let mut app_state = AppState::Continue;
-    event_loop.run_return( move|event, _window_target, cntr_flow| {
+    event_loop.run_return(|event, _window_target, cntr_flow| {
         if event != EventsCleared {
             match ui_state.process(event, &game_state) {
-                ap @AppState::Exit | ap @AppState::ChangeAdapter(_, _) => {
+                ap @ AppState::Exit | ap @ AppState::ChangeAdapter(_, _) => {
                     app_state = ap;
                     *cntr_flow = winit::event_loop::ControlFlow::Exit;
-                },
-                AppState::Continue if fail_counter > MAX_RENDER_FAILS =>  *cntr_flow = winit::event_loop::ControlFlow::Exit,
-                AppState::Continue => {
-                    ui_state.update(&game_state);
-                    if let Some(mut prims) = ui_state.conrod.draw_if_changed() {
-                        let dpi_factor = ui_state.window.hidpi_factor() as f32;
-                        let winit::dpi::LogicalSize { width, height, .. } = ui_state.window.inner_size();
-                        let (cmds, vtx) = ui_processor
-                            .process_primitives(&mut prims, dpi_factor, width as f32, height as f32)
-                            .or_else(|e| {
-                                info!("{}", e);
-                                ui_processor.update_gyph_cache(renderer::con_back::GlyphWalker::new(
-                                    ui_state.conrod.draw(),
-                                    dpi_factor,
-                                ));
-                                ui_processor.process_primitives(
-                                    &mut ui_state.conrod.draw(),
-                                    dpi_factor,
-                                    width as f32,
-                                    height as f32,
-                                )
-                            })
-                            .unwrap();
-                        renderer.set_ui_buffer(vtx).unwrap();
-                        ui_cmds = cmds;
-                        if ui_processor.tex_updated {
-                            let id0 = renderer::memory::Id::new(0);
-                            let spec = ui_processor.get_texture_spec();
-                            if renderer.texture_manager.texture_count() < 1 {
-                                let id = renderer.add_texture(&spec);
-                                assert_eq!(id, Ok(id0));
-                            } else {
-                                if let Err(e) = renderer.replace_texture(id0, &spec) {
-                                    info!("{}", e);
-                                    let id = renderer.add_texture(&spec);
-                                    assert_eq!(id, Ok(id0));
-                                }
-                            }
+                }
+                AppState::Continue if fail_counter > MAX_RENDER_FAILS => {
+                    *cntr_flow = winit::event_loop::ControlFlow::Exit
+                }
+                AppState::Continue => (),
+            }
+        } else {
+            ui_state.update(&game_state);
+            if let Some(mut prims) = ui_state.conrod.draw_if_changed() {
+                let dpi_factor = ui_state.window.hidpi_factor() as f32;
+                let winit::dpi::LogicalSize { width, height, .. } = ui_state.window.inner_size();
+                let (cmds, vtx) = ui_processor
+                    .process_primitives(&mut prims, dpi_factor, width as f32, height as f32)
+                    .or_else(|e| {
+                        info!("{}", e);
+                        ui_processor.update_gyph_cache(renderer::con_back::GlyphWalker::new(
+                            ui_state.conrod.draw(),
+                            dpi_factor,
+                        ));
+                        ui_processor.process_primitives(
+                            &mut ui_state.conrod.draw(),
+                            dpi_factor,
+                            width as f32,
+                            height as f32,
+                        )
+                    })
+                    .unwrap();
+                renderer.set_ui_buffer(vtx).unwrap();
+                ui_cmds = cmds;
+                if ui_processor.tex_updated {
+                    let id0 = renderer::memory::Id::new(0);
+                    let spec = ui_processor.get_texture_spec();
+                    if renderer.texture_manager.texture_count() < 1 {
+                        let id = renderer.add_texture(&spec);
+                        assert_eq!(id, Ok(id0));
+                    } else {
+                        if let Err(e) = renderer.replace_texture(id0, &spec) {
+                            info!("{}", e);
+                            let id = renderer.add_texture(&spec);
+                            assert_eq!(id, Ok(id0));
                         }
                     }
-                    let now = Instant::now();
-                    let delta = now.duration_since(instant).as_secs_f32();
-                    instant = now;
-                    game_state.update(ui_state.actions.drain(..), delta);
-                    let sim_updates = game_state.get_render_data();
-                    match renderer.tick(&ui_cmds, ui_state.ui_updates.drain(..), &sim_updates) {
-                        Ok(_) => fail_counter = 0,
-                        Err(err) => {
-                            error!("{}", err);
-                            fail_counter += 1;
-                        }
-                    }
+                }
+            }
+            let now = Instant::now();
+            let delta = now.duration_since(instant).as_secs_f32();
+            instant = now;
+            game_state.update(ui_state.actions.drain(..), delta);
+            let sim_updates = game_state.get_render_data();
+            match renderer.tick(&ui_cmds, ui_state.ui_updates.drain(..), &sim_updates) {
+                Ok(_) => fail_counter = 0,
+                Err(err) => {
+                    error!("{}", err);
+                    fail_counter += 1;
                 }
             }
         }
     });
     if let AppState::ChangeAdapter(back, idx) = app_state {
-        set_adapter( ui_processor, ui_state, game_state, event_loop, back, idx)
-    }
-    else {
+        set_adapter(ui_processor, ui_state, game_state, event_loop, back, idx)
+    } else {
         app_state
     }
 }
@@ -254,9 +255,13 @@ fn set_adapter(
     mut game_state: simulation::GameState,
     mut event_loop: EventLoop<()>,
     back: BackendSelection,
-    idx: usize) -> AppState {
+    idx: usize,
+) -> AppState {
     let adapter_selection = Some(idx);
-    let wca = ui_state.window.inner_size().to_physical(ui_state.window.hidpi_factor());
+    let wca = ui_state
+        .window
+        .inner_size()
+        .to_physical(ui_state.window.hidpi_factor());
 
     match back {
         #[cfg(all(feature = "vulkan", not(macos)))]
@@ -265,8 +270,14 @@ fn set_adapter(
                 gfx_backend_vulkan::Instance,
                 <gfx_backend_vulkan::Backend as gfx_hal::Backend>::Surface,
             )>(&ui_state.window, adapter_selection)
-                .expect("could not initialize device");
-            game_loop(Renderer::new(wca, di), ui_processor, ui_state, game_state, event_loop)
+            .expect("could not initialize device");
+            game_loop(
+                Renderer::new(wca, di),
+                ui_processor,
+                ui_state,
+                game_state,
+                event_loop,
+            )
         }
         #[cfg(all(feature = "dx12", not(macos)))]
         Dx12 => {
@@ -274,8 +285,14 @@ fn set_adapter(
                 gfx_backend_dx12::Instance,
                 <gfx_backend_dx12::Backend as gfx_hal::Backend>::Surface,
             )>(&ui_state.window, adapter_selection)
-                .expect("could not initialize device");
-            game_loop(Renderer::new(wca, di), ui_processor, ui_state, game_state, event_loop)
+            .expect("could not initialize device");
+            game_loop(
+                Renderer::new(wca, di),
+                ui_processor,
+                ui_state,
+                game_state,
+                event_loop,
+            )
         }
         #[cfg(all(feature = "dx11", not(macos)))]
         Dx11 => {
@@ -284,8 +301,14 @@ fn set_adapter(
                 gfx_backend_dx11::Instance,
                 <gfx_backend_dx11::Backend as gfx_hal::Backend>::Surface,
             )>(&ui_state.window, adapter_selection)
-                .expect("could not initialize device");
-            game_loop(Renderer::new(wca, di), ui_processor, ui_state, game_state, event_loop)
+            .expect("could not initialize device");
+            game_loop(
+                Renderer::new(wca, di),
+                ui_processor,
+                ui_state,
+                game_state,
+                event_loop,
+            )
         }
         #[cfg(all(macos, feature = "metal"))]
         Metal => {
@@ -293,11 +316,16 @@ fn set_adapter(
                 gfx_backend_metal::Instance,
                 <gfx_backend_metal::Backend as gfx_hal::Backend>::Surface,
             )>(&ui_state.window, adapter_selection)
-                .expect("could not initialize device");
-            game_loop(Renderer::new(wca, di), ui_processor, ui_state, game_state, event_loop)
+            .expect("could not initialize device");
+            game_loop(
+                Renderer::new(wca, di),
+                ui_processor,
+                ui_state,
+                game_state,
+                event_loop,
+            )
         }
         #[cfg(feature = "gl")]
         OpenGl => unimplemented!("explicitly selecting an adapter with open Gl is not supported"),
     }
 }
-

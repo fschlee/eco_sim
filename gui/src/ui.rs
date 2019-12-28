@@ -6,6 +6,7 @@ use conrod_winit::{convert_event, WinitWindow};
 use std::time::Instant;
 
 use crate::simulation::GameState;
+use crate::BackendSelection;
 use eco_sim::entity_type::EntityType;
 use winit::{
     dpi::{LogicalPosition, LogicalSize, PhysicalSize},
@@ -16,7 +17,6 @@ use winit::{
     event_loop::EventLoop,
     window::Window,
 };
-use crate::BackendSelection;
 
 pub type Queue<T> = std::collections::VecDeque<T>;
 
@@ -101,7 +101,7 @@ pub enum UIUpdate {
 pub enum AppState {
     Continue,
     Exit,
-    ChangeAdapter(BackendSelection, usize)
+    ChangeAdapter(BackendSelection, usize),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -127,9 +127,7 @@ pub enum Action {
 static CAMERA_STEP: f32 = 0.05;
 
 pub struct UIState {
-
     // general
-
     pub window: Window,
     event_happened: bool,
     size: LogicalSize,
@@ -141,7 +139,6 @@ pub struct UIState {
     ui_status: UiStatus,
 
     // for sim
-
     last_draw: Instant,
     mouse_pos: LogicalPosition,
     hover_pos: Option<eco_sim::Position>,
@@ -154,19 +151,18 @@ pub struct UIState {
     mental_model: Option<eco_sim::WorldEntity>,
 
     // for menu
-
     adapter_list: Vec<(BackendSelection, Vec<(String, usize)>)>,
     backends: Vec<String>,
     backend_selected: Option<usize>,
     adapters: Vec<String>,
     adapter_selected: Option<usize>,
-
-
-
 }
 
 impl UIState {
-    pub fn new(window: Window, adapter_list: Vec<(BackendSelection, Vec<(String, usize)>)>) -> UIState {
+    pub fn new(
+        window: Window,
+        adapter_list: Vec<(BackendSelection, Vec<(String, usize)>)>,
+    ) -> UIState {
         let size = window.inner_size();
         let dim = [size.width, size.height];
         let mut conrod = cc::UiBuilder::new(dim).theme(theme()).build();
@@ -210,7 +206,6 @@ impl UIState {
         }
     }
     pub fn process(&mut self, event: Event<()>, game_state: &GameState) -> AppState {
-
         if let Some(event) = crate::conrod_winit::convert_event(event.clone(), self) {
             self.conrod.handle_event(event);
         }
@@ -293,31 +288,52 @@ impl UIState {
             UiStatus::Running if self.event_happened || !self.paused => self.redraw(game_state),
             UiStatus::Menu => {
                 let ui = &mut self.conrod.set_widgets();
-                cc::widget::Canvas::new().pad(10.0).w_h(self.size.width, self.size.height).set(self.ids.menu_canvas, ui);
-                for idx in cc::widget::DropDownList::new(&self.backends, self.backend_selected).top_left_of(self.ids.menu_canvas).set(self.ids.backends, ui) {
+                cc::widget::Canvas::new()
+                    .pad(10.0)
+                    .w_h(self.size.width, self.size.height)
+                    .set(self.ids.menu_canvas, ui);
+                for idx in cc::widget::DropDownList::new(&self.backends, self.backend_selected)
+                    .w_h(150.0, 40.0)
+                    .top_left_of(self.ids.menu_canvas)
+                    .set(self.ids.backends, ui)
+                {
                     if Some(idx) != self.backend_selected {
                         self.backend_selected = Some(idx);
                         let (_, v) = &self.adapter_list[idx];
                         self.adapters = v.iter().map(|(s, i)| s.clone()).collect();
                     }
                 }
-                for idx in cc::widget::DropDownList::new(&self.adapters, self.adapter_selected).top_right_of(self.ids.menu_canvas).set(self.ids.adapters, ui) {
+                for idx in cc::widget::DropDownList::new(&self.adapters, self.adapter_selected)
+                    .w_h(150.0, 40.0)
+                    .top_right_of(self.ids.menu_canvas)
+                    .set(self.ids.adapters, ui)
+                {
                     if Some(idx) != self.adapter_selected {
                         self.adapter_selected = Some(idx);
                     }
                 }
-                for btn in cc::widget::Button::new().parent(self.ids.menu_canvas).down_from(self.ids.adapters, 240.0).set(self.ids.select_button, ui) {
-                    if let (Some(b_idx), Some(a_idx)) = (self.backend_selected, self.adapter_selected) {
-                        if let Some((back, idx)) = self.adapter_list.get(b_idx).and_then(|(b, v)| v.get(a_idx).map(|(_,i)|(b, i))) {
+                for btn in cc::widget::Button::new()
+                    .parent(self.ids.menu_canvas)
+                    .down_from(self.ids.adapters, 240.0)
+                    .set(self.ids.select_button, ui)
+                {
+                    if let (Some(b_idx), Some(a_idx)) =
+                        (self.backend_selected, self.adapter_selected)
+                    {
+                        if let Some((back, idx)) = self
+                            .adapter_list
+                            .get(b_idx)
+                            .and_then(|(b, v)| v.get(a_idx).map(|(_, i)| (b, i)))
+                        {
                             self.app_state = AppState::ChangeAdapter(*back, *idx);
                         }
                     }
                 }
-            },
-            _ => ()
+            }
+            _ => (),
         }
     }
-    fn redraw(&mut self, game_state: &GameState){
+    fn redraw(&mut self, game_state: &GameState) {
         let mut extend = 0;
         {
             let now = Instant::now();
@@ -571,9 +587,8 @@ impl UIState {
             T => self.actions.push_back(Action::ToggleThreatMode),
             M => self.actions.push_back(Action::ToggleMapKnowledgeMode),
             Escape => match self.ui_status {
-                UiStatus::Running | UiStatus::Paused  => self.ui_status = UiStatus::Menu,
+                UiStatus::Running | UiStatus::Paused => self.ui_status = UiStatus::Menu,
                 UiStatus::Menu => self.ui_status = UiStatus::Running,
-
             },
             _ => (),
         }
