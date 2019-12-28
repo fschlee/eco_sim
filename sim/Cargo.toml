@@ -3,6 +3,7 @@ name = "eco_sim"
 version = "0.1.0"
 authors = ["Feisal Schlee <fschlee@techfak.uni-bielefeld.de>"]
 edition = "2018"
+publish = false
 
 [features]
 torch = ["tch", "ndarray"]

@@ -115,4 +115,5 @@ class QLearner:
                     loss.backward(retain_graph=True)
 
 
-QLearner(0).run()
+if __name__ == '__main__':
+    QLearner(0).run()

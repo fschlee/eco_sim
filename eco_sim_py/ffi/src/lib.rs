@@ -44,7 +44,7 @@ impl Environment {
             agent,
             old_reward: 0.0,
             sight,
-            ndarr : Array4::zeros((MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE))
+            ndarr: Array4::zeros((MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE)),
         });
     }
     fn reset(&mut self, seed: u64) {
@@ -58,7 +58,10 @@ impl Environment {
         self.sight = ms.sight_radius;
         self.old_reward = ms.score
     }
-    fn state<'py>(& mut self, py: Python<'py>) -> PyResult<(&'py EnvObservation, Reward, EnvAction, bool)> {
+    fn state<'py>(
+        &mut self,
+        py: Python<'py>,
+    ) -> PyResult<(&'py EnvObservation, Reward, EnvAction, bool)> {
         let sim = self.sim.read().unwrap();
         let world = &sim.world;
         let (reward, act, done) = if let (Some(ms), Some(pos)) = (
@@ -76,8 +79,12 @@ impl Environment {
         let obsv_writer =
             ObsvWriter::new(world, *world.positions.get(self.agent).unwrap(), self.sight);
         let suggested = obsv_writer.encode_action(act);
-        let mut pyarr = PyArray4::zeros(py, (MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE), false);
-       //  let mut obs = Array4::zeros((MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE));
+        let mut pyarr = PyArray4::zeros(
+            py,
+            (MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE),
+            false,
+        );
+        //  let mut obs = Array4::zeros((MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE));
         {
             obsv_writer.encode_observation(&mut pyarr.as_array_mut());
         }
@@ -87,7 +94,7 @@ impl Environment {
         &mut self,
         py: Python<'py>,
         action: EnvAction,
-    ) -> PyResult<(& 'py EnvObservation, Reward, EnvAction, bool)> {
+    ) -> PyResult<(&'py EnvObservation, Reward, EnvAction, bool)> {
         {
             let world = &self.sim.read().unwrap().world;
             let obsv_writer =
