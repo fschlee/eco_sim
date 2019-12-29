@@ -5,9 +5,13 @@ use std::borrow::Borrow;
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug, Default)]
 #[repr(transparent)]
 pub struct Wrapper(pub f32);
+
+const SIZE: usize = EntityType::COUNT + 3;
+
+type WrapperArray = [Wrapper; SIZE];
 #[derive(Clone, Debug)]
 pub struct EmotionalState {
-    arr: [Wrapper; EntityType::COUNT + 3],
+    arr: WrapperArray,
 }
 impl EmotionalState {
     const HUNGER: usize = EntityType::COUNT + 0;
@@ -59,6 +63,11 @@ impl EmotionalState {
         }
         start
     }
+    pub(crate) fn encode(&self) -> &[f32; SIZE] {
+        // Safe because wrapper has the same representation as f32
+        unsafe { std::mem::transmute(&self.arr) }
+    }
+    pub(crate) const SIZE: usize = SIZE;
 }
 
 type Reward = f32;

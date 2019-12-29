@@ -20,11 +20,21 @@ pub struct Entity {
     gen: GenID,
 }
 
+pub(crate) fn encode(ent: Entity) -> f32 {
+    (((ent.id & 0x000000ff) << 24)
+        + ((ent.id & 0x0000ff00) << 8)
+        + ((ent.id & 0x00ff0000) >> 8)
+        + ((ent.id & 0xff000000) >> 24)
+        + ((ent.gen as u32) << 16)) as f32
+        / std::u32::MAX as f32
+}
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct WorldEntity {
     ent: Entity,
     e_type: EntityType,
 }
+
 impl WorldEntity {
     #[inline]
     pub fn id(&self) -> usize {

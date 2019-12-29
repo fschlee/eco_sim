@@ -1,33 +1,49 @@
 use log::error;
-use ndarray::{s, Array4, ArrayBase, ArrayViewMut, DataMut, Ix4, RawData};
+use ndarray::{s, Array4, ArrayBase, ArrayViewMut, DataMut, Ix2, Ix4, RawData};
 #[cfg(feature = "torch")]
 use tch::{Device, IndexOp, Kind, Tensor};
 
+use crate::agent::emotion::EmotionalState;
 use crate::world::{DefCell, Dir, Position, World};
-use crate::{Action, Coord, EntityType, WorldEntity, MAP_HEIGHT, MAP_WIDTH};
+use crate::{
+    Action, Coord, Entity, EntityType, MentalState, Source, WorldEntity, MAP_HEIGHT, MAP_WIDTH,
+};
 
 pub const MAX_REP_PER_CELL: usize = 8;
 pub const ENTITY_REP_SIZE: usize = 9;
+pub const PHYS_REP_SIZE: usize = ENTITY_REP_SIZE + 3;
+pub const MENTAL_REP_SIZE: usize = EmotionalState::SIZE;
+
+const X_SCALE: f32 = 1.0 / MAP_WIDTH as f32;
+const Y_SCALE: f32 = 1.0 / MAP_HEIGHT as f32;
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum EncodingError {
+    IndexMismatch,
+    ShapeMismatch,
+    InvalidAction,
+    PositionNotFound,
+    NonStandardContiguousAccess,
+}
 
 pub struct ObsvWriter<'a> {
     world: &'a World<DefCell>,
-    pos: Position,
-    radius: Coord,
+    views: &'a [(WorldEntity, Coord)],
     #[cfg(feature = "torch")]
     device: Device,
 }
 impl<'a> ObsvWriter<'a> {
     pub const ACTION_SPACE_SIZE: usize = 5 + 6 * MAX_REP_PER_CELL;
-    pub fn new(world: &'a World<DefCell>, pos: Position, radius: Coord) -> Self {
+    pub const SHAPE: [usize; 4] = [MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE];
+    pub fn new(world: &'a World<DefCell>, views: &'a [(WorldEntity, Coord)]) -> Self {
         Self {
             world,
-            pos,
-            radius,
+            views,
             #[cfg(feature = "torch")]
             device: Device::Cpu,
         }
     }
-    pub fn encode_action(&self, action: Action) -> usize {
+    pub fn encode_action(&self, we: WorldEntity, action: Action) -> Result<usize, EncodingError> {
         use Action::*;
         use Dir::*;
         let dir_match = |dir| match dir {
@@ -36,40 +52,42 @@ impl<'a> ObsvWriter<'a> {
             U => 3,
             D => 4,
         };
-        match action {
-            Idle => 0,
-            Move(d) => dir_match(d),
-            Attack(target) | Eat(target) => {
-                let act = if let Attack(_) = action {
-                    5 + MAX_REP_PER_CELL
-                } else {
-                    5
-                };
-                if let Some(other_pos) = self.world.positions.get(target) {
-                    let idx = self
-                        .world
-                        .entities_at(*other_pos)
-                        .iter()
-                        .position(|we| *we == target)
-                        .expect("position storage inconsistent with cells")
-                        .min(MAX_REP_PER_CELL - 1);
-                    let tgt = 1.0 - idx as f32 / (0.5 * MAX_REP_PER_CELL as f32);
-                    if *other_pos == self.pos {
-                        act + idx
-                    } else if other_pos.is_neighbour(&self.pos) {
-                        act + dir_match(self.pos.dir(other_pos)) * MAX_REP_PER_CELL + idx
+        if let Some(pos) = self.world.positions.get(we) {
+            match action {
+                Idle => Ok(0),
+                Move(d) => Ok(dir_match(d)),
+                Attack(target) | Eat(target) => {
+                    let act = if let Attack(_) = action {
+                        5 + MAX_REP_PER_CELL
                     } else {
-                        error!("invalid action encoded");
-                        0
+                        5
+                    };
+                    if let Some(other_pos) = self.world.positions.get(target) {
+                        let idx = self
+                            .world
+                            .entities_at(*other_pos)
+                            .iter()
+                            .position(|we| *we == target)
+                            .expect("position storage inconsistent with cells")
+                            .min(MAX_REP_PER_CELL - 1);
+                        let tgt = 1.0 - idx as f32 / (0.5 * MAX_REP_PER_CELL as f32);
+                        if other_pos == pos {
+                            Ok(act + idx)
+                        } else if other_pos.is_neighbour(pos) {
+                            Ok(act + dir_match(pos.dir(other_pos)) * MAX_REP_PER_CELL + idx)
+                        } else {
+                            Err(EncodingError::InvalidAction)
+                        }
+                    } else {
+                        Err(EncodingError::PositionNotFound)
                     }
-                } else {
-                    error!("invalid action encoded: target has no position");
-                    0
                 }
             }
+        } else {
+            Err(EncodingError::PositionNotFound)
         }
     }
-    pub fn decode_action(&self, idx: usize) -> Option<Action> {
+    pub fn decode_action(&self, we: WorldEntity, idx: usize) -> Option<Action> {
         use Action::*;
         let dir_match = |i| match i {
             1 => Some(Dir::R),
@@ -80,25 +98,29 @@ impl<'a> ObsvWriter<'a> {
         };
         let nth = |n, pos| self.world.entities_at(pos).get(n);
         const LAST_EAT: usize = 5 + MAX_REP_PER_CELL;
-        match idx {
-            0 => Some(Idle),
-            1..=4 => dir_match(idx).map(|d| Move(d)),
-            5..=LAST_EAT => nth(idx - 5, self.pos).map(|we| Eat(*we)),
-            _ if idx < 5 + 6 * MAX_REP_PER_CELL => {
-                let n = (idx - 5) % MAX_REP_PER_CELL;
-                let d = (idx - 5) / MAX_REP_PER_CELL - 1;
-                let pos = if d == 0 {
-                    Some(self.pos)
-                } else {
-                    dir_match(d).and_then(|dir| self.pos.step(dir))
-                };
-                pos.and_then(|p| nth(n, p)).map(|we| Attack(*we))
+        if let Some(pos) = self.world.positions.get(we) {
+            match idx {
+                0 => Some(Idle),
+                1..=4 => dir_match(idx).map(|d| Move(d)),
+                5..=LAST_EAT => nth(idx - 5, *pos).map(|we| Eat(*we)),
+                _ if idx < 5 + 6 * MAX_REP_PER_CELL => {
+                    let n = (idx - 5) % MAX_REP_PER_CELL;
+                    let d = (idx - 5) / MAX_REP_PER_CELL - 1;
+                    let target_pos = if d == 0 {
+                        Some(*pos)
+                    } else {
+                        dir_match(d).and_then(|dir| pos.step(dir))
+                    };
+                    target_pos.and_then(|p| nth(n, p)).map(|we| Attack(*we))
+                }
+                _ => unreachable!(),
             }
-            _ => unreachable!(),
+        } else {
+            None
         }
     }
     #[cfg(feature = "torch")]
-    pub fn encode_observation_in_tensor(&self) -> Tensor {
+    pub fn encode_map_in_tensor(&self) -> Tensor {
         let size = [
             MAP_HEIGHT as i64,
             MAP_WIDTH as i64,
@@ -120,20 +142,95 @@ impl<'a> ObsvWriter<'a> {
         ten.print();
         ten
     }
-    pub fn encode_observation<S: DataMut + RawData<Elem = f32>>(
+    pub fn encode_views<S: DataMut + RawData<Elem = f32>>(
         &self,
-        target: &mut ArrayBase<S, Ix4>,
-    ) {
+        ones: &mut [ArrayBase<S, Ix4>],
+    ) -> Result<(), EncodingError> {
+        if ones.len() < self.views.len() {
+            return Err(EncodingError::IndexMismatch);
+        }
+        let mut map = Array4::zeros(Self::SHAPE);
+        self.encode_map(&mut map)?;
+        for (ref mut target, (we, range)) in ones.iter_mut().zip(self.views.iter()) {
+            if target.shape() != Self::SHAPE {
+                return Err(EncodingError::ShapeMismatch);
+            }
+            if let Some(view_pos) = self.world.positions.get(we) {
+                for pos in Position::iter() {
+                    if view_pos.distance(&pos) <= *range {
+                        let idx = s![pos.y as i32, pos.x as i32, .., ..];
+                        let rep = map
+                            .slice(idx)
+                            .to_slice()
+                            .ok_or(EncodingError::NonStandardContiguousAccess)?;
+                        target
+                            .slice_mut(idx)
+                            .into_slice()
+                            .ok_or(EncodingError::NonStandardContiguousAccess)?
+                            .copy_from_slice(rep);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn encode_map<S: DataMut + RawData<Elem = f32>>(
+        &self,
+        zeros: &mut ArrayBase<S, Ix4>,
+    ) -> Result<(), EncodingError> {
         for (pos, cell) in self.world.iter_cells() {
             for (i, we) in cell.iter().enumerate().take(MAX_REP_PER_CELL) {
                 let rep = self.encode_entity(*we);
-                target
+                zeros
                     .slice_mut(s![pos.y as i32, pos.x as i32, i, ..])
                     .into_slice()
-                    .unwrap()
+                    .ok_or(EncodingError::NonStandardContiguousAccess)?
                     .copy_from_slice(&rep);
             }
         }
+        Ok(())
+    }
+    fn encode_position(pos: Position) -> [f32; 2] {
+        [pos.x as f32 * X_SCALE, pos.y as f32 * Y_SCALE]
+    }
+    fn encode_mental_state(mental_state: &MentalState) -> &[f32; EmotionalState::SIZE] {
+        mental_state.emotional_state.encode()
+    }
+    pub fn encode_agents<'b, S: DataMut + RawData<Elem = f32>>(
+        &self,
+        physical: &mut ArrayBase<S, Ix2>,
+        mental: &'b mut ArrayBase<S, Ix2>,
+        mental_states: &'b (impl Source<'b, &'b MentalState> + 'b),
+    ) -> Result<(), EncodingError> {
+        if physical.shape() != &[self.views.len(), PHYS_REP_SIZE]
+            || mental.shape() != &[self.views.len(), MENTAL_REP_SIZE]
+        {
+            return Err(EncodingError::ShapeMismatch);
+        }
+        for (i, (agent, _)) in self.views.iter().enumerate() {
+            physical
+                .slice_mut(s![i, 3..])
+                .as_slice_mut()
+                .ok_or(EncodingError::NonStandardContiguousAccess)?
+                .copy_from_slice(&self.encode_entity(*agent));
+            physical[[i, 0]] = crate::entity::encode(agent.into());
+
+            let [x, y] = if let Some(pos) = self.world.positions.get(agent) {
+                Self::encode_position(*pos)
+            } else {
+                [-1.0f32, -1.0f32]
+            };
+            physical[[i, 1]] = x;
+            physical[[i, 2]] = y;
+            if let Some(ms) = mental_states.get(agent.into()) {
+                mental
+                    .slice_mut(s![i, ..])
+                    .as_slice_mut()
+                    .ok_or(EncodingError::NonStandardContiguousAccess)?
+                    .copy_from_slice(Self::encode_mental_state(ms));
+            }
+        }
+        Ok(())
     }
     fn encode_entity(&self, we: WorldEntity) -> [f32; ENTITY_REP_SIZE] {
         use EntityType::*;
