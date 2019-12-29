@@ -243,6 +243,7 @@ fn game_loop<IS: InstSurface + 'static>(
         }
     });
     if let AppState::ChangeAdapter(back, idx) = app_state {
+        std::mem::drop(renderer);
         set_adapter(ui_processor, ui_state, game_state, event_loop, back, idx)
     } else {
         app_state
