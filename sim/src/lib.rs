@@ -39,11 +39,12 @@ pub struct SimState {
 }
 
 impl SimState {
-    pub fn advance(&mut self, time_step: f32) {
+    pub fn advance(&mut self, time_step: f32, overridden: impl IntoIterator<Item=(WorldEntity, Action)>) {
         self.time_acc += time_step;
         if self.time_acc >= self.sim_step {
             self.time_acc -= self.sim_step;
-            self.agent_system.advance(&self.world);
+            self.agent_system.override_actions(overridden);
+            self.agent_system.infer(&self.world);
             self.world.events.clear();
 
             #[cfg(feature = "torch")]
@@ -51,8 +52,7 @@ impl SimState {
                 let ms: &MentalState = self.agent_system.mental_states.iter().next().unwrap();
                 let w = rl_env_helper::ObsvWriter::new(
                     &self.world,
-                    *self.world.positions.get(ms.id).unwrap(),
-                    ms.sight_radius,
+                    &[],
                 );
                 let mut arr = ndarray::Array4::zeros((MAP_HEIGHT, MAP_WIDTH, 8, 9));
                 w.encode_observation(&mut arr);
@@ -61,6 +61,7 @@ impl SimState {
             self.world.advance();
             self.agent_system.process_feedback(&self.world.events);
             self.respawn_killed();
+            self.agent_system.decide(&self.world);
             self.next_step_count += 1;
         }
     }
@@ -96,14 +97,16 @@ impl SimState {
         let rng = XorShiftRng::seed_from_u64(seed);
         let (world, agents) = World::init(rng.clone(), &mut entity_manager);
         let agent_system = AgentSystem::init(agents, &world, false, true, rng);
-        Self {
+        let mut this = Self {
             time_acc: 0.0,
             sim_step: time_step,
             agent_system,
             world: world,
             entity_manager,
             next_step_count: 1,
-        }
+        };
+        this.agent_system.decide(&this.world);
+        this
     }
     pub fn get_view(
         &self,

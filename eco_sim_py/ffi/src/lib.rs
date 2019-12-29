@@ -176,7 +176,7 @@ impl Environment {
         Vec<(usize, Option<usize>)>,
         bool,
     )> {
-        {
+        let actions_to_take : Vec<_> = {
             let sim = self.sim.read().unwrap();
             let world = &sim.world;
             self.agents.retain(|(a, _)| {
@@ -184,14 +184,13 @@ impl Environment {
                     && sim.agent_system.mental_states.get(a).is_some()
             });
             let obsv_writer = ObsvWriter::new(world, &self.agents);
-            let actions_to_take: Vec<(WorldEntity, Option<Action>)> = self
+            self
                 .agents
                 .iter()
                 .zip(actions.iter())
-                .map(|((we, _c), a)| (*we, obsv_writer.decode_action(*we, *a)))
-                .collect();
-        }
-        py.allow_threads(|| self.sim.write().unwrap().advance(1.0));
+                .filter_map(|((we, _c), a)| obsv_writer.decode_action(*we, *a).map(|a| ((*we, a)))).collect()
+        };
+        py.allow_threads(|| self.sim.write().unwrap().advance(1.0, actions_to_take));
         self.state(py)
     }
     #[staticmethod]

@@ -882,7 +882,7 @@ pub struct AgentSystem {
 }
 
 impl AgentSystem {
-    pub fn advance<C: Cell>(&mut self, world: &World<C>) {
+    pub fn decide<C: Cell>(&mut self, world: &World<C>) {
         use itertools::Either;
         use rayon::prelude::*;
 
@@ -894,7 +894,7 @@ impl AgentSystem {
                 ref old_positions,
                 ..
             } = self;
-            mental_states.par_iter_mut().map(|mental_state|  {
+            mental_states.par_iter_mut().map(|mental_state| {
                 let entity = mental_state.id;
                 match (
                     world.get_physical_state(&entity),
@@ -908,7 +908,7 @@ impl AgentSystem {
                         } else {
                             let sight = mental_state.sight_radius;
                             let observation = world.observe_in_radius(&entity, sight);
-                            let observed_actions = actions.iter().map(|t | {
+                            let observed_actions = actions.iter().map(|t| {
                                 match (old_positions.get(t.0), old_positions.get(entity)) {
                                     (Some(p), Some(old_pos)) if old_pos.distance(p) <= sight => Either::Right(t),
                                     _ => Either::Left(t.0)
@@ -934,24 +934,36 @@ impl AgentSystem {
                 Either::Right(k) => self.killed.push(k),
             }
         }
-        {
-            let Self {
-                ref mut estimator_map,
-                ref actions,
-                ref mental_states,
-                ..
-            } = self;
-            fn adapter(ms: &MentalState) -> Option<&World<Occupancy>> {
-                ms.world_model.as_deref()
-            }
-            let world_models = StorageAdapter::new(mental_states, Box::new(adapter));
-            estimator_map.par_iter_mut().for_each(|est| {
-                for (entity, action) in actions {
-                    if let Some(other_pos) = world.positions.get(entity) {
-                        est.learn(*action, *entity, *other_pos, world, &world_models);
-                    }
+    }
+    pub fn infer<C: Cell>(&mut self, world: &World<C>) {
+        use itertools::Either;
+        use rayon::prelude::*;
+        let Self {
+            ref mut estimator_map,
+            ref actions,
+            ref mental_states,
+            ..
+        } = self;
+        fn adapter(ms: &MentalState) -> Option<&World<Occupancy>> {
+            ms.world_model.as_deref()
+        }
+        let world_models = StorageAdapter::new(mental_states, Box::new(adapter));
+        estimator_map.par_iter_mut().for_each(|est| {
+            for (entity, action) in actions {
+                if let Some(other_pos) = world.positions.get(entity) {
+                    est.learn(*action, *entity, *other_pos, world, &world_models);
                 }
-            });
+            }
+        });
+    }
+    pub fn override_actions(& mut self, overridden: impl IntoIterator<Item=(WorldEntity, Action)>) {
+        for (ent, act) in overridden {
+            for (e, a) in self.actions.iter_mut() {
+                if *e == ent {
+                    *a = act;
+                    break;
+                }
+            }
         }
     }
     pub fn process_feedback<'a>(
