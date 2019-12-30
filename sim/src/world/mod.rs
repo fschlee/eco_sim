@@ -80,6 +80,11 @@ pub struct World<C: Cell> {
 
 impl<C: Cell> World<C> {
     pub const EATING_DECREMENT: f32 = 5.0;
+    pub const ATTACK_FATIGUE_INCREMENT: Fatigue = Fatigue(0.05);
+    pub const MOVE_FATIGUE_INCREMENT: Fatigue = Fatigue(0.03);
+    pub const REST_FATIGUE_DECREMENT: Fatigue = Fatigue(-0.02);
+    pub const HEALING_FACTOR: f32 = 0.01;
+    pub const HEALING_THRESHOLD: Satiation = Satiation(0.2);
     pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<WorldEntity>) {
         let area = MAP_WIDTH * MAP_HEIGHT;
         let mut cells = C::empty_init();
@@ -185,6 +190,7 @@ impl<C: Cell> World<C> {
                         .physical_states
                         .get_mut(entity)
                         .ok_or("Entity has no physical state but tries to move")?;
+                    phys.fatigue += Self::MOVE_FATIGUE_INCREMENT;
                     if phys.partial_move(dir) >= MoveProgress(1.0) {
                         phys.move_target = None;
                         phys.move_progress = MoveProgress::default();
@@ -235,6 +241,7 @@ impl<C: Cell> World<C> {
                     .physical_states
                     .get_mut(entity)
                     .ok_or("Entity has no physical state but tries to attack")?;
+                phys.fatigue += Self::ATTACK_FATIGUE_INCREMENT;
                 if let Some(attack) = phys.attack {
                     if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
                         let damage = phys_target.health.suffer(attack);
@@ -253,7 +260,15 @@ impl<C: Cell> World<C> {
                     Err(format!("Incapable of attacking {}", opponent))
                 }
             }
-            Action::Idle => Ok(Outcome::Rested),
+            Action::Idle => {
+                self.physical_states.get_mut(entity).map(|phys| {
+                    phys.fatigue += Self::REST_FATIGUE_DECREMENT;
+                    if phys.satiation > Self::HEALING_THRESHOLD {
+                        *phys += phys.max_health * Self::HEALING_FACTOR;
+                    }
+                });
+                Ok(Outcome::Rested)
+            }
         }
     }
     fn can_pass(&self, entity: &WorldEntity, position: Position) -> bool {
@@ -421,6 +436,7 @@ impl World<Occupancy> {
                                 .physical_states
                                 .get_mut(entity)
                                 .ok_or("Entity has no physical state but tries to move")?;
+                            phys.fatigue += Fatigue(Self::MOVE_FATIGUE_INCREMENT.0 * prob);
                             if phys.partial_move(dir) >= MoveProgress(1.0) {
                                 phys.move_target = None;
                                 phys.move_progress = MoveProgress::default();
@@ -462,6 +478,7 @@ impl World<Occupancy> {
                             .physical_states
                             .get_mut(entity)
                             .ok_or("Entity has no physical state but tries to attack")?;
+                        phys.fatigue += Fatigue(Self::ATTACK_FATIGUE_INCREMENT.0 * prob);
                         if let Some(mut attack) = phys.attack {
                             attack.0 *= prob;
                             if let Some(phys_target) = self.physical_states.get_mut(&opponent) {
@@ -478,7 +495,15 @@ impl World<Occupancy> {
                             Err("entity incapable of attacking")
                         }
                     }
-                    Action::Idle => Ok(Outcome::Rested),
+                    Action::Idle => {
+                        self.physical_states.get_mut(entity).map(|phys| {
+                            phys.fatigue += Fatigue(Self::REST_FATIGUE_DECREMENT.0 * prob);
+                            if phys.satiation > Self::HEALING_THRESHOLD {
+                                *phys += phys.max_health * Self::HEALING_FACTOR * prob;
+                            }
+                        });
+                        Ok(Outcome::Rested)
+                    }
                 }
             };
             let outcome = res.and_then(std::convert::identity).ok();

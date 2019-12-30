@@ -6,6 +6,7 @@
 #![feature(const_if_match)]
 #![feature(const_in_array_repeat_expressions)]
 #![feature(const_generics)]
+#![feature(type_alias_impl_trait)]
 
 pub mod entity;
 pub mod entity_type;
@@ -39,7 +40,11 @@ pub struct SimState {
 }
 
 impl SimState {
-    pub fn advance(&mut self, time_step: f32, overridden: impl IntoIterator<Item=(WorldEntity, Action)>) {
+    pub fn advance(
+        &mut self,
+        time_step: f32,
+        overridden: impl IntoIterator<Item = (WorldEntity, Action)>,
+    ) {
         self.time_acc += time_step;
         if self.time_acc >= self.sim_step {
             self.time_acc -= self.sim_step;
@@ -50,10 +55,7 @@ impl SimState {
             #[cfg(feature = "torch")]
             {
                 let ms: &MentalState = self.agent_system.mental_states.iter().next().unwrap();
-                let w = rl_env_helper::ObsvWriter::new(
-                    &self.world,
-                    &[],
-                );
+                let w = rl_env_helper::ObsvWriter::new(&self.world, &[]);
                 let mut arr = ndarray::Array4::zeros((MAP_HEIGHT, MAP_WIDTH, 8, 9));
                 w.encode_observation(&mut arr);
             }

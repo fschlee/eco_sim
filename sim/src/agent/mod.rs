@@ -16,6 +16,7 @@ use crate::world::cell::Cell;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
 
+use crate::agent::emotion::{Aggression, Fear, Tiredness};
 use crate::agent::estimator::Estimator;
 pub use emotion::{EmotionalState, Hunger};
 use estimator::{EstimatorMap, MentalStateRep};
@@ -67,6 +68,9 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 impl MentalState {
     const HUNGER_THRESHOLD: Hunger = Hunger(0.2);
     const HUNGER_INCREMENT: f32 = 0.00001;
+    const FEAR_INCREMENT: f32 = 0.0001;
+    const AGGRESSION_INCREMENT: f32 = 0.01;
+    const TIREDNESS_INCREMENT: f32 = 0.01;
     const FLEE_THREAT: f32 = 30.0;
     const SAFE_THREAT: f32 = 8.0;
     const UNSEEN_PROB_MULTIPLIER: f32 = 0.9;
@@ -105,14 +109,19 @@ impl MentalState {
     ) -> Action {
         if let Some(world_model) = self.world_model.take() {
             let observation = &&*world_model;
+            let threat_map = self.threat_map(observation, estimator);
             {
-                self.update(physical_state, own_position, observation);
+                self.update(
+                    physical_state,
+                    own_position,
+                    observation,
+                    threat_map[own_position.idx()],
+                );
             }
             if self.use_mdp {
                 unimplemented!()
             // self.decide_mdp(physical_state, own_position, observation, estimator);
             } else {
-                let threat_map = self.threat_map(observation, estimator);
                 self.decide_simple(
                     physical_state,
                     own_position,
@@ -123,14 +132,19 @@ impl MentalState {
             }
             self.world_model = Some(world_model);
         } else {
+            let threat_map = self.threat_map(observation, estimator);
             {
-                self.update(physical_state, own_position, observation);
+                self.update(
+                    physical_state,
+                    own_position,
+                    observation,
+                    threat_map[own_position.idx()],
+                );
             }
             if self.use_mdp {
                 unimplemented!()
             // self.decide_mdp(physical_state, own_position, observation, estimator);
             } else {
-                let threat_map = self.threat_map(observation, estimator);
                 self.decide_simple(
                     physical_state,
                     own_position,
@@ -147,12 +161,22 @@ impl MentalState {
         physical_state: &PhysicalState,
         own_position: Position,
         observation: &impl Observation,
+        threat: f32,
     ) {
         self.emotional_state +=
             Hunger((20.0 - physical_state.satiation.0) * Self::HUNGER_INCREMENT);
+        self.emotional_state += Fear((threat - 0.5 * Self::FLEE_THREAT) * Self::FEAR_INCREMENT);
+        self.emotional_state += Tiredness(
+            (physical_state.fatigue.0
+                - self.emotional_state.tiredness().0
+                - 0.5 * (self.emotional_state.fear().0 + self.emotional_state.aggression().0))
+                * Self::TIREDNESS_INCREMENT,
+        );
+        self.emotional_state
+            .set_aggression(Aggression(self.emotional_state.aggression().0 * 0.95));
         match self.current_action {
             Action::Eat(food) => {
-                if self.emotional_state.hunger().0 <= 0.0
+                if self.emotional_state.hunger() <= Hunger(0.0)
                     || !observation.entities_at(own_position).contains(&food)
                 {
                     self.current_action = Action::Idle;
@@ -164,7 +188,8 @@ impl MentalState {
                         observation.observed_position(&opponent),
                         observation.observed_physical_state(&opponent),
                     ) {
-                        pos == own_position && phys.health.0 > 0.0
+                        (pos == own_position || pos.is_neighbour(&own_position))
+                            && phys.health.0 > 0.0
                     } else {
                         false
                     }
@@ -194,7 +219,11 @@ impl MentalState {
         for Event { actor, outcome } in events {
             if *actor == self.id {
                 match outcome {
-                    Rested | Incomplete => (),
+                    Rested => {
+                        let t = self.emotional_state.tiredness().0;
+                        score += t * t * 20.0;
+                    }
+                    Incomplete => (),
                     Moved(_) => self.current_action = Action::Idle,
                     Consumed(food, tp) => {
                         if let Some(r) = self.lookup_preference(*tp) {
@@ -202,15 +231,19 @@ impl MentalState {
                         }
                     }
                     Hurt {
-                        damage: _,
+                        damage,
                         target: _,
                         lethal,
                     } => {
+                        let aggro = self.emotional_state.aggression().0;
+                        let inc = aggro * aggro * (*damage) * if *lethal { 10.0 } else { 2.0 };
+                        score += inc.0;
                         if *lethal {
                             self.current_action = Action::Idle
                         }
                     }
                     InvalidAction(attempted_action, f) => {
+                        score -= 20.0;
                         let mut action = Action::Idle;
                         std::mem::swap(&mut action, &mut self.current_action);
                         if action != *attempted_action {
@@ -254,6 +287,7 @@ impl MentalState {
                         target,
                         lethal,
                     } if *target == self.id => {
+                        self.emotional_state += Aggression(damage.0 * Self::AGGRESSION_INCREMENT);
                         score -= damage.0 * 100.0;
                         if *lethal {
                             score -= 10e5;
@@ -431,9 +465,7 @@ impl MentalState {
                         None
                     }
                 })
-                .max_by(
-                    |(rw1, _, _), (rw2, _, _)| f32_cmp(rw2, rw1), // descending sort
-                )
+                .max_by(|(rw1, _, _), (rw2, _, _)| f32_cmp(rw1, rw2))
             {
                 match observation.observed_physical_state(&food) {
                     Some(ps)
@@ -579,6 +611,9 @@ impl MentalState {
                 }
             }
             Some(Behavior::Travel(goal)) => {
+                if goal == own_position {
+                    self.current_behavior = None;
+                }
                 if let Action::Move(_) = self.current_action {
                 } else {
                     if let Some(path) = self.path(own_position, goal, observation) {
@@ -956,7 +991,10 @@ impl AgentSystem {
             }
         });
     }
-    pub fn override_actions(& mut self, overridden: impl IntoIterator<Item=(WorldEntity, Action)>) {
+    pub fn override_actions(
+        &mut self,
+        overridden: impl IntoIterator<Item = (WorldEntity, Action)>,
+    ) {
         for (ent, act) in overridden {
             for (e, a) in self.actions.iter_mut() {
                 if *e == ent {
