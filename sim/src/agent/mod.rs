@@ -982,7 +982,7 @@ impl AgentSystem {
         fn adapter(ms: &MentalState) -> Option<&World<Occupancy>> {
             ms.world_model.as_deref()
         }
-        let world_models = StorageAdapter::new(mental_states, Box::new(adapter));
+        let world_models = StorageAdapter::new(mental_states, adapter);
         estimator_map.par_iter_mut().for_each(|est| {
             for (entity, action) in actions {
                 if let Some(other_pos) = world.positions.get(entity) {

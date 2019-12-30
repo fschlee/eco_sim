@@ -8,6 +8,9 @@ use super::{PhysicalState, World, MAP_HEIGHT, MAP_WIDTH};
 use crate::agent::AgentSystem;
 use crate::entity::{EntityManager, Storage, WorldEntity};
 use crate::Prob;
+use std::iter::Filter;
+
+use finder::{find_helper, Finder};
 
 type Cost = i32;
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -33,11 +36,11 @@ pub trait Observation: Clone {
     type B: Observation;
     type CellType: Cell;
     fn borrow<'a>(&'a self) -> Self::B;
-    fn find_closest<'a>(
+    fn find_closest<'a, F: Fn(&WorldEntity, &World<Self::CellType>) -> bool>(
         &'a self,
         starting_point: Position,
-        predicate: impl Fn(&WorldEntity, &World<Self::CellType>) -> bool + 'a,
-    ) -> Box<dyn Iterator<Item = (WorldEntity, Position)> + 'a>;
+        predicate: F,
+    ) -> Finder<'a, F, Self::CellType>;
     fn entities_at(&self, position: Position) -> &[WorldEntity];
     fn cell_at(&self, pos: Position) -> Option<&Self::CellType>;
     fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a>;
@@ -196,21 +199,22 @@ pub trait Observation: Clone {
 impl<'b, C: Cell> Observation for &'b World<C> {
     type B = &'b World<C>;
     type CellType = C;
+
     fn borrow<'a>(&'a self) -> Self {
         self.clone()
     }
-    fn find_closest<'a>(
+    fn find_closest<'a, F: Fn(&WorldEntity, &World<Self::CellType>) -> bool>(
         &'a self,
         starting_point: Position,
-        predicate: impl Fn(&WorldEntity, Self) -> bool + 'a,
-    ) -> Box<dyn Iterator<Item = (WorldEntity, Position)> + 'a> {
-        Box::new(
+        predicate: F,
+    ) -> Finder<'a, F, C> {
+        find_helper(
             EntityWalker::new(
                 self,
                 starting_point,
                 std::cmp::max(MAP_HEIGHT, MAP_WIDTH) as Coord,
-            )
-            .filter(move |(e, _)| predicate(e, self)),
+            ),
+            predicate,
         )
     }
     fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool> {
@@ -259,21 +263,20 @@ impl<'a, C: Cell> RadiusObservation<'a, C> {
         }
     }
 }
-impl<'b, C: Cell> Observation for RadiusObservation<'b, C> {
+impl<'b, C: Cell + 'b> Observation for RadiusObservation<'b, C> {
     type B = RadiusObservation<'b, C>;
     type CellType = C;
     fn borrow<'a>(&'a self) -> Self {
         self.clone()
     }
-    fn find_closest<'a>(
+    fn find_closest<'a, F: Fn(&WorldEntity, &World<Self::CellType>) -> bool>(
         &'a self,
         starting_point: Position,
-        predicate: impl Fn(&WorldEntity, &World<C>) -> bool + 'a,
-    ) -> Box<dyn Iterator<Item = (WorldEntity, Position)> + 'a> {
-        Box::new(
-            EntityWalker::new(self.world, starting_point, self.radius).filter(move |(e, p)| {
-                self.center.distance(p) <= self.radius && predicate(e, self.world)
-            }),
+        predicate: F,
+    ) -> Finder<'a, F, C> {
+        find_helper(
+            EntityWalker::new(self.world, starting_point, self.radius),
+            predicate,
         )
     }
     fn known_can_pass(&self, entity: &WorldEntity, position: Position) -> Option<bool> {
@@ -327,7 +330,7 @@ impl<'b, C: Cell> Observation for RadiusObservation<'b, C> {
 
 struct EntityWalker<'a, C: Cell> {
     position_walker: PositionWalker,
-    world: &'a World<C>,
+    pub(self) world: &'a World<C>,
     current: &'a [WorldEntity],
     current_pos: Position,
     subindex: usize,
@@ -359,5 +362,18 @@ impl<'a, C: Cell> Iterator for EntityWalker<'a, C> {
             return self.next();
         }
         None
+    }
+}
+
+mod finder {
+    use super::*;
+    pub type Finder<'a, F, C> = impl Iterator<Item = (WorldEntity, Position)> + 'a;
+
+    pub(super) fn find_helper<'a, C: 'a + Cell, F: 'a + Fn(&WorldEntity, &World<C>) -> bool>(
+        walker: EntityWalker<'a, C>,
+        predicate: F,
+    ) -> Finder<'a, F, C> {
+        let world = walker.world;
+        walker.filter(move |(e, _)| predicate(e, world))
     }
 }
