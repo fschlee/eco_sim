@@ -50,19 +50,35 @@ impl Environment {
             ref mut sim,
         } = self;
         let sim = sim.write().unwrap();
+        let mut old = Vec::new();
         agents.retain(|(a, _)| {
-            sim.world
+            let ret = sim
+                .world
                 .get_physical_state(a)
                 .map_or(false, |p| !p.is_dead())
-                && sim.agent_system.mental_states.get(a).is_some()
+                && sim.agent_system.mental_states.get(a).is_some();
+            if ret {
+                old.push(*a);
+            }
+            ret
         });
         let n = number.unwrap_or(1);
-
-        sim.agent_system
-            .mental_states
-            .iter()
-            .zip(0..n)
-            .for_each(|(ms, _): (&MentalState, _)| agents.push((ms.id, ms.sight_radius)));
+        let mut c = 0;
+        for ms in (&sim.agent_system.mental_states).into_iter() {
+            if old.contains(&ms.id) {
+                continue;
+            }
+            match sim.world.get_physical_state(&ms.id) {
+                Some(phys) if !phys.is_dead() => {
+                    agents.push((ms.id, ms.sight_radius));
+                    c += 1;
+                    if c >= n {
+                        break;
+                    }
+                }
+                _ => (),
+            }
+        }
         agents
             .iter()
             .map(|(we, _c)| we.e_type().idx() as u8)
@@ -176,7 +192,7 @@ impl Environment {
         Vec<(usize, Option<usize>)>,
         bool,
     )> {
-        let actions_to_take : Vec<_> = {
+        let actions_to_take: Vec<_> = {
             let sim = self.sim.read().unwrap();
             let world = &sim.world;
             self.agents.retain(|(a, _)| {
@@ -184,11 +200,11 @@ impl Environment {
                     && sim.agent_system.mental_states.get(a).is_some()
             });
             let obsv_writer = ObsvWriter::new(world, &self.agents);
-            self
-                .agents
+            self.agents
                 .iter()
                 .zip(actions.iter())
-                .filter_map(|((we, _c), a)| obsv_writer.decode_action(*we, *a).map(|a| ((*we, a)))).collect()
+                .filter_map(|((we, _c), a)| obsv_writer.decode_action(*we, *a).map(|a| ((*we, a))))
+                .collect()
         };
         py.allow_threads(|| self.sim.write().unwrap().advance(1.0, actions_to_take));
         self.state(py)

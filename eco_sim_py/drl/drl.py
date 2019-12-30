@@ -45,13 +45,14 @@ class ActionValues(torch.nn.Module):
         self.fc = torch.nn.Linear(hsz, action_space_size)
 
     def forward(self, x):
+        k = x.shape[0]
         x = fun.relu(self.bn1(self.conv1(x)))
         x = torch.squeeze(x, dim=2)
         x = fun.relu(self.bn2(self.conv2(x)))
         x = fun.relu(self.bn3(self.conv3(x)))
-        x, s = self.lstm(x.view(x.size(0), 1, -1), self.state)
+        x, s = self.lstm(x.view(1, k, -1), self.state)
         self.state = s
-        act = self.fc(fun.relu(x))
+        act = self.fc(fun.relu(x.view(k, -1)))
         return act
 
     def reset_state(self):
@@ -65,20 +66,23 @@ class ActionValues(torch.nn.Module):
         for (i, new_i) in remapping:
             if new_i is not None:
                 after = new_i + 1
-                self.state[0][new_i, :, :] = self.state[0][i, new_i, :, :]
-                self.state[1][new_i, :, :] = self.state[1][i, new_i, :, :]
-        if len(remapping) > 0:
-            s0 = self.state[0][0, :, :].shape
-            s1 = self.state[1][0, :, :].shape
-            for i in range(after, k):
-                self.state[0][i, :, :] = torch.zeros((1, s0[1], s0[2]))
-                self.satte[1][i, :, :] = torch.zeros((1, s1[1], s1[2]))
+                self.state[0][:, new_i, :] = self.state[0][:, i, :]
+                self.state[1][:, new_i, :] = self.state[1][:, i, :]
+        if len(remapping) > 0 and k > after:
+            s0 = self.state[0].shape
+            s1 = self.state[1].shape
+
+            self.state[0][:, after:k, :] = torch.zeros((s0[0], k - after, s0[2]))
+            self.state[1][:, after:k, :] = torch.zeros((s0[0], k - after, s1[2]))
 
 class QLearner:
-    def __init__(self, seed):
+    def __init__(self, seed=0, pretrained=None):
         self.env = Environment(seed, False)
         self.next_seed = seed + 1
-        self.policy = ActionValues()
+        if pretrained is not None and isinstance(pretrained, ActionValues):
+            self.policy = pretrained
+        else:
+            self.policy = ActionValues()
         self.value = ActionValues().eval()
         self.optimizer = torch.optim.RMSprop(self.policy.parameters())
 
@@ -97,7 +101,7 @@ class QLearner:
             registered = self.env.register_agents(8)
             k = len(registered)
             obsv, rewards, suggested_actions, phys, mental, visibility, remappings, complete  = self.env.state()
-            rewards = torch.tensor(rewards).view(-1, 1, 1)
+            rewards = torch.tensor(rewards).view(-1, 1)
             done = complete
             rand = random.Random()
             inp = torch.stack([transposed_tensor(np) for np in obsv])
@@ -105,8 +109,14 @@ class QLearner:
             death_count = 0
             while not done and in_epoch_count < 1000:
                 if death_count > 0:
-                    registered = self.env.register_agents(death_count)
-                    k = len(registered)
+
+                    reg = self.env.register_agents(death_count)
+                    k = len(reg)
+                    registered = reg
+                    self.policy.remap(remappings, k)
+                    self.value.remap(remappings, k)
+                    tup = self.env.state()
+                    rewards = torch.tensor(tup[1]).view(-1, 1)
                 total_count += 1
                 in_epoch_count += 1
                 current_count += 1
@@ -122,18 +132,18 @@ class QLearner:
                 obsv, new_rewards, new_suggested_actions, phys, mental, visibility, remappings, complete = self.env.step(actions)
                 done = complete
                 inp = torch.stack([transposed_tensor(np) for np in obsv])
-                new_rewards = torch.tensor(new_rewards).view(-1, 1, 1)
+                new_rewards = torch.tensor(new_rewards).view(-1, 1)
                 expected_rewards = new_rewards - rewards
                 death_count = 0
                 with torch.no_grad():
-                    m,_ = self.value.forward(inp).max(2, keepdim=True)
+                    m,_ = self.value.forward(inp).max(1, keepdim=True)
                     for (i, target) in remappings:
                         if target is None:
                             death_count += 1
-                            m[i, 0, 0] = 0.0
+                            m[i, 0] = 0.0
                     expected_rewards += m
                 rewards = new_rewards
-                loss = fun.smooth_l1_loss(pol.gather(2, torch.tensor(actions).view(k, 1, 1)), expected_rewards)
+                loss = fun.smooth_l1_loss(pol.gather(1, torch.tensor(actions).view(k, 1)), expected_rewards)
                 running_loss += loss.item()
                 if done or current_count > 20:
                     self.value.load_state_dict(self.policy.state_dict())
