@@ -35,6 +35,7 @@ impl<T: Eq + PartialEq + PartialOrd> PartialOrd for PathNode<T> {
 pub trait Observation: Clone {
     type B: Observation;
     type CellType: Cell;
+    type Iter<'a>: Iterator<Item = (Position, Option<&'a Self::CellType>)>;
     fn borrow<'a>(&'a self) -> Self::B;
     fn find_closest<'a, F: Fn(&WorldEntity, &World<Self::CellType>) -> bool>(
         &'a self,
@@ -43,7 +44,7 @@ pub trait Observation: Clone {
     ) -> Finder<'a, F, Self::CellType>;
     fn entities_at(&self, position: Position) -> &[WorldEntity];
     fn cell_at(&self, pos: Position) -> Option<&Self::CellType>;
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a>;
+    fn iter<'a>(&'a self) -> Self::Iter<'a>;
     fn observed_physical_state(&self, entity: &WorldEntity) -> Option<&PhysicalState>;
     fn observed_position(&self, entity: &WorldEntity) -> Option<Position>;
     fn is_observed(&self, pos: &Position) -> bool;
@@ -199,6 +200,7 @@ pub trait Observation: Clone {
 impl<'b, C: Cell> Observation for &'b World<C> {
     type B = &'b World<C>;
     type CellType = C;
+    type Iter<'a> = impl Iterator<Item = (Position, Option<&'a Self::CellType>)>;
 
     fn borrow<'a>(&'a self) -> Self {
         self.clone()
@@ -229,8 +231,8 @@ impl<'b, C: Cell> Observation for &'b World<C> {
     fn observed_position(&self, entity: &WorldEntity) -> Option<Position> {
         self.positions.get(entity).copied()
     }
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a> {
-        Box::new(self.iter_cells().map(|(p, c)| (p, Some(c))))
+    fn iter<'a>(& 'a self) -> Self::Iter<'a> {
+        self.iter_cells().map(|(p, c)| (p, Some(c)))
     }
     fn is_observed(&self, _pos: &Position) -> bool {
         true
@@ -266,6 +268,7 @@ impl<'a, C: Cell> RadiusObservation<'a, C> {
 impl<'b, C: Cell + 'b> Observation for RadiusObservation<'b, C> {
     type B = RadiusObservation<'b, C>;
     type CellType = C;
+    type Iter<'a> = impl Iterator<Item = (Position, Option<&'a Self::CellType>)>;
     fn borrow<'a>(&'a self) -> Self {
         self.clone()
     }
@@ -307,14 +310,14 @@ impl<'b, C: Cell + 'b> Observation for RadiusObservation<'b, C> {
         }
         &[]
     }
-    fn iter<'a>(&'a self) -> Box<dyn Iterator<Item = (Position, Option<&'a Self::CellType>)> + 'a> {
-        Box::new(self.world.iter_cells().map(move |(p, c)| {
+    fn iter<'a>(& 'a self) -> Self::Iter<'a> {
+        self.world.iter_cells().map(move |(p, c)| {
             if self.center.distance(&p) <= self.radius {
                 (p, Some(c))
             } else {
                 (p, None)
             }
-        }))
+        })
     }
     fn is_observed(&self, pos: &Position) -> bool {
         self.center.distance(pos) <= self.radius

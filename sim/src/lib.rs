@@ -7,6 +7,7 @@
 #![feature(const_in_array_repeat_expressions)]
 #![feature(const_generics)]
 #![feature(type_alias_impl_trait)]
+#![feature(generic_associated_types)]
 
 pub mod entity;
 pub mod entity_type;
