@@ -5,12 +5,14 @@ import torch.nn.functional as fun
 import numpy
 import random
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+device=torch.device("cpu")
+if torch.cuda.is_available():
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    device=torch.device("cuda")
 
 def transposed_tensor(arr):
     # (map_height, map_width, max_reps_per_square : D, rep_size : C) => (N, C, H, W, D)
-    return torch.from_numpy(numpy.transpose(arr))
+    return torch.from_numpy(numpy.transpose(arr)).to(device)
 
 
 class ActionValues(torch.nn.Module):
@@ -85,6 +87,7 @@ class QLearner:
             self.policy = ActionValues()
         self.value = ActionValues().eval()
         self.optimizer = torch.optim.RMSprop(self.policy.parameters())
+        self.optimizer
 
     def run(self, epochs=400):
         losses = []
@@ -105,7 +108,6 @@ class QLearner:
             done = complete
             rand = random.Random()
             inp = torch.stack([transposed_tensor(np) for np in obsv])
-            forward = None
             death_count = 0
             while not done and in_epoch_count < 1000:
                 if death_count > 0:
