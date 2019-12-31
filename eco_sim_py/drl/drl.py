@@ -22,7 +22,9 @@ class ActionValues(torch.nn.Module):
             map_height=Environment.map_height(),
             map_width=Environment.map_width(),
             max_reps_per_square=Environment.max_reps_per_square(),
-            rep_size=Environment.rep_size()):
+            rep_size=Environment.rep_size(),
+            phys_size=Environment.physical_rep_size(),
+            mental_size=Environment.mental_rep_size()):
         super(ActionValues, self).__init__()
         self.h = map_height
         self.w = map_width
@@ -33,7 +35,7 @@ class ActionValues(torch.nn.Module):
         kernel = (max_reps_per_square, 1, 1)
         self.c1 = 16
         self.c2 = 16
-        self.c3 = 16
+        self.c3 = 8
         hsz = self.c3 * map_height * map_width
         self.state = None
         self.conv1 = torch.nn.Conv3d(rep_size, self.c1, groups=1, kernel_size=kernel)
@@ -43,18 +45,21 @@ class ActionValues(torch.nn.Module):
         self.bn2 = torch.nn.BatchNorm2d(self.c2)
         self.conv3 = torch.nn.Conv2d(self.c2, self.c3, kernel_size=(5, 5), stride=1, padding=2)
         self.bn3 = torch.nn.BatchNorm2d(self.c3)
-        self.lstm = torch.nn.LSTM(self.c3 * self.h * self.w, hsz)
-        self.fc = torch.nn.Linear(hsz, action_space_size)
+        ag_size = phys_size + mental_size
+        self.ag = torch.nn.Linear(ag_size, ag_size)
+        self.lstm = torch.nn.LSTM(self.c3 * self.h * self.w + ag_size, hsz)
+        self.act = torch.nn.Linear(hsz, action_space_size)
 
-    def forward(self, x):
+    def forward(self, x, p, m):
         k = x.shape[0]
         x = fun.relu(self.bn1(self.conv1(x)))
         x = torch.squeeze(x, dim=2)
         x = fun.relu(self.bn2(self.conv2(x)))
         x = fun.relu(self.bn3(self.conv3(x)))
-        x, s = self.lstm(x.view(1, k, -1), self.state)
+        ag = fun.relu(self.ag(torch.cat((p, m), 1)))
+        x, s = self.lstm(torch.cat((x.view(1, k, -1), ag.view(1, k, -1)), 2), self.state)
         self.state = s
-        act = self.fc(fun.relu(x.view(k, -1)))
+        act = self.act(fun.relu(x.view(k, -1)))
         return act
 
     def reset_state(self):
@@ -103,11 +108,13 @@ class QLearner:
             self.next_seed += 1
             registered = self.env.register_agents(8)
             k = len(registered)
-            obsv, rewards, suggested_actions, phys, mental, visibility, remappings, complete  = self.env.state()
+            obsv, rewards, suggested_actions, physical, mental, visibility, remappings, complete  = self.env.state()
             rewards = torch.tensor(rewards).view(-1, 1)
             done = complete
             rand = random.Random()
             inp = torch.stack([transposed_tensor(np) for np in obsv])
+            men = torch.from_numpy(mental).to(device)
+            phys = torch.from_numpy(physical).to(device)
             death_count = 0
             while not done and in_epoch_count < 1000:
                 if death_count > 0:
@@ -122,7 +129,7 @@ class QLearner:
                 total_count += 1
                 in_epoch_count += 1
                 current_count += 1
-                pol = self.policy.forward(inp)
+                pol = self.policy.forward(inp, phys, men)
                 actions = [
                     rand.choices(
                         (rand.choice(range(0, action_space)),
@@ -131,14 +138,16 @@ class QLearner:
                         weights=(0.1, 0.3, 0.6),
                         k=1)[0]
                     for i in range(0, k)]
-                obsv, new_rewards, new_suggested_actions, phys, mental, visibility, remappings, complete = self.env.step(actions)
+                obsv, new_rewards, new_suggested_actions, physical, mental, visibility, remappings, complete = self.env.step(actions)
                 done = complete
                 inp = torch.stack([transposed_tensor(np) for np in obsv])
+                men = torch.from_numpy(mental).to(device)
+                phys = torch.from_numpy(physical).to(device)
                 new_rewards = torch.tensor(new_rewards).view(-1, 1)
                 expected_rewards = new_rewards - rewards
                 death_count = 0
                 with torch.no_grad():
-                    m,_ = self.value.forward(inp).max(1, keepdim=True)
+                    m,_ = self.value.forward(inp, phys, men).max(1, keepdim=True)
                     for (i, target) in remappings:
                         if target is None:
                             death_count += 1

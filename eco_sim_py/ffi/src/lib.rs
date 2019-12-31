@@ -229,6 +229,14 @@ impl Environment {
     fn rep_size() -> usize {
         ENTITY_REP_SIZE
     }
+    #[staticmethod]
+    fn mental_rep_size() -> usize {
+        MENTAL_REP_SIZE
+    }
+    #[staticmethod]
+    fn physical_rep_size() -> usize {
+        PHYS_REP_SIZE
+    }
 }
 
 #[pymodule]
