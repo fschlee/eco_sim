@@ -20,11 +20,21 @@ pub struct Entity {
     gen: GenID,
 }
 
+pub(crate) fn encode(ent: Entity) -> f32 {
+    (((ent.id & 0x000000ff) << 24)
+        + ((ent.id & 0x0000ff00) << 8)
+        + ((ent.id & 0x00ff0000) >> 8)
+        + ((ent.id & 0xff000000) >> 24)
+        + ((ent.gen as u32) << 16)) as f32
+        / std::u32::MAX as f32
+}
+
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub struct WorldEntity {
     ent: Entity,
     e_type: EntityType,
 }
+
 impl WorldEntity {
     #[inline]
     pub fn id(&self) -> usize {
@@ -388,14 +398,16 @@ impl<'a, 'b, T> IntoIterator for &'b &'a StorageSlice<'a, T> {
 }
 
 pub trait Source<'a, T> {
+    type Iter: Iterator<Item = T>;
     fn get(&'a self, entity: Entity) -> Option<T>;
-    fn iter(&'a self) -> Box<dyn Iterator<Item = T> + 'a>;
+    fn iter(&'a self) -> Self::Iter;
 }
 
 impl<'a, T: 'a, F: 'static> Source<'a, T> for &'a StorageSlice<'a, F>
 where
     &'a F: Into<T>,
 {
+    type Iter = impl Iterator<Item = T> + 'a;
     fn get(&'a self, entity: Entity) -> Option<T> {
         let idx = entity.id as usize;
         if idx < self.idx {
@@ -417,8 +429,8 @@ where
         }
         None
     }
-    fn iter(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
-        Box::new(self.into_iter().map(Into::into))
+    fn iter(&'a self) -> Self::Iter {
+        self.into_iter().map(Into::into)
     }
 }
 /*
@@ -434,37 +446,39 @@ impl<'a, T, F> Source<T> for StorageSlice<'a, F> where &F: Into<T> {
         self.get( entity).map(|e | e.into())
     }
 }*/
-impl<'a, T, I: 'a> Source<'a, T> for Storage<I>
+impl<'a, T: 'a, I: 'a> Source<'a, T> for Storage<I>
 where
     &'a I: Into<T>,
 {
+    type Iter = impl Iterator<Item = T> + 'a;
     fn get(&'a self, entity: Entity) -> Option<T> {
         self.get(entity).map(|e| e.into())
     }
-    fn iter(&'a self) -> Box<dyn Iterator<Item = T> + 'a> {
-        Box::new(self.into_iter().map(|e| e.into()))
+    fn iter(&'a self) -> Self::Iter {
+        self.into_iter().map(|e| e.into())
     }
 }
 
-pub struct StorageAdapter<'a, T, U> {
+pub struct StorageAdapter<'a, T, U, F: Fn(&U) -> Option<&T> + Sync + Send> {
     storage: &'a Storage<U>,
-    fun: Box<dyn Fn(&U) -> Option<&T> + Sync + Send>,
+    fun: F,
 }
-impl<'a, T, U> StorageAdapter<'a, T, U> {
-    pub fn new(storage: &'a Storage<U>, fun: Box<dyn Fn(&U) -> Option<&T> + Sync + Send>) -> Self {
+impl<'a, T, U, F: Fn(&U) -> Option<&T> + Sync + Send> StorageAdapter<'a, T, U, F> {
+    pub fn new(storage: &'a Storage<U>, fun: F) -> Self {
         Self { storage, fun }
     }
 }
-impl<'a, T, U> Source<'a, &'a T> for StorageAdapter<'a, T, U> {
+impl<'a, T: 'a, U: 'a, F: 'a + Fn(&U) -> Option<&T> + Sync + Send> Source<'a, &'a T>
+    for StorageAdapter<'a, T, U, F>
+{
+    type Iter = impl Iterator<Item = &'a T> + 'a;
     fn get(&'a self, entity: Entity) -> Option<&'a T> {
-        self.storage.get(entity).and_then(|t| (*self.fun)(t))
+        self.storage.get(entity).and_then(|t| (self.fun)(t))
     }
 
-    fn iter(&'a self) -> Box<dyn Iterator<Item = &'a T> + 'a> {
-        Box::new(
-            self.storage
-                .iter()
-                .flat_map(move |u| (*self.fun)(u).into_iter()),
-        )
+    fn iter(&'a self) -> Self::Iter {
+        self.storage
+            .iter()
+            .flat_map(move |u| (self.fun)(u).into_iter())
     }
 }

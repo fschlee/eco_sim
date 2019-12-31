@@ -43,7 +43,7 @@ fn sim(c: &mut Criterion) {
     */
     c.bench_function("sim", |b| {
         b.iter(|| {
-            sim.advance(1.0);
+            sim.advance(1.0, None);
         })
     });
     let agents: Vec<_> = sim

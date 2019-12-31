@@ -16,6 +16,7 @@ use crate::world::cell::Cell;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
 
+use crate::agent::emotion::{Aggression, Fear, Tiredness};
 use crate::agent::estimator::Estimator;
 pub use emotion::{EmotionalState, Hunger};
 use estimator::{EstimatorMap, MentalStateRep};
@@ -67,6 +68,9 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 impl MentalState {
     const HUNGER_THRESHOLD: Hunger = Hunger(0.2);
     const HUNGER_INCREMENT: f32 = 0.00001;
+    const FEAR_INCREMENT: f32 = 0.0001;
+    const AGGRESSION_INCREMENT: f32 = 0.01;
+    const TIREDNESS_INCREMENT: f32 = 0.01;
     const FLEE_THREAT: f32 = 30.0;
     const SAFE_THREAT: f32 = 8.0;
     const UNSEEN_PROB_MULTIPLIER: f32 = 0.9;
@@ -105,14 +109,19 @@ impl MentalState {
     ) -> Action {
         if let Some(world_model) = self.world_model.take() {
             let observation = &&*world_model;
+            let threat_map = self.threat_map(observation, estimator);
             {
-                self.update(physical_state, own_position, observation);
+                self.update(
+                    physical_state,
+                    own_position,
+                    observation,
+                    threat_map[own_position.idx()],
+                );
             }
             if self.use_mdp {
                 unimplemented!()
             // self.decide_mdp(physical_state, own_position, observation, estimator);
             } else {
-                let threat_map = self.threat_map(observation, estimator);
                 self.decide_simple(
                     physical_state,
                     own_position,
@@ -123,14 +132,19 @@ impl MentalState {
             }
             self.world_model = Some(world_model);
         } else {
+            let threat_map = self.threat_map(observation, estimator);
             {
-                self.update(physical_state, own_position, observation);
+                self.update(
+                    physical_state,
+                    own_position,
+                    observation,
+                    threat_map[own_position.idx()],
+                );
             }
             if self.use_mdp {
                 unimplemented!()
             // self.decide_mdp(physical_state, own_position, observation, estimator);
             } else {
-                let threat_map = self.threat_map(observation, estimator);
                 self.decide_simple(
                     physical_state,
                     own_position,
@@ -147,12 +161,22 @@ impl MentalState {
         physical_state: &PhysicalState,
         own_position: Position,
         observation: &impl Observation,
+        threat: f32,
     ) {
         self.emotional_state +=
             Hunger((20.0 - physical_state.satiation.0) * Self::HUNGER_INCREMENT);
+        self.emotional_state += Fear((threat - 0.5 * Self::FLEE_THREAT) * Self::FEAR_INCREMENT);
+        self.emotional_state += Tiredness(
+            (physical_state.fatigue.0
+                - self.emotional_state.tiredness().0
+                - 0.5 * (self.emotional_state.fear().0 + self.emotional_state.aggression().0))
+                * Self::TIREDNESS_INCREMENT,
+        );
+        self.emotional_state
+            .set_aggression(Aggression(self.emotional_state.aggression().0 * 0.95));
         match self.current_action {
             Action::Eat(food) => {
-                if self.emotional_state.hunger().0 <= 0.0
+                if self.emotional_state.hunger() <= Hunger(0.0)
                     || !observation.entities_at(own_position).contains(&food)
                 {
                     self.current_action = Action::Idle;
@@ -164,7 +188,8 @@ impl MentalState {
                         observation.observed_position(&opponent),
                         observation.observed_physical_state(&opponent),
                     ) {
-                        pos == own_position && phys.health.0 > 0.0
+                        (pos == own_position || pos.is_neighbour(&own_position))
+                            && phys.health.0 > 0.0
                     } else {
                         false
                     }
@@ -194,7 +219,11 @@ impl MentalState {
         for Event { actor, outcome } in events {
             if *actor == self.id {
                 match outcome {
-                    Rested | Incomplete => (),
+                    Rested => {
+                        let t = self.emotional_state.tiredness().0;
+                        score += t * t * 20.0;
+                    }
+                    Incomplete => (),
                     Moved(_) => self.current_action = Action::Idle,
                     Consumed(food, tp) => {
                         if let Some(r) = self.lookup_preference(*tp) {
@@ -202,22 +231,26 @@ impl MentalState {
                         }
                     }
                     Hurt {
-                        damage: _,
+                        damage,
                         target: _,
                         lethal,
                     } => {
+                        let aggro = self.emotional_state.aggression().0;
+                        let inc = aggro * aggro * (*damage) * if *lethal { 10.0 } else { 2.0 };
+                        score += inc.0;
                         if *lethal {
                             self.current_action = Action::Idle
                         }
                     }
                     InvalidAction(attempted_action, f) => {
+                        score -= 20.0;
                         let mut action = Action::Idle;
                         std::mem::swap(&mut action, &mut self.current_action);
-                        if action != *attempted_action {
-                            error!(
+                        if Some(action) != *attempted_action {
+                            /* error!(
                                 "{} intended to {}, but instead {} was processed",
                                 self.id, action, attempted_action
-                            );
+                            );*/
                         } else {
                             match f {
                                 FailReason::TargetNotThere(target_pos) => {
@@ -243,6 +276,7 @@ impl MentalState {
                                         }
                                     }
                                 }
+                                _ => ()
                             }
                         }
                     }
@@ -254,6 +288,7 @@ impl MentalState {
                         target,
                         lethal,
                     } if *target == self.id => {
+                        self.emotional_state += Aggression(damage.0 * Self::AGGRESSION_INCREMENT);
                         score -= damage.0 * 100.0;
                         if *lethal {
                             score -= 10e5;
@@ -268,13 +303,13 @@ impl MentalState {
     }
     pub fn update_world_model<'a>(
         &'a mut self,
-        actions: impl IntoIterator<Item = itertools::Either<WorldEntity, &'a (WorldEntity, Action)>>,
+        actions: impl IntoIterator<Item = itertools::Either<WorldEntity, &'a (WorldEntity, Result<Action, FailReason>)>>,
         observation: &'a impl Observation,
         estimator: &impl Estimator,
     ) {
         use itertools::Itertools;
         if let Some(ref mut wm) = self.world_model {
-            let (unseen, mut confident_actions): (Vec<WorldEntity>, Vec<(WorldEntity, Action)>) =
+            let (unseen, mut confident_actions): (Vec<WorldEntity>, Vec<(WorldEntity,  Result<Action, FailReason>)>) =
                 actions.into_iter().partition_map(std::convert::identity);
 
             let mut expected_actions = Vec::new();
@@ -291,8 +326,8 @@ impl MentalState {
                                 (wm.physical_states.get(e), estimator.invoke(*e))
                             {
                                 confident_actions
-                                    .push((*e, ms.decide(phys, pos, &&**wm, estimator)))
-                            }
+                                    .push((*e, Ok(ms.decide(phys, pos, &&**wm, estimator))))
+                        }
                         }),
                     ExpectedFilled(vs, ps) => vs
                         .iter()
@@ -308,7 +343,7 @@ impl MentalState {
                             {
                                 let action = ms.decide(phys, pos, &&**wm, estimator);
                                 if *p > 0.9 {
-                                    confident_actions.push((*e, action));
+                                    confident_actions.push((*e, Ok(action)));
                                 } else if *p > 0.1 {
                                     expected_actions.push((*e, action, pos, *p));
                                 }
@@ -431,9 +466,7 @@ impl MentalState {
                         None
                     }
                 })
-                .max_by(
-                    |(rw1, _, _), (rw2, _, _)| f32_cmp(rw2, rw1), // descending sort
-                )
+                .max_by(|(rw1, _, _), (rw2, _, _)| f32_cmp(rw1, rw2))
             {
                 match observation.observed_physical_state(&food) {
                     Some(ps)
@@ -579,6 +612,9 @@ impl MentalState {
                 }
             }
             Some(Behavior::Travel(goal)) => {
+                if goal == own_position {
+                    self.current_behavior = None;
+                }
                 if let Action::Move(_) = self.current_action {
                 } else {
                     if let Some(path) = self.path(own_position, goal, observation) {
@@ -876,13 +912,13 @@ impl MentalState {
 pub struct AgentSystem {
     pub mental_states: Storage<MentalState>,
     pub estimator_map: EstimatorMap,
-    pub actions: Vec<(WorldEntity, Action)>,
+    pub actions: Vec<(WorldEntity, Result<Action, FailReason>)>,
     pub killed: Vec<WorldEntity>,
     old_positions: Storage<Position>,
 }
 
 impl AgentSystem {
-    pub fn advance<C: Cell>(&mut self, world: &World<C>) {
+    pub fn decide<C: Cell>(&mut self, world: &World<C>) {
         use itertools::Either;
         use rayon::prelude::*;
 
@@ -894,7 +930,7 @@ impl AgentSystem {
                 ref old_positions,
                 ..
             } = self;
-            mental_states.par_iter_mut().map(|mental_state|  {
+            mental_states.par_iter_mut().map(|mental_state| {
                 let entity = mental_state.id;
                 match (
                     world.get_physical_state(&entity),
@@ -908,7 +944,7 @@ impl AgentSystem {
                         } else {
                             let sight = mental_state.sight_radius;
                             let observation = world.observe_in_radius(&entity, sight);
-                            let observed_actions = actions.iter().map(|t | {
+                            let observed_actions = actions.iter().map(|t| {
                                 match (old_positions.get(t.0), old_positions.get(entity)) {
                                     (Some(p), Some(old_pos)) if old_pos.distance(p) <= sight => Either::Right(t),
                                     _ => Either::Left(t.0)
@@ -916,7 +952,7 @@ impl AgentSystem {
                             });
                             mental_state.update_world_model(observed_actions, &observation, estimator);
                             let action = mental_state.decide(physical_state, *position, &observation, estimator);
-                            Either::Left((entity, action))
+                            Either::Left((entity, Ok(action)))
                         }
                     }
                     (ps, p, _) => {
@@ -934,24 +970,39 @@ impl AgentSystem {
                 Either::Right(k) => self.killed.push(k),
             }
         }
-        {
-            let Self {
-                ref mut estimator_map,
-                ref actions,
-                ref mental_states,
-                ..
-            } = self;
-            fn adapter(ms: &MentalState) -> Option<&World<Occupancy>> {
-                ms.world_model.as_deref()
-            }
-            let world_models = StorageAdapter::new(mental_states, Box::new(adapter));
-            estimator_map.par_iter_mut().for_each(|est| {
-                for (entity, action) in actions {
-                    if let Some(other_pos) = world.positions.get(entity) {
-                        est.learn(*action, *entity, *other_pos, world, &world_models);
-                    }
+    }
+    pub fn infer<C: Cell>(&mut self, world: &World<C>) {
+        use itertools::Either;
+        use rayon::prelude::*;
+        let Self {
+            ref mut estimator_map,
+            ref actions,
+            ref mental_states,
+            ..
+        } = self;
+        fn adapter(ms: &MentalState) -> Option<&World<Occupancy>> {
+            ms.world_model.as_deref()
+        }
+        let world_models = StorageAdapter::new(mental_states, adapter);
+        estimator_map.par_iter_mut().for_each(|est| {
+            for (entity, action) in actions {
+                if let (Ok(action), Some(other_pos)) = (action, world.positions.get(entity)) {
+                    est.learn(*action, *entity, *other_pos, world, &world_models);
                 }
-            });
+            }
+        });
+    }
+    pub fn override_actions(
+        &mut self,
+        overridden: impl IntoIterator<Item = (WorldEntity, Result<Action, FailReason>)>,
+    ) {
+        for (ent, act) in overridden {
+            for (e, a) in self.actions.iter_mut() {
+                if *e == ent {
+                    *a = act;
+                    break;
+                }
+            }
         }
     }
     pub fn process_feedback<'a>(

@@ -3,6 +3,7 @@ name = "eco_sim_py"
 version = "0.1.0"
 authors = ["Feisal Schlee <fschlee@techfak.uni-bielefeld.de>"]
 edition = "2018"
+publish = false
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

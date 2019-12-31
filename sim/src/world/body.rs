@@ -11,6 +11,22 @@ impl Health {
         Health(attack.0)
     }
 }
+impl std::ops::Mul<f32> for Health {
+    type Output = Health;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        debug_assert!(!rhs.is_nan());
+        Health(self.0 * rhs)
+    }
+}
+impl std::ops::Mul<Health> for f32 {
+    type Output = Health;
+
+    fn mul(self, rhs: Health) -> Self::Output {
+        debug_assert!(!self.is_nan());
+        Health(self * rhs.0)
+    }
+}
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Meat(pub f32);
@@ -20,6 +36,9 @@ pub struct Attack(pub f32);
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Satiation(pub f32);
+
+#[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
+pub struct Fatigue(pub f32);
 
 #[derive(PartialOrd, PartialEq, Copy, Clone, Debug)]
 pub struct Speed(pub f32);
@@ -50,6 +69,7 @@ pub struct PhysicalState {
     pub move_target: Option<Dir>,
     pub attack: Option<Attack>,
     pub satiation: Satiation,
+    pub fatigue: Fatigue,
 }
 
 impl std::fmt::Display for PhysicalState {
@@ -77,7 +97,9 @@ impl PhysicalState {
             self.move_target = Some(dir);
             self.move_progress = MoveProgress(0.0);
         }
-        self.move_progress += self.speed * (self.health.0 / self.max_health.0);
+        self.move_progress += self.speed
+            * (self.health.0 / self.max_health.0)
+            * (1.0 - 0.75 * self.fatigue.0 * self.fatigue.0);
         self.move_progress
     }
     pub fn new(max_health: Health, speed: Speed, attack: Option<Attack>) -> Self {
@@ -90,6 +112,7 @@ impl PhysicalState {
             move_target: None,
             attack,
             satiation: Satiation(10.0),
+            fatigue: Fatigue(0.0),
         }
     }
 }
@@ -110,8 +133,22 @@ impl std::ops::SubAssign<Satiation> for PhysicalState {
         *self += Satiation(-rhs.0)
     }
 }
-impl std::ops::SubAssign<f32> for Satiation {
-    fn sub_assign(&mut self, rhs: f32) {
-        self.0 = clip(self.0 - rhs, 0.0, 1.0);
+
+impl std::ops::AddAssign<Health> for PhysicalState {
+    fn add_assign(&mut self, rhs: Health) {
+        debug_assert!(!rhs.0.is_nan());
+        self.health.0 = clip(self.health.0 + rhs.0, 0.0, self.max_health.0);
+    }
+}
+impl std::ops::SubAssign<Health> for PhysicalState {
+    fn sub_assign(&mut self, rhs: Health) {
+        *self += Health(-rhs.0)
+    }
+}
+
+impl std::ops::AddAssign<Fatigue> for Fatigue {
+    fn add_assign(&mut self, rhs: Fatigue) {
+        debug_assert!(!rhs.0.is_nan());
+        self.0 = clip(self.0 + rhs.0, 0.0, 1.0);
     }
 }

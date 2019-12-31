@@ -208,7 +208,7 @@ impl GameState {
             }
         }
         if !self.paused {
-            self.eco_sim.advance(time_step);
+            self.eco_sim.advance(time_step, None);
         }
     }
     pub fn get_render_data(&mut self) -> RenderData {
