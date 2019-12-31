@@ -43,12 +43,14 @@ impl Default for Action {
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum FailReason {
     TargetNotThere(Option<Position>),
+    DecodedInvalid,
+    Unknown,
 }
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum Outcome {
     Incomplete,
-    InvalidAction(Action, FailReason),
+    InvalidAction(Option<Action>, FailReason),
     Moved(Dir),
     Consumed(Meat, EntityType),
     Hurt {
@@ -161,20 +163,30 @@ impl<C: Cell> World<C> {
         }
         new_e
     }
-    pub fn act<'a>(&'a mut self, actions: impl IntoIterator<Item = &'a (WorldEntity, Action)>) {
+    pub fn act<'a>(&'a mut self, actions: impl IntoIterator<Item = &'a (WorldEntity, Result<Action, FailReason>)>) {
         let mut move_list = Vec::new();
         for &(actor, action) in actions {
-            match self.act_one(&actor, action) {
-                Err(err) => error!("Action of {} failed: {}", actor, err),
-                Ok(Outcome::Moved(dir)) => {
-                    move_list.push((actor, dir));
-                    self.events.push(Event {
-                        actor,
-                        outcome: Outcome::Moved(dir),
-                    });
+            match action {
+                Ok(action) => {
+                    match self.act_one(&actor, action) {
+                        Err(err) => {
+                            error!("Action of {} failed: {}", actor, err);
+                            self.events.push( Event { actor, outcome : Outcome::InvalidAction(Some(action), FailReason::Unknown)})
+                        },
+                        Ok(Outcome::Moved(dir)) => {
+                            move_list.push((actor, dir));
+                            self.events.push(Event {
+                                actor,
+                                outcome: Outcome::Moved(dir),
+                            });
+                        }
+                        Ok(outcome) => self.events.push(Event { actor, outcome }),
+                    }
                 }
-                Ok(outcome) => self.events.push(Event { actor, outcome }),
+                Err(fail) => self.events.push( Event { actor, outcome : Outcome::InvalidAction(None, fail)})
+
             }
+
         }
     }
     fn act_one(&mut self, entity: &WorldEntity, action: Action) -> Result<Outcome, String> {
@@ -221,7 +233,7 @@ impl<C: Cell> World<C> {
                     }
                 } else {
                     Ok(Outcome::InvalidAction(
-                        action,
+                        Some(action),
                         FailReason::TargetNotThere(target_pos.map(|p| *p)),
                     ))
                 }
@@ -405,16 +417,18 @@ impl World<Occupancy> {
     }
     pub fn confident_act<'a>(
         &'a mut self,
-        actions: impl IntoIterator<Item = &'a (WorldEntity, Action)>,
+        actions: impl IntoIterator<Item = &'a (WorldEntity,  Result<Action, FailReason>)>,
         observer: WorldEntity,
     ) {
         for &(actor, action) in actions {
-            match self.act_one(&actor, action) {
-                Err(err) => error!(
-                    "Observed action of {} as modelled by {} failed: {}",
-                    actor, observer, err
-                ),
-                Ok(outcome) => self.events.push(Event { actor, outcome }),
+            if let Ok(action) = action {
+                match self.act_one(&actor, action) {
+                    Err(err) => error!(
+                        "Observed action of {} as modelled by {} failed: {}",
+                        actor, observer, err
+                    ),
+                    Ok(outcome) => self.events.push(Event { actor, outcome }),
+                }
             }
         }
     }

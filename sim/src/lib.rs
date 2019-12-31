@@ -44,7 +44,7 @@ impl SimState {
     pub fn advance(
         &mut self,
         time_step: f32,
-        overridden: impl IntoIterator<Item = (WorldEntity, Action)>,
+        overridden: impl IntoIterator<Item = (WorldEntity, Result<Action, FailReason>)>,
     ) {
         self.time_acc += time_step;
         if self.time_acc >= self.sim_step {

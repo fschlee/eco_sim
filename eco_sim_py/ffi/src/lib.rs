@@ -203,7 +203,7 @@ impl Environment {
             self.agents
                 .iter()
                 .zip(actions.iter())
-                .filter_map(|((we, _c), a)| obsv_writer.decode_action(*we, *a).map(|a| ((*we, a))))
+                .map(|((we, _c), a)| (*we, obsv_writer.decode_action(*we, *a)))
                 .collect()
         };
         py.allow_threads(|| self.sim.write().unwrap().advance(1.0, actions_to_take));

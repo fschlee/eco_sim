@@ -5,9 +5,7 @@ use tch::{Device, IndexOp, Kind, Tensor};
 
 use crate::agent::emotion::EmotionalState;
 use crate::world::{DefCell, Dir, Position, World};
-use crate::{
-    Action, Coord, Entity, EntityType, MentalState, Source, WorldEntity, MAP_HEIGHT, MAP_WIDTH,
-};
+use crate::{Action, Coord, Entity, EntityType, MentalState, Source, WorldEntity, MAP_HEIGHT, MAP_WIDTH, FailReason};
 
 pub const MAX_REP_PER_CELL: usize = 8;
 pub const ENTITY_REP_SIZE: usize = 9;
@@ -87,36 +85,36 @@ impl<'a> ObsvWriter<'a> {
             Err(EncodingError::PositionNotFound)
         }
     }
-    pub fn decode_action(&self, we: WorldEntity, idx: usize) -> Option<Action> {
+    pub fn decode_action(&self, we: WorldEntity, idx: usize) -> Result<Action, FailReason> {
         use Action::*;
         let dir_match = |i| match i {
-            1 => Some(Dir::R),
-            2 => Some(Dir::L),
-            3 => Some(Dir::U),
-            4 => Some(Dir::D),
-            _ => None,
+            1 => Ok(Dir::R),
+            2 => Ok(Dir::L),
+            3 => Ok(Dir::U),
+            4 => Ok(Dir::D),
+            _ => Err(FailReason::Unknown),
         };
-        let nth = |n, pos| self.world.entities_at(pos).get(n);
+        let nth = |n, pos| self.world.entities_at(pos).get(n).ok_or(FailReason::TargetNotThere(Some(pos)));
         const LAST_EAT: usize = 5 + MAX_REP_PER_CELL;
         if let Some(pos) = self.world.positions.get(we) {
             match idx {
-                0 => Some(Idle),
+                0 => Ok(Idle),
                 1..=4 => dir_match(idx).map(|d| Move(d)),
                 5..=LAST_EAT => nth(idx - 5, *pos).map(|we| Eat(*we)),
                 _ if idx < 5 + 6 * MAX_REP_PER_CELL => {
                     let n = (idx - 5) % MAX_REP_PER_CELL;
                     let d = (idx - 5) / MAX_REP_PER_CELL - 1;
                     let target_pos = if d == 0 {
-                        Some(*pos)
+                        Ok(*pos)
                     } else {
-                        dir_match(d).and_then(|dir| pos.step(dir))
+                        dir_match(d).and_then(|dir| pos.step(dir).ok_or(FailReason::TargetNotThere(None)))
                     };
                     target_pos.and_then(|p| nth(n, p)).map(|we| Attack(*we))
                 }
                 _ => unreachable!(),
             }
         } else {
-            None
+            Err(FailReason::Unknown)
         }
     }
     #[cfg(feature = "torch")]

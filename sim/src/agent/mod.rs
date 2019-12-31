@@ -246,11 +246,11 @@ impl MentalState {
                         score -= 20.0;
                         let mut action = Action::Idle;
                         std::mem::swap(&mut action, &mut self.current_action);
-                        if action != *attempted_action {
-                            error!(
+                        if Some(action) != *attempted_action {
+                            /* error!(
                                 "{} intended to {}, but instead {} was processed",
                                 self.id, action, attempted_action
-                            );
+                            );*/
                         } else {
                             match f {
                                 FailReason::TargetNotThere(target_pos) => {
@@ -276,6 +276,7 @@ impl MentalState {
                                         }
                                     }
                                 }
+                                _ => ()
                             }
                         }
                     }
@@ -302,13 +303,13 @@ impl MentalState {
     }
     pub fn update_world_model<'a>(
         &'a mut self,
-        actions: impl IntoIterator<Item = itertools::Either<WorldEntity, &'a (WorldEntity, Action)>>,
+        actions: impl IntoIterator<Item = itertools::Either<WorldEntity, &'a (WorldEntity, Result<Action, FailReason>)>>,
         observation: &'a impl Observation,
         estimator: &impl Estimator,
     ) {
         use itertools::Itertools;
         if let Some(ref mut wm) = self.world_model {
-            let (unseen, mut confident_actions): (Vec<WorldEntity>, Vec<(WorldEntity, Action)>) =
+            let (unseen, mut confident_actions): (Vec<WorldEntity>, Vec<(WorldEntity,  Result<Action, FailReason>)>) =
                 actions.into_iter().partition_map(std::convert::identity);
 
             let mut expected_actions = Vec::new();
@@ -325,8 +326,8 @@ impl MentalState {
                                 (wm.physical_states.get(e), estimator.invoke(*e))
                             {
                                 confident_actions
-                                    .push((*e, ms.decide(phys, pos, &&**wm, estimator)))
-                            }
+                                    .push((*e, Ok(ms.decide(phys, pos, &&**wm, estimator))))
+                        }
                         }),
                     ExpectedFilled(vs, ps) => vs
                         .iter()
@@ -342,7 +343,7 @@ impl MentalState {
                             {
                                 let action = ms.decide(phys, pos, &&**wm, estimator);
                                 if *p > 0.9 {
-                                    confident_actions.push((*e, action));
+                                    confident_actions.push((*e, Ok(action)));
                                 } else if *p > 0.1 {
                                     expected_actions.push((*e, action, pos, *p));
                                 }
@@ -911,7 +912,7 @@ impl MentalState {
 pub struct AgentSystem {
     pub mental_states: Storage<MentalState>,
     pub estimator_map: EstimatorMap,
-    pub actions: Vec<(WorldEntity, Action)>,
+    pub actions: Vec<(WorldEntity, Result<Action, FailReason>)>,
     pub killed: Vec<WorldEntity>,
     old_positions: Storage<Position>,
 }
@@ -951,7 +952,7 @@ impl AgentSystem {
                             });
                             mental_state.update_world_model(observed_actions, &observation, estimator);
                             let action = mental_state.decide(physical_state, *position, &observation, estimator);
-                            Either::Left((entity, action))
+                            Either::Left((entity, Ok(action)))
                         }
                     }
                     (ps, p, _) => {
@@ -985,7 +986,7 @@ impl AgentSystem {
         let world_models = StorageAdapter::new(mental_states, adapter);
         estimator_map.par_iter_mut().for_each(|est| {
             for (entity, action) in actions {
-                if let Some(other_pos) = world.positions.get(entity) {
+                if let (Ok(action), Some(other_pos)) = (action, world.positions.get(entity)) {
                     est.learn(*action, *entity, *other_pos, world, &world_models);
                 }
             }
@@ -993,7 +994,7 @@ impl AgentSystem {
     }
     pub fn override_actions(
         &mut self,
-        overridden: impl IntoIterator<Item = (WorldEntity, Action)>,
+        overridden: impl IntoIterator<Item = (WorldEntity, Result<Action, FailReason>)>,
     ) {
         for (ent, act) in overridden {
             for (e, a) in self.actions.iter_mut() {
