@@ -163,30 +163,35 @@ impl<C: Cell> World<C> {
         }
         new_e
     }
-    pub fn act<'a>(&'a mut self, actions: impl IntoIterator<Item = &'a (WorldEntity, Result<Action, FailReason>)>) {
+    pub fn act<'a>(
+        &'a mut self,
+        actions: impl IntoIterator<Item = &'a (WorldEntity, Result<Action, FailReason>)>,
+    ) {
         let mut move_list = Vec::new();
         for &(actor, action) in actions {
             match action {
-                Ok(action) => {
-                    match self.act_one(&actor, action) {
-                        Err(err) => {
-                            error!("Action of {} failed: {}", actor, err);
-                            self.events.push( Event { actor, outcome : Outcome::InvalidAction(Some(action), FailReason::Unknown)})
-                        },
-                        Ok(Outcome::Moved(dir)) => {
-                            move_list.push((actor, dir));
-                            self.events.push(Event {
-                                actor,
-                                outcome: Outcome::Moved(dir),
-                            });
-                        }
-                        Ok(outcome) => self.events.push(Event { actor, outcome }),
+                Ok(action) => match self.act_one(&actor, action) {
+                    Err(err) => {
+                        error!("Action of {} failed: {}", actor, err);
+                        self.events.push(Event {
+                            actor,
+                            outcome: Outcome::InvalidAction(Some(action), FailReason::Unknown),
+                        })
                     }
-                }
-                Err(fail) => self.events.push( Event { actor, outcome : Outcome::InvalidAction(None, fail)})
-
+                    Ok(Outcome::Moved(dir)) => {
+                        move_list.push((actor, dir));
+                        self.events.push(Event {
+                            actor,
+                            outcome: Outcome::Moved(dir),
+                        });
+                    }
+                    Ok(outcome) => self.events.push(Event { actor, outcome }),
+                },
+                Err(fail) => self.events.push(Event {
+                    actor,
+                    outcome: Outcome::InvalidAction(None, fail),
+                }),
             }
-
         }
     }
     fn act_one(&mut self, entity: &WorldEntity, action: Action) -> Result<Outcome, String> {
@@ -417,7 +422,7 @@ impl World<Occupancy> {
     }
     pub fn confident_act<'a>(
         &'a mut self,
-        actions: impl IntoIterator<Item = &'a (WorldEntity,  Result<Action, FailReason>)>,
+        actions: impl IntoIterator<Item = &'a (WorldEntity, Result<Action, FailReason>)>,
         observer: WorldEntity,
     ) {
         for &(actor, action) in actions {

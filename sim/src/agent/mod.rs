@@ -276,7 +276,7 @@ impl MentalState {
                                         }
                                     }
                                 }
-                                _ => ()
+                                _ => (),
                             }
                         }
                     }
@@ -303,14 +303,18 @@ impl MentalState {
     }
     pub fn update_world_model<'a>(
         &'a mut self,
-        actions: impl IntoIterator<Item = itertools::Either<WorldEntity, &'a (WorldEntity, Result<Action, FailReason>)>>,
+        actions: impl IntoIterator<
+            Item = itertools::Either<WorldEntity, &'a (WorldEntity, Result<Action, FailReason>)>,
+        >,
         observation: &'a impl Observation,
         estimator: &impl Estimator,
     ) {
         use itertools::Itertools;
         if let Some(ref mut wm) = self.world_model {
-            let (unseen, mut confident_actions): (Vec<WorldEntity>, Vec<(WorldEntity,  Result<Action, FailReason>)>) =
-                actions.into_iter().partition_map(std::convert::identity);
+            let (unseen, mut confident_actions): (
+                Vec<WorldEntity>,
+                Vec<(WorldEntity, Result<Action, FailReason>)>,
+            ) = actions.into_iter().partition_map(std::convert::identity);
 
             let mut expected_actions = Vec::new();
             for (pos, c) in wm.iter_cells().filter(|(p, _c)| observation.is_observed(p)) {
@@ -327,7 +331,7 @@ impl MentalState {
                             {
                                 confident_actions
                                     .push((*e, Ok(ms.decide(phys, pos, &&**wm, estimator))))
-                        }
+                            }
                         }),
                     ExpectedFilled(vs, ps) => vs
                         .iter()

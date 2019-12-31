@@ -399,7 +399,7 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
     }
     pub fn get_buffer<U: BufferType>(&self, id: Id<U>) -> Option<&BufferBundle<B>> {
         let idx = id.id as usize;
-        if idx > self.buffer_usages.len() || self.buffer_usages[idx] != U::usage() {
+        if idx >= self.buffer_usages.len() || self.buffer_usages[idx] != U::usage() {
             return None;
         }
         self.registered_buffers.get(idx)

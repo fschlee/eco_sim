@@ -222,22 +222,26 @@ fn init_helper<IS: InstSurface>(
 ) -> Result<DeviceInit<IS>, Error> {
     let instance = inst_surface.get_instance();
     let surface = inst_surface.get_surface();
-    let mut adapters: Vec<_> = instance
-        .enumerate_adapters()
-        .into_iter()
-        .filter(|a| {
-            println!("{}", a.info.name);
-            a.queue_families
-                .iter()
-                .any(|qf| qf.queue_type().supports_graphics() && surface.supports_queue_family(qf))
-        })
-        .collect();
-    if adapters.len() < 1 {
-        return Err("couldn't find suitable graphics adapter".into());
-    }
-    let adapter_i = match adapter_selection {
-        Some(i) if i < adapters.len() => i,
-        _ => (0..adapters.len())
+
+    let adapter = if let Some(adapter_i) = adapter_selection {
+        filter_graphics(instance)
+            .nth(adapter_i)
+            .ok_or("couldn't find specified graphics adapter")?
+    } else {
+        let mut adapters: Vec<_> = instance
+            .enumerate_adapters()
+            .into_iter()
+            .filter(|a| {
+                println!("{}", a.info.name);
+                a.queue_families.iter().any(|qf| {
+                    qf.queue_type().supports_graphics() && surface.supports_queue_family(qf)
+                })
+            })
+            .collect();
+        if adapters.len() < 1 {
+            return Err("couldn't find suitable graphics adapter".into());
+        }
+        let adapter_i = (0..adapters.len())
             .max_by_key(|i| {
                 let a = &adapters[*i];
                 let mut score = 0;
@@ -248,9 +252,10 @@ fn init_helper<IS: InstSurface>(
                 score += name_score(&a.info.name);
                 score
             })
-            .unwrap_or(0),
+            .unwrap_or(0);
+        adapters.remove(adapter_i)
     };
-    let adapter = adapters.remove(adapter_i);
+
     println!("selected {}", adapter.info.name);
     let family = adapter
         .queue_families
@@ -258,7 +263,7 @@ fn init_helper<IS: InstSurface>(
         .find(|family| {
             surface.supports_queue_family(family) && family.queue_type().supports_graphics()
         })
-        .unwrap(); // Already seen at least one suitable qf earlier
+        .ok_or("Selected graphics adapter is unsuitable")?;
     let mut gpu = unsafe {
         adapter
             .physical_device
@@ -318,7 +323,7 @@ fn name_score(name: &str) -> i32 {
     score
 }
 
-pub(crate) fn adapter_list() -> Vec<(BackendSelection, Vec<(String, usize)>)> {
+pub(crate) fn adapter_list() -> crate::ui::AdapterList {
     let mut al = Vec::new();
     let name = "test";
     let version = 1;
@@ -326,19 +331,9 @@ pub(crate) fn adapter_list() -> Vec<(BackendSelection, Vec<(String, usize)>)> {
     {
         gfx_backend_vulkan::Instance::create(name, version)
             .map(|inst| {
-                inst.enumerate_adapters()
-                    .into_iter()
+                filter_graphics(&inst)
+                    .map(|a| a.info.name.clone())
                     .enumerate()
-                    .filter_map(|(idx, a)| {
-                        if a.queue_families
-                            .iter()
-                            .any(|qf| qf.queue_type().supports_graphics())
-                        {
-                            Some((a.info.name.clone(), idx))
-                        } else {
-                            None
-                        }
-                    })
                     .collect()
             })
             .map(|v| al.push((BackendSelection::Vulkan, v)));
@@ -347,19 +342,9 @@ pub(crate) fn adapter_list() -> Vec<(BackendSelection, Vec<(String, usize)>)> {
     {
         gfx_backend_metal::Instance::create(name, version)
             .map(|inst| {
-                inst.enumerate_adapters()
-                    .into_iter()
+                filter_graphics(&inst)
+                    .map(|a| a.info.name.clone())
                     .enumerate()
-                    .filter_map(|(idx, a)| {
-                        if a.queue_families
-                            .iter()
-                            .any(|qf| qf.queue_type().supports_graphics())
-                        {
-                            Some((a.info.name.clone(), idx))
-                        } else {
-                            None
-                        }
-                    })
                     .collect()
             })
             .map(|v| al.push((BackendSelection::Metal, v)));
@@ -368,19 +353,9 @@ pub(crate) fn adapter_list() -> Vec<(BackendSelection, Vec<(String, usize)>)> {
     {
         gfx_backend_dx12::Instance::create(name, version)
             .map(|inst| {
-                inst.enumerate_adapters()
-                    .into_iter()
+                filter_graphics(&inst)
+                    .map(|a| a.info.name.clone())
                     .enumerate()
-                    .filter_map(|(idx, a)| {
-                        if a.queue_families
-                            .iter()
-                            .any(|qf| qf.queue_type().supports_graphics())
-                        {
-                            Some((a.info.name.clone(), idx))
-                        } else {
-                            None
-                        }
-                    })
                     .collect()
             })
             .map(|v| al.push((BackendSelection::Dx12, v)));
@@ -389,22 +364,27 @@ pub(crate) fn adapter_list() -> Vec<(BackendSelection, Vec<(String, usize)>)> {
     {
         gfx_backend_dx11::Instance::create(name, version)
             .map(|inst| {
-                inst.enumerate_adapters()
-                    .into_iter()
+                filter_graphics(&inst)
+                    .map(|a| a.info.name.clone())
                     .enumerate()
-                    .filter_map(|(idx, a)| {
-                        if a.queue_families
-                            .iter()
-                            .any(|qf| qf.queue_type().supports_graphics())
-                        {
-                            Some((a.info.name.clone(), idx))
-                        } else {
-                            None
-                        }
-                    })
                     .collect()
             })
             .map(|v| al.push((BackendSelection::Dx11, v)));
     }
     al
+}
+
+fn filter_graphics<B: gfx_hal::Backend, I: Instance<B>>(
+    inst: &I,
+) -> impl Iterator<Item = Adapter<B>> {
+    inst.enumerate_adapters().into_iter().filter_map(|a| {
+        if a.queue_families
+            .iter()
+            .any(|qf| qf.queue_type().supports_graphics())
+        {
+            Some(a)
+        } else {
+            None
+        }
+    })
 }

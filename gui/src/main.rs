@@ -163,7 +163,10 @@ fn init_all<IS: InstSurface + 'static>(
         .build();
     let mut ui_processor =
         renderer::con_back::UiProcessor::from_glyph_cache_with_filled_queue(glyph_cache);
-    game_loop(renderer, ui_processor, ui_state, game_state, event_loop);
+    let mut ret = game_loop(renderer, ui_processor, ui_state, game_state, event_loop);
+    while let (AppState::ChangeAdapter(back, idx), ui_processor, ui_state, game_state, event_loop ) = ret {
+        ret = set_adapter (ui_processor, ui_state, game_state, event_loop , back, idx);
+    }
 }
 fn game_loop<IS: InstSurface + 'static>(
     mut renderer: renderer::Renderer<IS>,
@@ -171,7 +174,7 @@ fn game_loop<IS: InstSurface + 'static>(
     mut ui_state: ui::UIState,
     mut game_state: simulation::GameState,
     mut event_loop: EventLoop<()>,
-) -> AppState {
+) -> (AppState, renderer::con_back::UiProcessor, ui::UIState, simulation::GameState, EventLoop<()>) {
     let spec = ui_processor.get_texture_spec();
     renderer.add_texture(&spec);
     let mut fail_counter = 0;
@@ -242,12 +245,8 @@ fn game_loop<IS: InstSurface + 'static>(
             }
         }
     });
-    if let AppState::ChangeAdapter(back, idx) = app_state {
-        std::mem::drop(renderer);
-        set_adapter(ui_processor, ui_state, game_state, event_loop, back, idx)
-    } else {
-        app_state
-    }
+    (app_state, ui_processor, ui_state, game_state, event_loop)
+
 }
 
 fn set_adapter(
@@ -257,7 +256,9 @@ fn set_adapter(
     mut event_loop: EventLoop<()>,
     back: BackendSelection,
     idx: usize,
-) -> AppState {
+) -> (AppState, renderer::con_back::UiProcessor, ui::UIState, simulation::GameState, EventLoop<()>)  {
+    game_state.request_redraw();
+    ui_state.app_state = AppState::Continue;
     let adapter_selection = Some(idx);
     let wca = ui_state
         .window

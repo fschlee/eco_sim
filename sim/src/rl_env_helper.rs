@@ -5,7 +5,10 @@ use tch::{Device, IndexOp, Kind, Tensor};
 
 use crate::agent::emotion::EmotionalState;
 use crate::world::{DefCell, Dir, Position, World};
-use crate::{Action, Coord, Entity, EntityType, MentalState, Source, WorldEntity, MAP_HEIGHT, MAP_WIDTH, FailReason};
+use crate::{
+    Action, Coord, Entity, EntityType, FailReason, MentalState, Source, WorldEntity, MAP_HEIGHT,
+    MAP_WIDTH,
+};
 
 pub const MAX_REP_PER_CELL: usize = 8;
 pub const ENTITY_REP_SIZE: usize = 9;
@@ -94,7 +97,12 @@ impl<'a> ObsvWriter<'a> {
             4 => Ok(Dir::D),
             _ => Err(FailReason::Unknown),
         };
-        let nth = |n, pos| self.world.entities_at(pos).get(n).ok_or(FailReason::TargetNotThere(Some(pos)));
+        let nth = |n, pos| {
+            self.world
+                .entities_at(pos)
+                .get(n)
+                .ok_or(FailReason::TargetNotThere(Some(pos)))
+        };
         const LAST_EAT: usize = 5 + MAX_REP_PER_CELL;
         if let Some(pos) = self.world.positions.get(we) {
             match idx {
@@ -107,7 +115,8 @@ impl<'a> ObsvWriter<'a> {
                     let target_pos = if d == 0 {
                         Ok(*pos)
                     } else {
-                        dir_match(d).and_then(|dir| pos.step(dir).ok_or(FailReason::TargetNotThere(None)))
+                        dir_match(d)
+                            .and_then(|dir| pos.step(dir).ok_or(FailReason::TargetNotThere(None)))
                     };
                     target_pos.and_then(|p| nth(n, p)).map(|we| Attack(*we))
                 }

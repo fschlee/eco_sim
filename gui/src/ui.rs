@@ -126,6 +126,8 @@ pub enum Action {
 }
 static CAMERA_STEP: f32 = 0.05;
 
+pub type AdapterList = Vec<(BackendSelection, Vec<(usize, String)>)>;
+
 pub struct UIState {
     // general
     pub window: Window,
@@ -151,7 +153,7 @@ pub struct UIState {
     mental_model: Option<eco_sim::WorldEntity>,
 
     // for menu
-    adapter_list: Vec<(BackendSelection, Vec<(String, usize)>)>,
+    adapter_list: AdapterList,
     backends: Vec<String>,
     backend_selected: Option<usize>,
     adapters: Vec<String>,
@@ -159,10 +161,7 @@ pub struct UIState {
 }
 
 impl UIState {
-    pub fn new(
-        window: Window,
-        adapter_list: Vec<(BackendSelection, Vec<(String, usize)>)>,
-    ) -> UIState {
+    pub fn new(window: Window, adapter_list: AdapterList) -> UIState {
         let size = window.inner_size();
         let dim = [size.width, size.height];
         let mut conrod = cc::UiBuilder::new(dim).theme(theme()).build();
@@ -300,7 +299,7 @@ impl UIState {
                     if Some(idx) != self.backend_selected {
                         self.backend_selected = Some(idx);
                         let (_, v) = &self.adapter_list[idx];
-                        self.adapters = v.iter().map(|(s, i)| s.clone()).collect();
+                        self.adapters = v.iter().map(|(i, s)| s.clone()).collect();
                     }
                 }
                 for idx in cc::widget::DropDownList::new(&self.adapters, self.adapter_selected)
@@ -320,11 +319,12 @@ impl UIState {
                     if let (Some(b_idx), Some(a_idx)) =
                         (self.backend_selected, self.adapter_selected)
                     {
-                        if let Some((back, idx)) = self
+                        if let Some((back, idx, name)) = self
                             .adapter_list
                             .get(b_idx)
-                            .and_then(|(b, v)| v.get(a_idx).map(|(_, i)| (b, i)))
+                            .and_then(|(b, v)| v.get(a_idx).map(|(i, s)| (b, i, s)))
                         {
+                            println!("should choose {:?} : {} ({})", back, name, idx);
                             self.app_state = AppState::ChangeAdapter(*back, *idx);
                         }
                     }

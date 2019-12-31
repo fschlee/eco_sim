@@ -231,7 +231,7 @@ impl<'b, C: Cell> Observation for &'b World<C> {
     fn observed_position(&self, entity: &WorldEntity) -> Option<Position> {
         self.positions.get(entity).copied()
     }
-    fn iter<'a>(& 'a self) -> Self::Iter<'a> {
+    fn iter<'a>(&'a self) -> Self::Iter<'a> {
         self.iter_cells().map(|(p, c)| (p, Some(c)))
     }
     fn is_observed(&self, _pos: &Position) -> bool {
@@ -310,7 +310,7 @@ impl<'b, C: Cell + 'b> Observation for RadiusObservation<'b, C> {
         }
         &[]
     }
-    fn iter<'a>(& 'a self) -> Self::Iter<'a> {
+    fn iter<'a>(&'a self) -> Self::Iter<'a> {
         self.world.iter_cells().map(move |(p, c)| {
             if self.center.distance(&p) <= self.radius {
                 (p, Some(c))
