@@ -3,6 +3,7 @@
 use enum_macros::EnumIter;
 use log::{error, info};
 use std::str::FromStr;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 use strum_macros::{Display, EnumString};
 use winit::dpi::LogicalSize;
@@ -68,10 +69,32 @@ pub enum BackendSelection {
     )]
     OpenGl,
 }
-
 fn main() {
+    start(None)
+}
+pub fn start(sim: Option<Arc<RwLock<eco_sim::SimState>>>) {
     env_logger::init();
-    let mut event_loop = EventLoop::new();
+    let mut event_loop;
+    #[cfg(not(feature = "dependent"))]
+    {
+        event_loop = EventLoop::new();
+    }
+    #[cfg(all(feature = "dependent", windows))]
+    {
+        use winit::platform::windows::EventLoopExtWindows;
+        event_loop = EventLoop::new_any_thread();
+    }
+    #[cfg(all(featue = "dependent", unix))]
+    {
+        use winit::platform::unix::EventLoopExtUnix;
+        event_loop = EventLoop::new_any_thread();
+    }
+    #[cfg(all(featue = "dependent", not(any(windows, unix))))]
+    {
+        std::compile_error!("Dependent mode not supported on this platform (can only be initialized from main thread)");
+        event_loop = EventLoop::new();
+    }
+
     let window_builder = WindowBuilder::new()
         .with_inner_size(LogicalSize {
             width: 1640.0,
@@ -96,7 +119,7 @@ fn main() {
             let (di, window) =
                 renderer::init::init_gl(window_builder, &event_loop, adapter_selection)
                     .expect("could not initialize device");
-            init_all(event_loop, window, di)
+            init_all(event_loop, window, di, sim)
         }
         back => {
             let window = window_builder
@@ -110,7 +133,7 @@ fn main() {
                         <gfx_backend_vulkan::Backend as gfx_hal::Backend>::Surface,
                     )>(&window, adapter_selection)
                     .expect("could not initialize device");
-                    init_all(event_loop, window, di)
+                    init_all(event_loop, window, di, sim)
                 }
                 #[cfg(all(feature = "dx12", not(macos)))]
                 Dx12 => {
@@ -119,7 +142,7 @@ fn main() {
                         <gfx_backend_dx12::Backend as gfx_hal::Backend>::Surface,
                     )>(&window, adapter_selection)
                     .expect("could not initialize device");
-                    init_all(event_loop, window, di)
+                    init_all(event_loop, window, di, sim)
                 }
                 #[cfg(all(feature = "dx11", not(macos)))]
                 Dx11 => {
@@ -129,7 +152,7 @@ fn main() {
                         <gfx_backend_dx11::Backend as gfx_hal::Backend>::Surface,
                     )>(&window, adapter_selection)
                     .expect("could not initialize device");
-                    init_all(event_loop, window, di)
+                    init_all(event_loop, window, di, sim)
                 }
                 #[cfg(all(macos, feature = "metal"))]
                 Metal => {
@@ -138,7 +161,7 @@ fn main() {
                         <gfx_backend_metal::Backend as gfx_hal::Backend>::Surface,
                     )>(&window, adapter_selection)
                     .expect("could not initialize device");
-                    init_all(event_loop, window, di)
+                    init_all(event_loop, window, di, sim)
                 }
                 #[cfg(feature = "gl")]
                 OpenGl => unreachable!(),
@@ -151,12 +174,15 @@ fn init_all<IS: InstSurface + 'static>(
     mut event_loop: EventLoop<()>,
     window: Window,
     device_init: DeviceInit<IS>,
+    sim: Option<Arc<RwLock<eco_sim::SimState>>>,
 ) {
     let window_client_area = window.inner_size().to_physical(window.hidpi_factor());
     let mut renderer = renderer::Renderer::new(window_client_area, device_init);
 
     let mut ui_state = ui::UIState::new(window, renderer::init::adapter_list());
-    let mut game_state = simulation::GameState::new();
+    let mut game_state = sim.map_or_else(simulation::GameState::new, |s| {
+        simulation::GameState::with_shared(s)
+    });
 
     let glyph_cache = conrod_core::text::GlyphCache::builder()
         .dimensions(1024, 1024)

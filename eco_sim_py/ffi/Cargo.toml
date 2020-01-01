@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 "eco_sim" = { path="../../sim", features =["reinforce"] }
 
-"eco_sim_gui" = { path="../../gui", optional = true }
+"eco_sim_gui" = { path="../../gui", features = ["dependent"] }
 
 numpy = "0.7.0"
 ndarray = "0.13"

@@ -909,7 +909,19 @@ impl MentalState {
                 }
             })
     }
-    // pub fn set_preference()
+    pub fn shallow_copy(&self) -> Self {
+        Self {
+            id: self.id,
+            emotional_state: self.emotional_state.clone(),
+            current_action: self.current_action,
+            current_behavior: self.current_behavior.clone(),
+            sight_radius: self.sight_radius,
+            use_mdp: self.use_mdp,
+            rng: self.rng.clone(),
+            score: self.score,
+            world_model: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]

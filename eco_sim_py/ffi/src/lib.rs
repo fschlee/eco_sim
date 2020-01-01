@@ -1,5 +1,6 @@
 use numpy::{IntoPyArray, PyArray2, PyArray4};
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyType};
 use pyo3::wrap_pyfunction;
 
 use eco_sim::{
@@ -12,7 +13,7 @@ use eco_sim::{
 };
 use itertools::Itertools;
 use ndarray::{Array4, ArrayBase};
-use pyo3::types::PyType;
+
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 
@@ -26,18 +27,44 @@ struct Environment {
     sim: Arc<RwLock<SimState>>,
     agents: Vec<(WorldEntity, Coord)>,
 }
+/*
+#[pyfunction]
+pub fn start_with_gui<'py>(py: Python<'py>, seed: u64, path: &str){
+    let sim = SimState::new_with_seed(1.0, seed);
+    let sim = Arc::new(RwLock::new(sim));
+    let sim_= Some(sim.clone());
+    py.allow_threads(move || {
+        std::thread::spawn(move ||start_py(sim, path));
+        eco_sim_gui::start(sim_);
+    });
 
+}
+
+fn start_py(sim: Arc<RwLock<SimState>>, path: &str) {
+    println!("no_gil");
+    let gil = Python::acquire_gil();
+    println!("gil");
+    let py = gil.python();
+    let env = Environment { sim, agents: Vec::new() };
+    let mut dict = PyDict::new(py).set_item("env", env);
+    let res = PyModule::import(py, path);
+    res.map(|drl_mod| drl_mod.call0("test", ));
+}
+*/
 #[pymethods]
 impl Environment {
     #[new]
-    fn new(obj: &PyRawObject, seed: u64, start_gui: bool) {
+    fn new(obj: &PyRawObject, seed: u64) {
         let sim = SimState::new_with_seed(1.0, seed);
         let sim = Arc::new(RwLock::new(sim));
-
         obj.init(Environment {
             sim,
             agents: Vec::new(),
         });
+    }
+    fn start_gui<'py>(&self, py: Python<'py>) {
+        let sim = Some(self.sim.clone());
+        py.allow_threads(move || std::thread::spawn(move || eco_sim_gui::start(sim)));
     }
     fn reset(&mut self, seed: u64) {
         let mut sim = self.sim.write().unwrap();
@@ -242,5 +269,6 @@ impl Environment {
 #[pymodule]
 fn eco_sim(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Environment>()?;
+    // m.add_wrapped(wrap_pyfunction!(start_with_gui))?;
     Ok(())
 }

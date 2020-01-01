@@ -9,6 +9,7 @@ use eco_sim::{
 use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::sync::{Arc, RwLock};
 use winit::dpi::LogicalPosition;
 
 pub struct BaseData {
@@ -54,7 +55,7 @@ enum MapMode {
 }
 
 pub struct GameState {
-    eco_sim: eco_sim::SimState,
+    eco_sim: Arc<RwLock<eco_sim::SimState>>,
     base_data: BaseData,
     re_register: bool,
     models: [Model; EntityType::COUNT + Self::NON_ENTITY_MODELS],
@@ -75,7 +76,10 @@ impl GameState {
     pub const NON_ENTITY_MODELS: usize = 1;
     const SQUARE: usize = EntityType::COUNT;
     pub fn new() -> GameState {
-        let eco_sim = SimState::new(SIM_STEP);
+        let eco_sim = Arc::new(RwLock::new(SimState::new(SIM_STEP)));
+        Self::with_shared(eco_sim)
+    }
+    pub fn with_shared(eco_sim: Arc<RwLock<eco_sim::SimState>>) -> Self {
         let (base_data, models) = Self::init_models();
         GameState {
             eco_sim,
@@ -155,10 +159,13 @@ impl GameState {
                 Action::Unpause => self.paused = false,
                 Action::Reset(pause_state) => {
                     self.paused = pause_state;
-                    self.eco_sim = SimState::new(SIM_STEP);
+                    *self.eco_sim.write().unwrap() = SimState::new(SIM_STEP);
                 }
                 Action::UpdateMentalState(mental_state) => {
-                    self.eco_sim.update_mental_state(mental_state);
+                    self.eco_sim
+                        .write()
+                        .unwrap()
+                        .update_mental_state(mental_state);
                 }
                 Action::Hover(pos) => {
                     let coords = self.logical_position_to_coords(pos);
@@ -168,7 +175,7 @@ impl GameState {
                     self.highlighted.insert(coords);
                 }
                 Action::Move(entity, pos) => {
-                    if let Some(ms) = self.eco_sim.get_mental_state(&entity) {
+                    if let Some(ms) = self.eco_sim.read().unwrap().get_mental_state(&entity) {
                         let (x, y) = self.logical_position_to_coords(pos);
                         let sim_pos = eco_sim::Position {
                             x: x as Coord,
@@ -178,7 +185,7 @@ impl GameState {
                         let mut new_ms = ms.clone();
                         new_ms.current_action = eco_sim::Action::Idle;
                         new_ms.current_behavior = Some(eco_sim::Behavior::Travel(sim_pos));
-                        self.eco_sim.update_mental_state(new_ms);
+                        self.eco_sim.write().unwrap().update_mental_state(new_ms);
                     }
                 }
                 Action::ClearHighlight => {
@@ -208,28 +215,29 @@ impl GameState {
             }
         }
         if !self.paused {
-            self.eco_sim.advance(time_step, None);
+            self.eco_sim.write().unwrap().advance(time_step, None);
         }
     }
     pub fn get_render_data(&mut self) -> RenderData {
-        if self.last_drawn >= self.eco_sim.next_step_count && !self.redraw {
+        let sim = &*self.eco_sim.read().unwrap();
+        if self.last_drawn >= sim.next_step_count && !self.redraw {
             return RenderData {
                 update: None,
                 models: &self.models,
             };
         }
-        self.last_drawn = self.eco_sim.next_step_count;
+        self.last_drawn = sim.next_step_count;
         self.redraw = false;
         for m in self.models.iter_mut() {
             m.vec.clear()
         }
         let danger = if let Some(ent) = self.highlight_visible {
             self.highlighted.clear();
-            for eco_sim::Position { x, y } in self.eco_sim.get_visibility(&ent) {
+            for eco_sim::Position { x, y } in sim.get_visibility(&ent) {
                 self.highlighted.insert((x as usize, y as usize));
             }
             if self.map_mode == MapMode::Threats && self.highlight_visible.is_some() {
-                self.eco_sim.threat_map(&ent)
+                sim.threat_map(&ent)
             } else {
                 Vec::new()
             }
@@ -275,14 +283,14 @@ impl GameState {
                 }
             };
             match map_mode {
-                MapMode::MapKnowledge => eco_sim
+                MapMode::MapKnowledge => sim
                     .get_world_knowledge_view(
                         0..eco_sim::MAP_WIDTH,
                         0..eco_sim::MAP_HEIGHT,
                         self.highlight_visible.unwrap(),
                     )
                     .for_each(drawer),
-                MapMode::Normal | MapMode::Threats => eco_sim
+                MapMode::Normal | MapMode::Threats => sim
                     .get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT)
                     .for_each(drawer),
             }
@@ -300,25 +308,27 @@ impl GameState {
             models: &self.models,
         }
     }
+    /*
     pub fn get_view(&self) -> impl Iterator<Item = (usize, usize, &[eco_sim::ViewData])> + '_ {
-        self.eco_sim
+        self.eco_sim.read().unwrap()
             .get_view(0..eco_sim::MAP_WIDTH, 0..eco_sim::MAP_HEIGHT)
-    }
+    } */
     pub fn get_editable_entity(&self, position: LogicalPosition) -> Option<WorldEntity> {
         let sim_pos = self.logical_to_sim_position(position);
-        self.eco_sim
-            .entities_at(sim_pos)
+        let sim = &*self.eco_sim.read().unwrap();
+
+        sim.entities_at(sim_pos)
             .iter()
-            .find(|e| self.eco_sim.get_mental_state(*e).is_some())
+            .find(|e| sim.get_mental_state(*e).is_some())
             .copied()
-            .or(self.eco_sim.entities_at(sim_pos).iter().next().copied())
+            .or(sim.entities_at(sim_pos).iter().next().copied())
     }
     pub fn get_editable_index(&self, sim_pos: eco_sim::Position) -> usize {
-        self.eco_sim
-            .entities_at(sim_pos)
+        let sim = &*self.eco_sim.read().unwrap();
+        sim.entities_at(sim_pos)
             .iter()
             .enumerate()
-            .find_map(|(i, e)| match self.eco_sim.get_mental_state(e) {
+            .find_map(|(i, e)| match sim.get_mental_state(e) {
                 Some(_) => Some(i),
                 None => None,
             })
@@ -326,6 +336,8 @@ impl GameState {
     }
     pub fn get_nth_entity(&self, n: usize, sim_pos: eco_sim::Position) -> Option<WorldEntity> {
         self.eco_sim
+            .read()
+            .unwrap()
             .entities_at(sim_pos)
             .iter()
             .cycle()
@@ -333,17 +345,26 @@ impl GameState {
             .next()
             .copied()
     }
-    pub fn get_mental_state(&self, entity: &WorldEntity) -> Option<&MentalState> {
-        self.eco_sim.get_mental_state(entity)
+    pub fn get_mental_state(&self, entity: &WorldEntity) -> Option<MentalState> {
+        self.eco_sim
+            .read()
+            .unwrap()
+            .get_mental_state(entity)
+            .map(|ms| ms.shallow_copy())
     }
-    pub fn get_mental_model(
-        &self,
-        entity: &WorldEntity,
-    ) -> Option<impl Iterator<Item = &impl std::fmt::Display>> {
-        self.eco_sim.get_mental_model(entity)
+    pub fn get_mental_model(&self, entity: &WorldEntity) -> Option<Vec<String>> {
+        self.eco_sim
+            .read()
+            .unwrap()
+            .get_mental_model(entity)
+            .map(|i| i.map(ToString::to_string).collect())
     }
-    pub fn get_physical_state(&self, entity: &WorldEntity) -> Option<&eco_sim::PhysicalState> {
-        self.eco_sim.get_physical_state(entity)
+    pub fn get_physical_state(&self, entity: &WorldEntity) -> Option<eco_sim::PhysicalState> {
+        self.eco_sim
+            .read()
+            .unwrap()
+            .get_physical_state(entity)
+            .cloned()
     }
     pub fn logical_to_sim_position(&self, position: LogicalPosition) -> eco_sim::Position {
         let (x, y) = self.logical_position_to_coords(position);

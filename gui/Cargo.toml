@@ -19,7 +19,7 @@ xcb = ["gfx-backend-vulkan/xcb"]
 
 torch = ["eco_sim/torch"]
 
-standalone = []
+dependent = []
 
 [dependencies]
 "eco_sim" = { path="../sim" }

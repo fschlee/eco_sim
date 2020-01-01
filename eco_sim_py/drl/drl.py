@@ -1,9 +1,11 @@
-from eco_sim import Environment
+from eco_sim import Environment # , start_with_gui
 
 import torch
 import torch.nn.functional as fun
 import numpy
 import random
+import threading
+import time
 
 device=torch.device("cpu")
 if torch.cuda.is_available():
@@ -83,8 +85,11 @@ class ActionValues(torch.nn.Module):
             self.state[1][:, after:k, :] = torch.zeros((s0[0], k - after, s1[2]))
 
 class QLearner:
-    def __init__(self, seed=0, pretrained=None):
-        self.env = Environment(seed, False)
+    def __init__(self, env=None, seed=0, pretrained=None, start_gui=False):
+
+        self.env = Environment(seed)
+        if start_gui:
+            self.env.start_gui()
         self.next_seed = seed + 1
         if pretrained is not None and isinstance(pretrained, ActionValues):
             self.policy = pretrained
@@ -94,7 +99,9 @@ class QLearner:
         self.optimizer = torch.optim.RMSprop(self.policy.parameters())
         self.optimizer
 
-    def run(self, epochs=400):
+    def run(self, epochs=400, wait=0):
+        print("foo")
+        time.sleep(wait)
         losses = []
         running_loss = 0.0
         total_count = 0
@@ -174,5 +181,6 @@ class QLearner:
 
 
 
+
 if __name__ == '__main__':
-    QLearner(0).run()
+    QLearner(0, start_gui=True).run()

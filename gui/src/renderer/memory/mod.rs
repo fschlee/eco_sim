@@ -415,7 +415,7 @@ impl<B: Backend + BackendExt> ResourceManager<B> {
         unsafe {
             let mut buff =
                 BufferBundle::new(self.adapter.deref(), self.device.deref(), pad, usage)?;
-            let res = unsafe { buff.write_range(&self.device, 0..(pad as u64), slice) };
+            let res = buff.write_range(&self.device, 0..(pad as u64), slice);
             self.old_buffers.push(buff);
             self.old_buffer_expirations.push(Self::DELETE_DELAY);
             if self.ub_count + 1 >= Self::MAX_UB_COUNT {

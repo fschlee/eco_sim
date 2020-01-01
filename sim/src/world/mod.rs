@@ -172,7 +172,7 @@ impl<C: Cell> World<C> {
             match action {
                 Ok(action) => match self.act_one(&actor, action) {
                     Err(err) => {
-                        error!("Action of {} failed: {}", actor, err);
+                        warn!("Action of {} failed: {}", actor, err);
                         self.events.push(Event {
                             actor,
                             outcome: Outcome::InvalidAction(Some(action), FailReason::Unknown),
