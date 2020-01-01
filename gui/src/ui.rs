@@ -17,6 +17,7 @@ use winit::{
     event_loop::EventLoop,
     window::Window,
 };
+use log::info;
 
 pub type Queue<T> = std::collections::VecDeque<T>;
 
@@ -42,7 +43,11 @@ widget_ids! {
         tooltip_head,
         tooltip_text,
 
+        menu_back_canvas,
         menu_canvas,
+        menu_title,
+        adapter_label,
+        backend_label,
         backends,
         adapters,
         select_button,
@@ -208,75 +213,84 @@ impl UIState {
         if let Some(event) = crate::conrod_winit::convert_event(event.clone(), self) {
             self.conrod.handle_event(event);
         }
+        let open = self.ui_status != UiStatus::Menu;
         match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => self.app_state = AppState::Exit,
-                WindowEvent::Resized(logical_size) => {
-                    self.ui_updates.push_back(UIUpdate::Resized {
-                        size: logical_size.to_physical(self.window.hidpi_factor()),
-                    });
-                    self.size = self.window.inner_size();
-                }
-                WindowEvent::CursorMoved { position, .. } => {
-                    self.mouse_pos = position;
-                    let sim_pos = game_state.logical_to_sim_position(position);
-                    if Some(sim_pos) != self.hover_pos {
-                        self.hover_pos = Some(sim_pos);
-                        self.hover_start_time = Instant::now();
-                        self.tooltip_active = false;
-                        self.tooltip_index = game_state.get_editable_index(sim_pos);
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::CloseRequested => self.app_state = AppState::Exit,
+                    WindowEvent::Resized(logical_size) => {
+                        self.ui_updates.push_back(UIUpdate::Resized {
+                            size: logical_size.to_physical(self.window.hidpi_factor()),
+                        });
+                        self.size = self.window.inner_size();
                     }
-                    self.actions.push_back(Action::Hover(position));
-                }
-                WindowEvent::MouseInput {
-                    button: MouseButton::Left,
-                    state: ElementState::Pressed,
-                    modifiers,
-                    ..
-                } => {
-                    let entity = match self.hover_pos {
-                        Some(hover_pos) if self.tooltip_active => {
-                            game_state.get_nth_entity(self.tooltip_index, hover_pos)
+                    WindowEvent::CursorMoved { position, .. } if open => {
+                        self.mouse_pos = position;
+                        let sim_pos = game_state.logical_to_sim_position(position);
+                        if Some(sim_pos) != self.hover_pos {
+                            self.hover_pos = Some(sim_pos);
+                            self.hover_start_time = Instant::now();
+                            self.tooltip_active = false;
+                            self.tooltip_index = game_state.get_editable_index(sim_pos);
                         }
-                        _ => game_state.get_editable_entity(self.mouse_pos),
-                    };
-                    if modifiers.ctrl {
-                        self.mental_model = entity;
-                    } else {
-                        self.edit_ent = entity;
-                        match self.edit_ent {
-                            Some(ent) => self.actions.push_back(Action::HighlightVisibility(ent)),
-                            None => self.actions.push_back(Action::ClearHighlight),
-                        }
+                        self.actions.push_back(Action::Hover(position));
                     }
-                }
-                WindowEvent::MouseInput {
-                    button: MouseButton::Right,
-                    state: ElementState::Pressed,
-                    ..
-                } => {
-                    if let Some(entity) = self.edit_ent {
-                        if game_state.is_within(self.mouse_pos) {
-                            self.actions.push_back(Action::Move(entity, self.mouse_pos));
+                    WindowEvent::MouseInput {
+                        button: MouseButton::Left,
+                        state: ElementState::Pressed,
+                        modifiers,
+                        ..
+                    } if open => {
+                        let entity = match self.hover_pos {
+                            Some(hover_pos) if self.tooltip_active => {
+                                game_state.get_nth_entity(self.tooltip_index, hover_pos)
+                            }
+                            _ => game_state.get_editable_entity(self.mouse_pos),
+                        };
+                        if modifiers.ctrl {
+                            self.mental_model = entity;
+                        } else {
+                            self.edit_ent = entity;
+                            match self.edit_ent {
+                                Some(ent) => {
+                                    self.actions.push_back(Action::HighlightVisibility(ent))
+                                }
+                                None => self.actions.push_back(Action::ClearHighlight),
+                            }
                         }
                     }
-                }
-                WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
-                            virtual_keycode: Some(key),
-                            modifiers,
-                            state: ElementState::Released,
-                            ..
-                        },
-                    ..
-                } => {
-                    self.process_key(key, modifiers);
-                }
+                    WindowEvent::MouseInput {
+                        button: MouseButton::Right,
+                        state: ElementState::Pressed,
+                        ..
+                    } if open => {
+                        if let Some(entity) = self.edit_ent {
+                            if game_state.is_within(self.mouse_pos) {
+                                self.actions.push_back(Action::Move(entity, self.mouse_pos));
+                            }
+                        }
+                    }
+                    WindowEvent::KeyboardInput {
+                        input:
+                            KeyboardInput {
+                                virtual_keycode: Some(key),
+                                modifiers,
+                                state: ElementState::Released,
+                                ..
+                            },
+                        ..
+                    } => match self.ui_status {
+                        UiStatus::Running | UiStatus::Paused => self.process_key(key, modifiers),
+                        UiStatus::Menu => if let VirtualKeyCode::Escape = key {
+                            self.resume_from_menu()
+                        }
+                    }
+                    _ => (),
+                },
                 _ => (),
-            },
-            _ => (),
-        }
+            }
+
+
+
         if self.conrod.global_input().events().next().is_some() {
             self.event_happened = true;
         }
@@ -284,56 +298,84 @@ impl UIState {
     }
     pub fn update(&mut self, game_state: &GameState) {
         match self.ui_status {
-            UiStatus::Running if self.event_happened || !self.paused => self.redraw(game_state),
+            UiStatus::Running => self.redraw(game_state),
+            UiStatus::Paused if self.event_happened => self.redraw(game_state),
+            UiStatus::Paused => (),
             UiStatus::Menu => {
-                let ui = &mut self.conrod.set_widgets();
-                cc::widget::Canvas::new()
-                    .pad(10.0)
-                    .w_h(self.size.width, self.size.height)
-                    .set(self.ids.menu_canvas, ui);
-                for idx in cc::widget::DropDownList::new(&self.backends, self.backend_selected)
-                    .w_h(150.0, 40.0)
-                    .top_left_of(self.ids.menu_canvas)
-                    .set(self.ids.backends, ui)
+                let mut resume = false;
                 {
-                    if Some(idx) != self.backend_selected {
-                        self.backend_selected = Some(idx);
-                        let (_, v) = &self.adapter_list[idx];
-                        self.adapters = v.iter().map(|(i, s)| s.clone()).collect();
-                    }
-                }
-                for idx in cc::widget::DropDownList::new(&self.adapters, self.adapter_selected)
-                    .w_h(150.0, 40.0)
-                    .top_right_of(self.ids.menu_canvas)
-                    .set(self.ids.adapters, ui)
-                {
-                    if Some(idx) != self.adapter_selected {
-                        self.adapter_selected = Some(idx);
-                    }
-                }
-                for btn in cc::widget::Button::new()
-                    .parent(self.ids.menu_canvas)
-                    .down_from(self.ids.adapters, 240.0)
-                    .set(self.ids.select_button, ui)
-                {
-                    if let (Some(b_idx), Some(a_idx)) =
-                        (self.backend_selected, self.adapter_selected)
-                    {
-                        if let Some((back, idx, name)) = self
-                            .adapter_list
-                            .get(b_idx)
-                            .and_then(|(b, v)| v.get(a_idx).map(|(i, s)| (b, i, s)))
+                    let ui = &mut self.conrod.set_widgets();
+                    cc::widget::Canvas::new()
+                        .pad(10.0)
+                        .w_h(self.size.width, self.size.height)
+                        .color(cc::Color::Rgba(0.5, 0.5, 0.5, 0.5))
+                        .set(self.ids.menu_back_canvas, ui);
+                    cc::widget::Canvas::new()
+                        .pad(10.0)
+                        .w_h(440.0, 300.0)
+                        .mid_top_of(self.ids.menu_back_canvas)
+                        .color(cc::color::BLUE)
+                        .set(self.ids.menu_canvas, ui);
+                    cc::widget::Text::new("Menu")
+                        .mid_top_of(self.ids.menu_canvas)
+                        .set(self.ids.menu_title, ui);
+                    for idx in cc::widget::DropDownList::new(&self.backends, self.backend_selected)
+                        .w_h(120.0, 120.0)
+                        .max_visible_height(260.0)
+                        .label("Graphic API")
+                        .top_left_of(self.ids.menu_canvas)
+                        .down(40.0)
+                        .set(self.ids.backends, ui)
                         {
-                            println!("should choose {:?} : {} ({})", back, name, idx);
-                            self.app_state = AppState::ChangeAdapter(*back, *idx);
+                            if Some(idx) != self.backend_selected {
+                                self.backend_selected = Some(idx);
+                                let (_, v) = &self.adapter_list[idx];
+                                self.adapters = v.iter().map(|(i, s)| s.clone()).collect();
+                            }
                         }
-                    }
+                    for idx in cc::widget::DropDownList::new(&self.adapters, self.adapter_selected)
+                        .w_h(200.0, 120.0)
+                        .max_visible_height(260.0)
+                        .label("Graphic Adapter")
+                        .right_from(self.ids.backends, 10.0)
+                        .set(self.ids.adapters, ui)
+                        {
+                            if Some(idx) != self.adapter_selected {
+                                self.adapter_selected = Some(idx);
+                            }
+                        }
+                    for btn in cc::widget::Button::new()
+                        .parent(self.ids.menu_canvas)
+                        .right_from(self.ids.adapters, 10.0)
+                        .w_h(80.0, 40.0)
+                        .label("Select")
+                        .set(self.ids.select_button, ui)
+                        {
+                            if let (Some(b_idx), Some(a_idx)) =
+                            (self.backend_selected, self.adapter_selected)
+                            {
+                                if let Some((back, idx, name)) = self
+                                    .adapter_list
+                                    .get(b_idx)
+                                    .and_then(|(b, v)| v.get(a_idx).map(|(i, s)| (b, i, s)))
+                                {
+                                    info!("should choose {:?} : {} ({})", back, name, idx);
+                                    self.app_state = AppState::ChangeAdapter(*back, *idx);
+                                    resume = true;
+                                }
+                            }
+                        }
+                }
+
+                if resume {
+                    self.resume_from_menu()
                 }
             }
             _ => (),
         }
     }
     fn redraw(&mut self, game_state: &GameState) {
+        self.event_happened = false;
         let mut extend = 0;
         {
             let now = Instant::now();
@@ -599,6 +641,10 @@ impl UIState {
             position.x - (width as cc::Scalar / 2.0),
             -position.y + (height as cc::Scalar / 2.0),
         )
+    }
+    fn resume_from_menu(&mut self) {
+        self.event_happened = true;
+        self.ui_status = if self.paused { UiStatus::Paused } else { UiStatus::Running }
     }
 }
 

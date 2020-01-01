@@ -363,7 +363,7 @@ impl GameState {
             && position.x as f32 <= self.margin + self.cell_width * eco_sim::MAP_WIDTH as f32
             && position.y as f32 <= self.margin + self.cell_height * eco_sim::MAP_HEIGHT as f32
     }
-    pub fn request_redraw(&mut self){
+    pub fn request_redraw(&mut self) {
         self.re_register = true;
         self.redraw = true;
     }
