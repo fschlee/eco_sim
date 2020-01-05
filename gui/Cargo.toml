@@ -53,7 +53,7 @@ dependent = []
 "gfx-backend-gl" = { version = "0.4", features=["glutin"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-"gfx-backend-dx11" = { version = "0.4", optional = true }
+"gfx-backend-dx11" = { version = "0.4.4", optional = true }
 "gfx-backend-dx12" = { version = "0.4", optional = true }
 
 [target.'cfg(macos)'.dependencies]

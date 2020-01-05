@@ -161,11 +161,11 @@ impl GameState {
                     self.paused = pause_state;
                     *self.eco_sim.write().unwrap() = SimState::new(SIM_STEP);
                 }
-                Action::UpdateMentalState(mental_state) => {
+                Action::UpdateMentalState(id, f) => {
                     self.eco_sim
                         .write()
                         .unwrap()
-                        .update_mental_state(mental_state);
+                        .update_mental_state(id, f);
                 }
                 Action::Hover(pos) => {
                     let coords = self.logical_position_to_coords(pos);
@@ -175,18 +175,15 @@ impl GameState {
                     self.highlighted.insert(coords);
                 }
                 Action::Move(entity, pos) => {
-                    if let Some(ms) = self.eco_sim.read().unwrap().get_mental_state(&entity) {
-                        let (x, y) = self.logical_position_to_coords(pos);
-                        let sim_pos = eco_sim::Position {
-                            x: x as Coord,
-                            y: y as Coord,
-                        };
+                    let (x, y) = self.logical_position_to_coords(pos);
+                    let sim_pos = eco_sim::Position {
+                        x: x as Coord,
+                        y: y as Coord,
+                    };
+                    self.eco_sim.write().unwrap().update_mental_state(entity, |ms| {
+                        ms.current_action = eco_sim::Action::Idle;
+                        ms.current_behavior =  Some(eco_sim::Behavior::Travel(sim_pos)) });
 
-                        let mut new_ms = ms.clone();
-                        new_ms.current_action = eco_sim::Action::Idle;
-                        new_ms.current_behavior = Some(eco_sim::Behavior::Travel(sim_pos));
-                        self.eco_sim.write().unwrap().update_mental_state(new_ms);
-                    }
                 }
                 Action::ClearHighlight => {
                     self.redraw = true;

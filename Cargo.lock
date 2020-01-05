@@ -547,7 +547,7 @@ dependencies = [
  "enum_macros 0.1.0",
  "env_logger 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "gfx-backend-dx11 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "gfx-backend-dx11 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "gfx-backend-dx12 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "gfx-backend-gl 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gfx-backend-metal 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -713,7 +713,7 @@ dependencies = [
 
 [[package]]
 name = "gfx-backend-dx11"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "bitflags 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2773,7 +2773,7 @@ dependencies = [
 "checksum generic-array 0.13.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0ed1e761351b56f54eb9dcd0cfaca9fd0daecf93918e1cfc01c8a3d26ee7adcd"
 "checksum getrandom 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "e7db7ca94ed4cd01190ceee0d8a8052f08a247aa1b469a7f68c6a3b71afcf407"
 "checksum gfx-auxil 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "572eee952a9a23c99cfe3e4fd95d277784058a89ac3c77ff6fa3d80a4e321919"
-"checksum gfx-backend-dx11 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "b2cdc732e8cead82f5bfc8ce147ee0a2d8a425342aa7944f1c8f734e53ca3e6b"
+"checksum gfx-backend-dx11 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)" = "4e22e5a71b6c171831295befdabbc4890ebf3248bf8c087f5deb88282ff44d35"
 "checksum gfx-backend-dx12 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b6e913cc800fb12eaba2c420091a02aca9aafbefd672600dfc5b52654343d341"
 "checksum gfx-backend-gl 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a3dc4f978ef69954b5335b117083aee7b586e239f34a3c3602c2c834312c7596"
 "checksum gfx-backend-metal 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "a38692ee75878a9438e4495325288ee8c65b31409b57b375c7a51858a830cc42"

@@ -1,7 +1,5 @@
 use conrod_core as cc;
-use conrod_core::{
-    widget, widget_ids, Borderable, Colorable, Labelable, Positionable, Sizeable, Widget,
-};
+use conrod_core::{widget, widget_ids, Borderable, Colorable, Labelable, Positionable, Sizeable, Widget, UiCell};
 use conrod_winit::{convert_event, WinitWindow};
 use std::time::Instant;
 
@@ -18,6 +16,8 @@ use winit::{
     event_loop::EventLoop,
     window::Window,
 };
+use conrod_core::widget::Id;
+use eco_sim::WorldEntity;
 
 pub type Queue<T> = std::collections::VecDeque<T>;
 
@@ -27,6 +27,9 @@ widget_ids! {
         title,
         dialer_title,
         hunger_dialer,
+        aggression_dialer,
+        fear_dialer,
+        tiredness_dialer,
         number_dialer,
         plot_path,
         canvas_scrollbar,
@@ -116,12 +119,12 @@ enum UiStatus {
     Menu,
 }
 
-#[derive(Debug, Clone)]
+
 pub enum Action {
     Pause,
     Unpause,
     Reset(bool),
-    UpdateMentalState(eco_sim::MentalState),
+    UpdateMentalState(eco_sim::WorldEntity, Box<dyn FnMut(& mut eco_sim::MentalState)>),
     Hover(LogicalPosition),
     Move(eco_sim::WorldEntity, LogicalPosition),
     HighlightVisibility(eco_sim::WorldEntity),
@@ -239,7 +242,7 @@ impl UIState {
                     state: ElementState::Pressed,
                     modifiers,
                     ..
-                } if open => {
+                } if open && game_state.is_within(self.mouse_pos)  => {
                     let entity = match self.hover_pos {
                         Some(hover_pos) if self.tooltip_active => {
                             game_state.get_nth_entity(self.tooltip_index, hover_pos)
@@ -260,11 +263,10 @@ impl UIState {
                     button: MouseButton::Right,
                     state: ElementState::Pressed,
                     ..
-                } if open => {
+                } if open && game_state.is_within(self.mouse_pos) => {
                     if let Some(entity) = self.edit_ent {
-                        if game_state.is_within(self.mouse_pos) {
-                            self.actions.push_back(Action::Move(entity, self.mouse_pos));
-                        }
+                        self.actions.push_back(Action::Move(entity, self.mouse_pos));
+
                     }
                 }
                 WindowEvent::KeyboardInput {
@@ -381,6 +383,7 @@ impl UIState {
             }
         }
         {
+            const DOWN: f64 = 20.0;
             let mouse_pos = self.logical_to_conrod(self.mouse_pos);
             let ui = &mut self.conrod.set_widgets();
 
@@ -444,32 +447,79 @@ impl UIState {
                     .mid_top_of(self.ids.edit_canvas)
                     .set(self.ids.dialer_title, ui);
                 if let Some(ms) = game_state.get_mental_state(&edit_ent) {
+
+                    const MIN : f32 = 0.0;
+                    const MAX : f32 = 1.0;
+                    const P: u8 = 3;
+                    const W : f64 = 170.0;
+                    const H : f64 = 40.0;
+
+                    for tiredness in cc::widget::number_dialer::NumberDialer::new(
+                        ms.emotional_state.tiredness().0,
+                        MIN,
+                        MAX,
+                        P,
+                    )
+                        .down_from(self.ids.dialer_title, DOWN)
+                        .align_middle_x_of(self.ids.edit_canvas)
+                        .w_h(W, H)
+                        .label("Tiredness")
+                        .set(self.ids.tiredness_dialer, ui)
+                        {
+                            self.actions.push_back(Action::UpdateMentalState(ms.id, Box::new(move |ms| ms.emotional_state.set_tiredness(eco_sim::Tiredness(tiredness)))));
+                        }
+                    for fear in cc::widget::number_dialer::NumberDialer::new(
+                        ms.emotional_state.fear().0,
+                        MIN,
+                        MAX,
+                        P,
+                    )
+                        .down_from(self.ids.tiredness_dialer, DOWN)
+                        .align_middle_x_of(self.ids.edit_canvas)
+                        .w_h(W, H)
+                        .label("Fear")
+                        .set(self.ids.fear_dialer, ui)
+                        {
+                            self.actions.push_back(Action::UpdateMentalState(ms.id, Box::new(move |ms| ms.emotional_state.set_fear(eco_sim::Fear(fear)))));
+                        }
+                    for aggro in cc::widget::number_dialer::NumberDialer::new(
+                        ms.emotional_state.aggression().0,
+                        MIN,
+                        MAX,
+                        P,
+                    )
+                        .down_from(self.ids.fear_dialer, DOWN)
+                        .align_middle_x_of(self.ids.edit_canvas)
+                        .w_h(W, H)
+                        .label("Aggression")
+                        .set(self.ids.aggression_dialer, ui)
+                        {
+                            self.actions.push_back(Action::UpdateMentalState(ms.id, Box::new(move |ms| ms.emotional_state.set_aggression(eco_sim::Aggression(aggro)))));
+                        }
                     for hunger in cc::widget::number_dialer::NumberDialer::new(
                         ms.emotional_state.hunger().0,
-                        0.0,
-                        1.0,
-                        3,
+                        MIN,
+                        MAX,
+                        P,
                     )
-                    .down_from(self.ids.dialer_title, 60.0)
+                    .down_from(self.ids.aggression_dialer, DOWN)
                     .align_middle_x_of(self.ids.edit_canvas)
-                    .w_h(160.0, 40.0)
+                    .w_h(W, H)
                     .label("Hunger")
                     .set(self.ids.hunger_dialer, ui)
                     {
-                        let mut new_ms = ms.clone();
-                        new_ms.emotional_state.set_hunger(eco_sim::Hunger(hunger));
-                        self.actions.push_back(Action::UpdateMentalState(new_ms));
+                        self.actions.push_back(Action::UpdateMentalState(ms.id, Box::new(move |ms| ms.emotional_state.set_hunger(eco_sim::Hunger(hunger)))));
                     }
                     let act_text = format!("{}", ms.current_action);
                     cc::widget::Text::new(&act_text)
                         .font_size(16)
-                        .down_from(self.ids.hunger_dialer, 60.0)
+                        .down_from(self.ids.hunger_dialer, DOWN)
                         .align_middle_x_of(self.ids.edit_canvas)
                         .set(self.ids.action_text, ui);
                     let beh_text = eco_sim::Behavior::fmt(&ms.current_behavior);
                     cc::widget::Text::new(&beh_text)
                         .font_size(16)
-                        .down_from(self.ids.action_text, 60.0)
+                        .down_from(self.ids.action_text, DOWN)
                         .align_middle_x_of(self.ids.edit_canvas)
                         .set(self.ids.behavior_text, ui);
                     for sight in cc::widget::number_dialer::NumberDialer::new(
@@ -478,22 +528,20 @@ impl UIState {
                         20.0,
                         0,
                     )
-                    .down_from(self.ids.behavior_text, 60.0)
+                    .down_from(self.ids.behavior_text, DOWN)
                     .align_middle_x_of(self.ids.edit_canvas)
                     .w_h(160.0, 40.0)
                     .label("Sight")
                     .set(self.ids.number_dialer, ui)
                     {
-                        let mut new_ms = ms.clone();
-                        new_ms.sight_radius = sight as eco_sim::Coord;
-                        self.actions.push_back(Action::UpdateMentalState(new_ms));
+                        self.actions.push_back(Action::UpdateMentalState(ms.id, Box::new(move |ms| ms.sight_radius = sight as eco_sim::Coord)));
                     }
                     cc::widget::Canvas::new()
                         .pad(0.0)
                         .w_h(256.0, self.size.height)
                         .parent(self.ids.edit_canvas)
                         .mid_right_of(self.ids.edit_canvas)
-                        .down_from(self.ids.number_dialer, 120.0)
+                        .down_from(self.ids.number_dialer, 2.0 * DOWN)
                         .set(self.ids.list_canvas, ui);
                     cc::widget::Text::new("Food preferences")
                         .font_size(20)
@@ -509,18 +557,16 @@ impl UIState {
                         .enumerate()
                     {
                         let w =
-                            cc::widget::number_dialer::NumberDialer::new(old_pref, 0.0, 20.0, 4)
-                                .down_from(prev, 60.0)
+                            cc::widget::number_dialer::NumberDialer::new(old_pref, MIN, MAX, P)
+                                .down_from(prev, DOWN)
                                 .align_middle_x_of(self.ids.list_canvas)
-                                .w_h(160.0, 40.0)
+                                .w_h(W, H)
                                 .label(entity_type_label(et));
 
                         prev = id;
 
                         for fp in w.set(id, ui) {
-                            let mut new_ms = ms.clone();
-                            new_ms.emotional_state.set_preference(et, fp);
-                            self.actions.push_back(Action::UpdateMentalState(new_ms));
+                            self.actions.push_back(Action::UpdateMentalState(ms.id, Box::new(move |ms| ms.emotional_state.set_preference(et, fp))));
                         }
                     }
                 }

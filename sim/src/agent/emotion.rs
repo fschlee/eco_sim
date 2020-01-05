@@ -189,11 +189,11 @@ impl Default for Aggression {
 }
 impl std::ops::AddAssign<Aggression> for EmotionalState {
     fn add_assign(&mut self, rhs: Aggression) {
-        self.arr[Self::TIREDNESS] += rhs.0;
+        self.arr[Self::AGGRESSION] += rhs.0;
     }
 }
 impl std::ops::SubAssign<Aggression> for EmotionalState {
     fn sub_assign(&mut self, rhs: Aggression) {
-        self.arr[Self::TIREDNESS] -= rhs.0;
+        self.arr[Self::AGGRESSION] -= rhs.0;
     }
 }

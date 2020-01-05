@@ -16,9 +16,8 @@ use crate::world::cell::Cell;
 use crate::Action::Eat;
 use crate::Behavior::Partake;
 
-use crate::agent::emotion::{Aggression, Fear, Tiredness};
 use crate::agent::estimator::Estimator;
-pub use emotion::{EmotionalState, Hunger};
+pub use emotion::{EmotionalState, Hunger, Tiredness, Aggression, Fear};
 use estimator::{EstimatorMap, MentalStateRep};
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
@@ -224,10 +223,14 @@ impl MentalState {
                         score += t * t * 20.0;
                     }
                     Incomplete => (),
-                    Moved(_) => self.current_action = Action::Idle,
+                    Moved(_) => {
+                        let t = 1.0 - self.emotional_state.tiredness().0;
+                        score += t * t * 10.0;
+                        self.current_action = Action::Idle
+                    },
                     Consumed(food, tp) => {
                         if let Some(r) = self.lookup_preference(*tp) {
-                            score += r * food.0 * self.emotional_state.hunger().0
+                            score += r * food.0 * self.emotional_state.hunger().0 * 10.0
                         }
                     }
                     Hurt {
@@ -243,7 +246,7 @@ impl MentalState {
                         }
                     }
                     InvalidAction(attempted_action, f) => {
-                        score -= 20.0;
+                        score -= 5.0;
                         let mut action = Action::Idle;
                         std::mem::swap(&mut action, &mut self.current_action);
                         if Some(action) != *attempted_action {
@@ -289,9 +292,9 @@ impl MentalState {
                         lethal,
                     } if *target == self.id => {
                         self.emotional_state += Aggression(damage.0 * Self::AGGRESSION_INCREMENT);
-                        score -= damage.0 * 100.0;
+                        score -= damage.0 * 10.0;
                         if *lethal {
-                            score -= 10e5;
+                            score -= 1e4;
                         }
                     }
                     _ => (),
@@ -846,7 +849,7 @@ impl MentalState {
                     }
                 }
             } else {
-                println!("foo")
+                println!("no cell")
             }
         }
         {

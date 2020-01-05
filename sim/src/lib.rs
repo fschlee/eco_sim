@@ -134,10 +134,10 @@ impl SimState {
     pub fn entities_at(&self, position: Position) -> &[WorldEntity] {
         (&self.world).entities_at(position)
     }
-    pub fn update_mental_state(&mut self, mental_state: MentalState) {
+    pub fn update_mental_state(&mut self, id: WorldEntity, mut f: impl FnMut(&mut MentalState)) {
         self.agent_system
             .mental_states
-            .insert(&mental_state.id.clone(), mental_state);
+            .get_mut(id).map(|ms| f(ms));
     }
     pub fn get_mental_state(&self, entity: &WorldEntity) -> Option<&MentalState> {
         self.agent_system.mental_states.get(entity)
