@@ -171,8 +171,10 @@ class QLearner:
 
     def run(self, epochs=400, wait=0):
         time.sleep(wait)
-        losses = []
-        running_loss = 0.0
+        action_losses = []
+        mental_losses = []
+        running_action_loss = 0.0
+        running_mental_loss = 0.0
         total_count = 0
         action_space = Environment.action_space_size()
         for epoch in range(0, epochs):
@@ -233,19 +235,25 @@ class QLearner:
                             m[i, 0] = 0.0
                     expected_rewards += m
                 rewards = new_rewards
-                loss = fun.smooth_l1_loss(pol.gather(1, torch.tensor(actions).view(k, 1)), expected_rewards)
-                running_loss += loss.item()
+                action_loss = fun.smooth_l1_loss(pol.gather(1, torch.tensor(actions).view(k, 1)), expected_rewards)
+                ment_loss = fun.smooth_l1_loss(ment_inf[:, :k, :], men.expand(k, -1, -1))
+                loss = action_loss + ment_loss
+                running_action_loss += action_loss.item()
+                running_mental_loss += ment_loss.item()
                 if done or current_count > 20:
                     self.value.load_state_dict(self.policy.state_dict())
                     loss.backward()
                     self.optimizer.step()
                     self.optimizer.zero_grad()
-                    avg_loss = running_loss / current_count
-                    print(avg_loss)
+                    avg_mental_loss = running_mental_loss / current_count
+                    avg_action_loss = running_action_loss / current_count
+                    print(avg_action_loss, avg_mental_loss)
                     print(rewards.view(-1))
-                    losses.append(avg_loss)
+                    action_losses.append(avg_action_loss)
+                    mental_losses.append(avg_mental_loss)
                     current_count = 0
-                    running_loss = 0.0
+                    running_action_loss = 0.0
+                    running_mental_loss = 0.0
                     self.policy.detach_state()
                 else:
                     loss.backward(retain_graph=True)
