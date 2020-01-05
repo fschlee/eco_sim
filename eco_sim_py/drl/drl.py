@@ -17,6 +17,13 @@ def transposed_tensor(arr):
     return torch.from_numpy(numpy.transpose(arr)).to(device)
 
 
+def blowup(t0, t1):
+    out = torch.zeros((t0.shape[0],) + t1.shape)
+    for i in range(0, t0.shape[1] ):
+        for j in range(0, t0.shape[1]):
+            out[i, j, :] = t0[i, j] * t1[j, :]
+    return out
+
 class ActionValues(torch.nn.Module):
     def __init__(
             self,
@@ -26,20 +33,29 @@ class ActionValues(torch.nn.Module):
             max_reps_per_square=Environment.max_reps_per_square(),
             rep_size=Environment.rep_size(),
             phys_size=Environment.physical_rep_size(),
-            mental_size=Environment.mental_rep_size()):
+            mental_size=Environment.mental_rep_size(),
+            max_other_agents=12):
         super(ActionValues, self).__init__()
         self.h = map_height
         self.w = map_width
         self.d = max_reps_per_square
         self.c0 = rep_size
+        self.max_other_agents = max_other_agents
+        self.phys_size = phys_size
+        self.mental_size = mental_size
         # stack (map_height: D, map_width : W, max_reps_per_square : H, rep_size : C)T => (N, C, H, W, D)
         # kernel (h, w, d)
         kernel = (max_reps_per_square, 1, 1)
         self.c1 = 16
         self.c2 = 16
         self.c3 = 8
+        self.cp = phys_size
+        self.cm = mental_size
         hsz = self.c3 * map_height * map_width
-        self.state = None
+
+
+        # Preprocessing for the map:
+
         self.conv1 = torch.nn.Conv3d(rep_size, self.c1, groups=1, kernel_size=kernel)
         #(N, c1, 1, W, D) => (N, c1, W, D)
         self.bn1 = torch.nn.BatchNorm3d(self.c1)
@@ -47,28 +63,72 @@ class ActionValues(torch.nn.Module):
         self.bn2 = torch.nn.BatchNorm2d(self.c2)
         self.conv3 = torch.nn.Conv2d(self.c2, self.c3, kernel_size=(5, 5), stride=1, padding=2)
         self.bn3 = torch.nn.BatchNorm2d(self.c3)
+
+
         ag_size = phys_size + mental_size
-        self.ag = torch.nn.Linear(ag_size, ag_size)
-        self.lstm = torch.nn.LSTM(self.c3 * self.h * self.w + ag_size, hsz)
+
+        # Preprocessing for the physical / mental state of one entity, used for both the own state and that of others (if visible)
+        self.phys = torch.nn.Linear(phys_size, phys_size)
+        self.ment = torch.nn.Linear(mental_size, mental_size)
+
+        # Overall state representation with memory
+
+        self.state = None
+        self.lstm = torch.nn.LSTM(self.c3 * self.h * self.w + ag_size + max_other_agents * self.cp + max_other_agents * self.cm, hsz)
+
+
+        self.old_ment = None
+
+        # Head for translating to action values
         self.act = torch.nn.Linear(hsz, action_space_size)
 
-    def forward(self, x, p, m):
+        # Head for anticipating mental states after a sim step
+        self.infer_mental = torch.nn.Linear(hsz, max_other_agents * mental_size)
+
+    # x: map batch, p: all physical states, m: all mental states, vis: mutual visibility,
+    # mix_ratio: how much of the mental state input for others an active entity sees is based on the actual mental state,
+    # as opposed to its own previous estimate.
+    def forward(self, x, p, m, vis, mix_ratio=0.9):
         k = x.shape[0]
         x = fun.relu(self.bn1(self.conv1(x)))
         x = torch.squeeze(x, dim=2)
         x = fun.relu(self.bn2(self.conv2(x)))
         x = fun.relu(self.bn3(self.conv3(x)))
-        ag = fun.relu(self.ag(torch.cat((p, m), 1)))
-        x, s = self.lstm(torch.cat((x.view(1, k, -1), ag.view(1, k, -1)), 2), self.state)
+        ag = torch.cat((fun.relu(self.phys(p)), fun.relu(self.ment(m))), 1)
+
+        # Process all physical states once as batch (zero for any potential entity slots that are empty),
+        # then repeat as input for each active entity, setting to zero when there is no visibility.
+        phys = torch.zeros((self.max_other_agents, self.phys_size))
+        phys[:k, :] = p
+        other_p = fun.relu(self.phys(phys))
+        phys_inp = blowup(vis, other_p)
+
+        # First create appropriate input mix between previous estimate and objective input, then process.
+        ment = torch.zeros((1, self.max_other_agents, self.mental_size))
+        ment[0, :k, :] = m
+        other_m = mix_ratio * ment.expand(k, -1, -1)
+        if self.old_ment is not None:
+            other_m += (1.0 - mix_ratio) * self.old_ment
+        ment_inp = fun.relu(self.ment(other_m.view(k * self.max_other_agents, -1)))
+
+        x, s = self.lstm(
+            torch.cat((x.view(1, k, -1), ag.view(1, k, -1),
+            phys_inp.view(1, k, -1),
+            ment_inp.view(1, k, -1)
+            ), 2), self.state)
         self.state = s
-        act = self.act(fun.relu(x.view(k, -1)))
-        return act
+        x = fun.relu(x.view(k, -1))
+        act = self.act(x)
+        self.old_ment = self.infer_mental(x).view(k, self.max_other_agents, -1)
+        return act, self.old_ment
 
     def reset_state(self):
         self.state = None
+        self.old_ment = None
 
     def detach_state(self):
         self.state = (self.state[0].detach(), self.state[1].detach())
+        self.old_ment = self.old_ment.detach()
 
     def remap(self, remapping, k):
         after = 0
@@ -77,45 +137,56 @@ class ActionValues(torch.nn.Module):
                 after = new_i + 1
                 self.state[0][:, new_i, :] = self.state[0][:, i, :]
                 self.state[1][:, new_i, :] = self.state[1][:, i, :]
+                self.old_ment[new_i, :, :] = self.old_ment[i, :, :]
+        for (i, new_i) in remapping:
+            if new_i is not None:
+                self.old_ment[:after, new_i, :] = self.old_ment[:after, i, :]
         if len(remapping) > 0 and k > after:
             s0 = self.state[0].shape
             s1 = self.state[1].shape
-
+            sm = self.old_ment.shape
             self.state[0][:, after:k, :] = torch.zeros((s0[0], k - after, s0[2]))
             self.state[1][:, after:k, :] = torch.zeros((s0[0], k - after, s1[2]))
+            self.old_ment[after:, :, :] = torch.zeros((k - after, sm[1], sm[2]))
+            self.old_ment[:, after:, :] = torch.zeros((k, self.max_other_agents - after, sm[2]))
+
 
 class QLearner:
-    def __init__(self, env=None, seed=0, pretrained=None, start_gui=False):
+    def __init__(self, env=None, seed=0, agent_count=8, pretrained=None, start_gui=False):
+        self.agent_count = agent_count
 
-        self.env = Environment(seed)
+        self.env = env if env is not None and isinstance(env, Environment) else Environment(seed)
         if start_gui:
             self.env.start_gui()
         self.next_seed = seed + 1
         if pretrained is not None and isinstance(pretrained, ActionValues):
+            print("pretrained")
             self.policy = pretrained
         else:
+            print("new")
             self.policy = ActionValues()
         self.value = ActionValues().eval()
         self.optimizer = torch.optim.RMSprop(self.policy.parameters())
         self.optimizer
 
     def run(self, epochs=400, wait=0):
-        print("foo")
         time.sleep(wait)
         losses = []
         running_loss = 0.0
         total_count = 0
         action_space = Environment.action_space_size()
         for epoch in range(0, epochs):
+           # choose_suggested = 1.0 / (epochs + 1)
             self.policy.reset_state()
             self.value.reset_state()
             current_count = 0
             in_epoch_count = 0
             self.env.reset(self.next_seed)
             self.next_seed += 1
-            registered = self.env.register_agents(8)
+            registered = self.env.register_agents(self.agent_count)
             k = len(registered)
             obsv, rewards, suggested_actions, physical, mental, visibility, remappings, complete  = self.env.state()
+            vis = torch.tensor(visibility)
             rewards = torch.tensor(rewards).view(-1, 1)
             done = complete
             rand = random.Random()
@@ -136,7 +207,7 @@ class QLearner:
                 total_count += 1
                 in_epoch_count += 1
                 current_count += 1
-                pol = self.policy.forward(inp, phys, men)
+                pol, ment_inf = self.policy.forward(inp, phys, men, vis)
                 actions = [
                     rand.choices(
                         (rand.choice(range(0, action_space)),
@@ -146,6 +217,7 @@ class QLearner:
                         k=1)[0]
                     for i in range(0, k)]
                 obsv, new_rewards, new_suggested_actions, physical, mental, visibility, remappings, complete = self.env.step(actions)
+                vis = torch.tensor(visibility)
                 done = complete
                 inp = torch.stack([transposed_tensor(np) for np in obsv])
                 men = torch.from_numpy(mental).to(device)
@@ -154,7 +226,7 @@ class QLearner:
                 expected_rewards = new_rewards - rewards
                 death_count = 0
                 with torch.no_grad():
-                    m,_ = self.value.forward(inp, phys, men).max(1, keepdim=True)
+                    m,_ = self.value.forward(inp, phys, men, vis)[0].max(1, keepdim=True)
                     for (i, target) in remappings:
                         if target is None:
                             death_count += 1
@@ -183,4 +255,5 @@ class QLearner:
 
 
 if __name__ == '__main__':
-    QLearner(0, start_gui=True).run()
+    # start_gui=True, pretrained=torch.load("qlearner.bak")
+    QLearner(0, ).run()
