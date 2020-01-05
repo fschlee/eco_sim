@@ -17,7 +17,7 @@ use crate::Action::Eat;
 use crate::Behavior::Partake;
 
 use crate::agent::estimator::Estimator;
-pub use emotion::{EmotionalState, Hunger, Tiredness, Aggression, Fear};
+pub use emotion::{Aggression, EmotionalState, Fear, Hunger, Tiredness};
 use estimator::{EstimatorMap, MentalStateRep};
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
@@ -227,7 +227,7 @@ impl MentalState {
                         let t = 1.0 - self.emotional_state.tiredness().0;
                         score += t * t * 10.0;
                         self.current_action = Action::Idle
-                    },
+                    }
                     Consumed(food, tp) => {
                         if let Some(r) = self.lookup_preference(*tp) {
                             score += r * food.0 * self.emotional_state.hunger().0 * 10.0

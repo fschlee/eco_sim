@@ -162,10 +162,7 @@ impl GameState {
                     *self.eco_sim.write().unwrap() = SimState::new(SIM_STEP);
                 }
                 Action::UpdateMentalState(id, f) => {
-                    self.eco_sim
-                        .write()
-                        .unwrap()
-                        .update_mental_state(id, f);
+                    self.eco_sim.write().unwrap().update_mental_state(id, f);
                 }
                 Action::Hover(pos) => {
                     let coords = self.logical_position_to_coords(pos);
@@ -180,10 +177,13 @@ impl GameState {
                         x: x as Coord,
                         y: y as Coord,
                     };
-                    self.eco_sim.write().unwrap().update_mental_state(entity, |ms| {
-                        ms.current_action = eco_sim::Action::Idle;
-                        ms.current_behavior =  Some(eco_sim::Behavior::Travel(sim_pos)) });
-
+                    self.eco_sim
+                        .write()
+                        .unwrap()
+                        .update_mental_state(entity, |ms| {
+                            ms.current_action = eco_sim::Action::Idle;
+                            ms.current_behavior = Some(eco_sim::Behavior::Travel(sim_pos))
+                        });
                 }
                 Action::ClearHighlight => {
                     self.redraw = true;

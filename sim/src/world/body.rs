@@ -82,6 +82,8 @@ impl std::fmt::Display for PhysicalState {
             if let Some(att) = self.attack {
                 writeln!(f, "Attack: {:.}", att.0)?;
             }
+            writeln!(f, "Satiation: {:.2}", self.satiation.0);
+            writeln!(f, "Fatigue: {:.2}", self.fatigue.0);
         }
         Ok(())
     }
