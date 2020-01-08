@@ -101,6 +101,7 @@ impl EntityType {
             if !self.can_pass(&e) {
                 rate *= 1.0 / e.rate() as f32;
             }
+            i += 1;
         }
         rate
     }

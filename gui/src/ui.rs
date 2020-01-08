@@ -8,7 +8,7 @@ use std::time::Instant;
 use crate::simulation::GameState;
 use crate::BackendSelection;
 use conrod_core::widget::Id;
-use eco_sim::entity_type::EntityType;
+use eco_sim::entity_type::{Count, EntityType};
 use eco_sim::WorldEntity;
 use log::info;
 use winit::{
@@ -33,6 +33,7 @@ widget_ids! {
         fear_dialer,
         tiredness_dialer,
         number_dialer,
+        score_text,
         plot_path,
         canvas_scrollbar,
         edit_canvas,
@@ -386,7 +387,7 @@ impl UIState {
             }
         }
         {
-            const DOWN: f64 = 20.0;
+            const DOWN: f64 = 30.0;
             let mouse_pos = self.logical_to_conrod(self.mouse_pos);
             let ui = &mut self.conrod.set_widgets();
 
@@ -455,14 +456,19 @@ impl UIState {
                     const P: u8 = 3;
                     const W: f64 = 170.0;
                     const H: f64 = 40.0;
-
+                    let score = format!("Score: {}", ms.score);
+                    cc::widget::text::Text::new(&score)
+                        .font_size(16)
+                        .down_from(self.ids.dialer_title, DOWN)
+                        .align_middle_x_of(self.ids.edit_canvas)
+                        .set(self.ids.score_text, ui);
                     for tiredness in cc::widget::number_dialer::NumberDialer::new(
                         ms.emotional_state.tiredness().0,
                         MIN,
                         MAX,
                         P,
                     )
-                    .down_from(self.ids.dialer_title, DOWN)
+                    .down_from(self.ids.score_text, DOWN)
                     .align_middle_x_of(self.ids.edit_canvas)
                     .w_h(W, H)
                     .label("Tiredness")
@@ -563,7 +569,7 @@ impl UIState {
                     }
                     cc::widget::Canvas::new()
                         .pad(0.0)
-                        .w_h(256.0, self.size.height)
+                        .w_h(256.0, (H + DOWN) * EntityType::COUNT as f64)
                         .parent(self.ids.edit_canvas)
                         .mid_right_of(self.ids.edit_canvas)
                         .down_from(self.ids.number_dialer, 2.0 * DOWN)

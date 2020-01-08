@@ -8,6 +8,7 @@ use crate::{Action, Cell, Event, Observation, Occupancy, Position, StorageSlice,
 use rand::Rng;
 use rayon::prelude::*;
 use std::collections::{hash_map::RandomState, HashMap};
+use crate::agent::estimate::ParticleFilterRep;
 
 pub trait MentalStateRep: std::fmt::Display + Sized {
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState;
@@ -237,7 +238,7 @@ impl<'c, T: MentalStateRep + Sized + 'static> Estimator for StorageSlice<'c, T> 
     }
 }
 
-type EstimateRep = PointEstimateRep;
+type EstimateRep = ParticleFilterRep;
 pub type EstimatorT = LearningEstimator<EstimateRep>;
 
 #[derive(Clone, Debug, Default)]
