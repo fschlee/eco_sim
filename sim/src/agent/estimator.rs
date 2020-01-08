@@ -5,10 +5,10 @@ use crate::entity_type::EntityType;
 use crate::position::Coord;
 use crate::{Action, Cell, Event, Observation, Occupancy, Position, StorageSlice, World};
 
+use crate::agent::estimate::ParticleFilterRep;
 use rand::Rng;
 use rayon::prelude::*;
 use std::collections::{hash_map::RandomState, HashMap};
-use crate::agent::estimate::ParticleFilterRep;
 
 pub trait MentalStateRep: std::fmt::Display + Sized {
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState;

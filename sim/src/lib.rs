@@ -8,6 +8,7 @@
 #![feature(const_generics)]
 #![feature(type_alias_impl_trait)]
 #![feature(generic_associated_types)]
+#![feature(try_trait)]
 
 pub mod entity;
 pub mod entity_type;

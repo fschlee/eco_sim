@@ -389,7 +389,7 @@ impl std::fmt::Display for ParticleFilterRep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         writeln!(f, "{:?} ({})", self.id.e_type(), self.id.id())?;
         for (ms, prob) in self.particles.iter() {
-            writeln!(f, "Probability {:.2}%:", prob * 100.0);
+            writeln!(f, "Probability {:.2}%:", prob * 100.0)?;
             writeln!(f, "Hunger: ({})", ms.emotional_state.hunger().0)?;
             writeln!(f, "Preferences:")?;
             for (t, p) in ms.food_preferences() {

@@ -260,7 +260,7 @@ impl Iterator for PositionWalker {
             if current.y > self.center.y {
                 let x = self.center.x + self.radius - self.delta;
                 let y = self.center.y - self.delta;
-                if x >= 0 && y >= 0 {
+                if x < MAP_WIDTH as Coord && y >= 0 {
                     self.current_pos = Some(Position { x, y });
                     return Some(current);
                 }
@@ -288,4 +288,77 @@ impl Iterator for PositionWalker {
         }
         None
     }
+/*
+    fn try_fold<B, F: FnMut(B, Self::Item) -> R, R: std::ops::Try<Ok = B>>(&mut self, init: B, mut f: F) -> R {
+        if let Some(current) = & mut self.current_pos {
+            let mut tmp = init;
+            loop {
+                if current.x > self.center.x {
+                    let x = self.center.x + self.delta - self.radius;
+                    if x >= 0 {
+                        current.x = x;
+                        tmp = f(tmp, *current)?;
+                        continue;
+                    }
+                }
+                if current.y > self.center.y {
+                    let x = self.center.x + self.radius - self.delta;
+                    let y = self.center.y - self.delta;
+                    if x < MAP_WIDTH as Coord && y >= 0 {
+                        *current = Position { x, y };
+                        tmp = f(tmp, *current)?;
+                        continue;
+                    }
+                }
+                if self.delta < self.radius {
+                    self.delta += 1;
+                    *current = Position {
+                        x: self.center.x + self.radius - self.delta,
+                        y: self.center.y + self.delta,
+                    };
+                    tmp = f(tmp, *current)?;
+                    continue;
+                }
+                break;
+            }
+            let v = self.center.x + self.center.y;
+            while self.radius < self.max_radius
+                    && (self.radius < v || self.radius < (MAP_WIDTH + MAP_HEIGHT) as Coord - v)
+                {
+                    self.radius += 1;
+                    tmp = f(tmp, *current)?;
+                    for delta in 0..self.radius {
+                        self.delta = delta;
+                        *current = Position {
+                            x: self.center.x + self.radius - self.delta,
+                            y: self.center.y + self.delta,
+                        };
+                        tmp = f(tmp, *current)?;
+                        let x = self.center.x + self.delta - self.radius;
+                        if x >= 0 {
+                            current.x = x;
+                            tmp = f(tmp, *current)?;
+                        }
+                        if current.y > self.center.y {
+                            let x = self.center.x + self.radius - self.delta;
+                            let y = self.center.y - self.delta;
+                            if x < MAP_WIDTH as Coord && y >= 0 {
+                                *current = Position { x, y };
+                                tmp = f(tmp, *current)?;
+                            }
+                            let x = self.center.x + self.delta - self.radius;
+                            if x >= 0 {
+                                current.x = x;
+                                tmp = f(tmp, *current)?;
+                            }
+                        }
+                    }
+                }
+
+            std::ops::Try::from_ok(tmp)
+        } else {
+            std::ops::Try::from_ok(init)
+        }
+    }
+    */
 }

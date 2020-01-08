@@ -11,6 +11,7 @@ use crate::Prob;
 use std::iter::Filter;
 
 use finder::{find_helper, Finder};
+use std::ops::Try;
 
 type Cost = i32;
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -365,6 +366,14 @@ impl<'a, C: Cell> Iterator for EntityWalker<'a, C> {
             return self.next();
         }
         None
+    }
+
+    fn try_fold<B, F: FnMut(B, Self::Item) -> R, R: Try<Ok = B>>(&mut self, init: B, mut f: F) -> R {
+        let between = self.current[self.subindex..].iter().try_fold(init, |i, e| f(i, ( *e, self.current_pos)))?;
+        let Self{ref world, ref mut position_walker, ..} = self;
+        position_walker.try_fold(between, |init, pos| {
+            world.entities_at(pos).iter().try_fold(init, |i, e| f(i, (*e, pos)))
+        })
     }
 }
 
