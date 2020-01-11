@@ -14,7 +14,6 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-pub mod conrod_winit;
 pub mod error;
 mod renderer;
 pub mod simulation;

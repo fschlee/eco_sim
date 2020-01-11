@@ -1,3 +1,6 @@
+mod conrod_winit_helper;
+mod msr_widget;
+
 use conrod_core as cc;
 use conrod_core::{
     widget, widget_ids, Borderable, Colorable, Labelable, Positionable, Sizeable, UiCell, Widget,
@@ -178,7 +181,7 @@ impl UIState {
         let size = window.inner_size();
         let dim = [size.width, size.height];
         let mut conrod = cc::UiBuilder::new(dim).theme(theme()).build();
-        let bytes: &[u8] = include_bytes!("../resources/fonts/NotoSans/NotoSans-Regular.ttf");
+        let bytes: &[u8] = include_bytes!("../../resources/fonts/NotoSans/NotoSans-Regular.ttf");
         let font = cc::text::Font::from_bytes(bytes).unwrap();
         conrod.fonts.insert(font);
         let mut ids = WidgetIds::new(conrod.widget_id_generator());
@@ -218,7 +221,7 @@ impl UIState {
         }
     }
     pub fn process(&mut self, event: Event<()>, game_state: &GameState) -> AppState {
-        if let Some(event) = crate::conrod_winit::convert_event(event.clone(), self) {
+        if let Some(event) = conrod_winit_helper::convert_event(event.clone(), self) {
             self.conrod.handle_event(event);
         }
         let open = self.ui_status != UiStatus::Menu;
@@ -417,7 +420,9 @@ impl UIState {
                     .set(self.ids.mm_title, ui);
                 let mut prev = self.ids.mm_title;
                 let mut i = 0;
-                if let Some(mental_model) = game_state.get_mental_model(&mm) {
+                if let Some(mental_model) =
+                    game_state.with_mental_model::<msr_widget::MentalStateRepWidget>(&mm)
+                {
                     for item in mental_model {
                         if i >= self.ids.mental_models.len() {
                             extend += 1;
@@ -425,10 +430,7 @@ impl UIState {
                         }
                         let m_id = self.ids.mental_models[i];
                         i += 1;
-                        let txt = format!("{}", item);
-                        cc::widget::Text::new(&txt)
-                            .font_size(12)
-                            .parent(self.ids.mental_model_canvas)
+                        item.parent(self.ids.mental_model_canvas)
                             .down_from(prev, 60.0)
                             .align_left()
                             .set(m_id, ui);

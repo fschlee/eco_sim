@@ -349,12 +349,12 @@ impl GameState {
             .get_mental_state(entity)
             .map(|ms| ms.shallow_copy())
     }
-    pub fn get_mental_model(&self, entity: &WorldEntity) -> Option<Vec<String>> {
+    pub fn with_mental_model<F: MentalModelFn>(&self, entity: &WorldEntity) -> Option<F::Output> {
         self.eco_sim
             .read()
             .unwrap()
             .get_mental_model(entity)
-            .map(|i| i.map(ToString::to_string).collect())
+            .map(|ms| F::call(ms))
     }
     pub fn get_physical_state(&self, entity: &WorldEntity) -> Option<eco_sim::PhysicalState> {
         self.eco_sim
@@ -452,4 +452,11 @@ pub fn ball(
     indices.push(base + 8);
     indices.push(base + 1);
     idx as u32..(idx as u32 + 24)
+}
+
+pub trait MentalModelFn {
+    type Output;
+    fn call<'a, MSR: eco_sim::agent::estimator::MentalStateRep + 'a, I: Iterator<Item = &'a MSR>>(
+        arg: I,
+    ) -> Self::Output;
 }
