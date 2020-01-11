@@ -542,6 +542,7 @@ version = "0.1.0"
 dependencies = [
  "cmake 0.1.42 (registry+https://github.com/rust-lang/crates.io-index)",
  "conrod_core 0.68.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "conrod_derive 0.68.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "conrod_winit 0.68.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eco_sim 0.1.0",
  "enum_macros 0.1.0",

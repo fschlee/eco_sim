@@ -8,14 +8,14 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-"eco_sim" = { path="../../sim", features =["reinforce"] }
+eco_sim = { path="../../sim", features =["reinforce"] }
 
-"eco_sim_gui" = { path="../../gui", features = ["dependent"] }
+eco_sim_gui = { path="../../gui", features = ["dependent"] }
 
 numpy = "0.7.0"
 ndarray = "0.13"
 
-"itertools" = "^0.8"
+itertools = "^0.8"
 
 [dependencies.pyo3]
 version = "0.8.4"

@@ -22,48 +22,49 @@ torch = ["eco_sim/torch"]
 dependent = []
 
 [dependencies]
-"eco_sim" = { path="../sim" }
-"enum_macros" = { path="../enum_macros" }
+eco_sim = { path="../sim" }
+enum_macros = { path="../enum_macros" }
 
 #logging
-"log" = "^0.4"
-"env_logger" = "^0.7"
+log = "^0.4"
+env_logger = "^0.7"
 
 #conveinince
-"failure" = "^0.1"
-"itertools" = "^0.8"
-"strum" = "^0.16"
-"strum_macros" = "^0.16"
+failure = "^0.1"
+itertools = "^0.8"
+strum = "^0.16"
+strum_macros = "^0.16"
 
 #window/gui
-"winit" = "^0.20.0-alpha4"
-"conrod_core"  = "^0.68"
-"conrod_winit" = "^0.68"
+winit = "^0.20.0-alpha4"
+conrod_core  = "^0.68"
+conrod_derive = "^0.68"
+conrod_winit = "^0.68"
 
 #graphics data etc
-"smallvec" = "^0.6"
-"image" = "*"
-"shaderc" = "0.6"
-"lazy_static" = "^1"
-"nalgebra" = "^0.19.*"
+smallvec = "^0.6"
+image = "*"
+shaderc = "0.6"
+lazy_static = "^1"
+nalgebra = "^0.19.*"
 
 #graphics
-"gfx-hal" = "0.4"
+gfx-hal = "0.4"
 
-"gfx-backend-gl" = { version = "0.4", features=["glutin"], optional = true }
+gfx-backend-gl = { version = "0.4", features=["glutin"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-"gfx-backend-dx11" = { version = "0.4.4", optional = true }
-"gfx-backend-dx12" = { version = "0.4", optional = true }
+gfx-backend-dx11 = { version = "0.4.4", optional = true }
+gfx-backend-dx12 = { version = "0.4", optional = true }
 
 [target.'cfg(macos)'.dependencies]
-"gfx-backend-metal" = { version = "0.4", optional = true }
+gfx-backend-metal = { version = "0.4", optional = true }
 
 [target."cfg(not(macos))".dependencies]
-"gfx-backend-vulkan" = { version = "0.4", optional = true }
+gfx-backend-vulkan = { version = "0.4", optional = true }
 
 [build-dependencies]
-"cmake" = "0.1.42"
+cmake = "0.1.42"
 
 [[bin]]
 name = "eco_sim"
