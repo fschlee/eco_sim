@@ -11,6 +11,13 @@ use rayon::prelude::*;
 use std::collections::{hash_map::RandomState, HashMap};
 
 pub trait MentalStateRep: std::fmt::Display + Sized {
+    type Iter<'a>: std::iter::ExactSizeIterator<
+        Item = (
+            &'a super::emotion::EmotionalState,
+            &'a Action,
+            &'a Option<super::Behavior>,
+        ),
+    >;
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState;
     fn update_seen<'a>(
         &'a mut self,
@@ -33,6 +40,7 @@ pub trait MentalStateRep: std::fmt::Display + Sized {
     where
         B: std::borrow::Borrow<Self>;
     fn get_type(&self) -> EntityType;
+    fn iter(&self) -> Self::Iter<'_>;
 }
 
 pub trait Estimator {
@@ -264,7 +272,7 @@ impl EstimatorMap {
         &'a self,
         entity: Entity,
     ) -> Option<impl Iterator<Item = &impl MentalStateRep> + 'a> {
-        self.get(entity).map(|r| r.estimators.into_iter())
+        self.get(entity).map(|r| r.estimators.iter())
     }
     pub fn rebind_estimator(&mut self, old: WorldEntity, new: WorldEntity) {
         if let Some(idx) = self.estimator_map.remove(&old.into()) {

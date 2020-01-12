@@ -288,7 +288,7 @@ impl Iterator for PositionWalker {
         }
         None
     }
-/*
+    /*
     fn try_fold<B, F: FnMut(B, Self::Item) -> R, R: std::ops::Try<Ok = B>>(&mut self, init: B, mut f: F) -> R {
         if let Some(current) = & mut self.current_pos {
             let mut tmp = init;

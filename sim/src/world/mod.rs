@@ -31,7 +31,7 @@ impl std::fmt::Display for Action {
             Idle => write!(f, "Idle"),
             Eat(food) => write!(f, "Eating {:?}", food.e_type()),
             Move(dir) => write!(f, "Moving {}", dir),
-            Attack(target) => write!(f, "Attacking {:?}", target.e_type()),
+            Attack(target) => write!(f, "Attacking {}", target),
         }
     }
 }

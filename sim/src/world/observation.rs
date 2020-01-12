@@ -368,11 +368,24 @@ impl<'a, C: Cell> Iterator for EntityWalker<'a, C> {
         None
     }
 
-    fn try_fold<B, F: FnMut(B, Self::Item) -> R, R: Try<Ok = B>>(&mut self, init: B, mut f: F) -> R {
-        let between = self.current[self.subindex..].iter().try_fold(init, |i, e| f(i, ( *e, self.current_pos)))?;
-        let Self{ref world, ref mut position_walker, ..} = self;
+    fn try_fold<B, F: FnMut(B, Self::Item) -> R, R: Try<Ok = B>>(
+        &mut self,
+        init: B,
+        mut f: F,
+    ) -> R {
+        let between = self.current[self.subindex..]
+            .iter()
+            .try_fold(init, |i, e| f(i, (*e, self.current_pos)))?;
+        let Self {
+            ref world,
+            ref mut position_walker,
+            ..
+        } = self;
         position_walker.try_fold(between, |init, pos| {
-            world.entities_at(pos).iter().try_fold(init, |i, e| f(i, (*e, pos)))
+            world
+                .entities_at(pos)
+                .iter()
+                .try_fold(init, |i, e| f(i, (*e, pos)))
         })
     }
 }

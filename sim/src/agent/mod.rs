@@ -33,8 +33,8 @@ impl Behavior {
         match bhv {
             None => format!("Undecided"),
             Some(Behavior::Travel(goal)) => format!("traveling towards {:?}", goal),
-            Some(Behavior::FleeFrom(enemy)) => format!("fleeing from {:?}", enemy.e_type()),
-            Some(Behavior::Hunt(prey)) => format!("hunting {:?} ", prey.e_type()),
+            Some(Behavior::FleeFrom(enemy)) => format!("fleeing from {}", enemy),
+            Some(Behavior::Hunt(prey)) => format!("hunting {} ", prey),
             Some(Behavior::Partake(food)) => format!("partaking of  {:?} ", food.e_type()),
             Some(Behavior::Search(target)) => format!("searching for {:?}", target),
         }
@@ -155,7 +155,7 @@ impl MentalState {
         }
         self.current_action
     }
-    fn update(
+    pub fn update(
         &mut self,
         physical_state: &PhysicalState,
         own_position: Position,
@@ -443,13 +443,36 @@ impl MentalState {
     }
     fn decide_simple(
         &mut self,
-        _physical_state: &PhysicalState,
+        physical_state: &PhysicalState,
         own_position: Position,
         observation: &impl Observation,
         estimator: &impl Estimator,
         threat_map: &[f32],
     ) {
         assert!(threat_map.len() == MAP_WIDTH * MAP_HEIGHT);
+        self.decide_behavior(
+            physical_state,
+            own_position,
+            observation,
+            estimator,
+            threat_map,
+        );
+        self.decide_action(
+            physical_state,
+            own_position,
+            observation,
+            estimator,
+            threat_map,
+        );
+    }
+    fn decide_behavior(
+        &mut self,
+        _physical_state: &PhysicalState,
+        own_position: Position,
+        observation: &impl Observation,
+        estimator: &impl Estimator,
+        threat_map: &[f32],
+    ) {
         if threat_map[own_position.idx()] > Self::FLEE_THREAT {
             let possible_threat =
                 max_threat(self.calculate_threat(own_position, observation, estimator));
@@ -492,6 +515,15 @@ impl MentalState {
                 ));
             }
         }
+    }
+    fn decide_action(
+        &mut self,
+        _physical_state: &PhysicalState,
+        own_position: Position,
+        observation: &impl Observation,
+        estimator: &impl Estimator,
+        threat_map: &[f32],
+    ) {
         match self.current_behavior.clone() {
             None => (),
             Some(Behavior::FleeFrom(predator)) => {

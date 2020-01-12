@@ -112,6 +112,11 @@ impl Default for EntityType {
     }
 }
 
+impl std::fmt::Display for EntityType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
 const ITEMS: [EntityType; EntityType::COUNT] = [
     EntityType::Rock,
     EntityType::Burrow,

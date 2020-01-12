@@ -1,5 +1,6 @@
 mod conrod_winit_helper;
 mod msr_widget;
+pub mod sphere_packing;
 
 use conrod_core as cc;
 use conrod_core::{

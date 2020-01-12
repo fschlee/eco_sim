@@ -1,4 +1,9 @@
 #![feature(manually_drop_take)]
+#![feature(const_generics)]
+#![feature(const_fn)]
+#![feature(const_loop)]
+#![feature(const_if_match)]
+#![feature(const_in_array_repeat_expressions)]
 
 use enum_macros::EnumIter;
 use log::{error, info};

@@ -10,7 +10,7 @@ use crate::entity_type::EntityType;
 use crate::position::Coord;
 use crate::util::f32_cmp;
 use crate::world::{Action, Event, Health, Observation, Occupancy, PhysicalState, Speed, World};
-use crate::{EmotionalState, Prob};
+use crate::{EmotionalState, Outcome, Position, Prob};
 use lazysort::{SortedBy, SortedPartial};
 use rand_xorshift::XorShiftRng;
 use smallvec::SmallVec;
@@ -35,6 +35,16 @@ impl PointEstimateRep {
 }
 
 impl MentalStateRep for PointEstimateRep {
+    type Iter<'a> =
+        impl ExactSizeIterator<Item = (&'a EmotionalState, &'a Action, &'a Option<Behavior>)> + 'a;
+    fn iter<'a>(&'a self) -> Self::Iter<'a> {
+        Some((
+            &self.emotional_state,
+            &self.current_action,
+            &self.current_behavior,
+        ))
+        .into_iter()
+    }
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState {
         let mut sample: MentalState = self.into();
         sample_ms(&mut sample, scale, rng);
@@ -51,7 +61,14 @@ impl MentalStateRep for PointEstimateRep {
         }
         if let Some(pos) = observation.observed_position(&self.id) {
             let mut ms: MentalState = (&(*self)).into();
+
             let threat_map = ms.threat_map(observation, others);
+            ms.update(
+                &self.physical_state,
+                pos,
+                observation,
+                threat_map[pos.idx()],
+            );
             ms.decide_simple(
                 &(self.physical_state),
                 pos,
@@ -69,6 +86,12 @@ impl MentalStateRep for PointEstimateRep {
                 for i in (0..max_tries).rev() {
                     let scale = (1.0 + i as f32).log2() / (max_tries as f32).log2();
                     let mut sample = self.sample(scale, &mut rng);
+                    sample.update(
+                        &self.physical_state,
+                        pos,
+                        observation,
+                        threat_map[pos.idx()],
+                    );
                     sample.decide_simple(
                         &(self.physical_state),
                         pos,
@@ -181,18 +204,30 @@ impl Borrow<EmotionalState> for PointEstimateRep {
     }
 }
 
-const PARTICLE_COUNT: usize = 10;
+const PARTICLE_COUNT: usize = 20;
 
 #[derive(Clone, Debug)]
 pub struct ParticleFilterRep {
     id: WorldEntity,
     physical_state: PhysicalState,
+    last_position: Position,
     particles: SmallVec<[(MentalState, Prob); PARTICLE_COUNT]>,
     /// Probability of action missprediction given approximately correct mental state.
     p_wrong_action: Prob,
 }
 
 impl MentalStateRep for ParticleFilterRep {
+    type Iter<'a> =
+        impl ExactSizeIterator<Item = (&'a EmotionalState, &'a Action, &'a Option<Behavior>)> + 'a;
+    fn iter(&self) -> Self::Iter<'_> {
+        self.particles.iter().map(|(ms, _)| {
+            (
+                &ms.emotional_state,
+                &ms.current_action,
+                &ms.current_behavior,
+            )
+        })
+    }
     fn sample<R: Rng + ?Sized>(&self, scale: f32, rng: &mut R) -> MentalState {
         let distr = rand_distr::Uniform::new(0.0f32, 1.0);
         let mut pick = rng.sample(distr);
@@ -220,53 +255,61 @@ impl MentalStateRep for ParticleFilterRep {
             self.physical_state = phys.clone();
         }
         if let Some(pos) = observation.observed_position(&self.id) {
-            let threat_map = self.particles[0].0.threat_map(observation, others);
-            let mut rng = self.particles[0].0.rng.clone();
-            // Low variance resampling
-            let inc = 1.0 / PARTICLE_COUNT as f32;
-            let mut target = rng.sample(rand_distr::Uniform::new(0.0, inc));
-            let mut acc = 0.0;
-            let mut next = SmallVec::new();
-            let mut p_right_action = 0.0;
-            for (ms, p) in self.particles.iter() {
-                acc += *p;
-                if acc > target {
-                    let n =
-                        (((acc - target) / inc).ceil() as usize).max(PARTICLE_COUNT - next.len());
-                    target += n as f32 * inc;
-                    for i in 0..n {
-                        let mut new_ms = ms.clone();
-                        sample_ms(&mut new_ms, 0.1 * i as f32, &mut rng);
-                        new_ms.decide_simple(
-                            &self.physical_state,
-                            pos,
-                            observation,
-                            others,
-                            &threat_map,
-                        );
-                        let mut new_p = *p / n as f32;
-                        if new_ms.current_action == action {
-                            p_right_action += new_p;
-                            new_p *= 1.0 - self.p_wrong_action;
-                        } else {
-                            new_p *= self.p_wrong_action;
-                        }
-                        next.push((new_ms, new_p));
+            self.last_position = pos;
+        }
+        let pos = self.last_position;
+        let threat_map = self.particles[0].0.threat_map(observation, others);
+        let mut rng = self.particles[0].0.rng.clone();
+        // Low variance resampling
+        let inc = 1.0 / PARTICLE_COUNT as f32;
+        let mut target = rng.sample(rand_distr::Uniform::new(0.0, inc));
+        let mut acc = 0.0;
+        let mut next = SmallVec::new();
+        let mut p_right_action = 0.0;
+        for (ms, p) in self.particles.iter() {
+            acc += *p;
+            if acc > target {
+                let n = (((acc - target) / inc).ceil() as usize).max(PARTICLE_COUNT - next.len());
+                target += n as f32 * inc;
+                for i in 0..n {
+                    let mut new_ms = ms.clone();
+                    let scale = if n == 1 { 0.2 } else { 0.1 * i as f32 };
+                    sample_ms(&mut new_ms, scale, &mut rng);
+                    new_ms.update(
+                        &self.physical_state,
+                        pos,
+                        observation,
+                        threat_map[pos.idx()],
+                    );
+                    new_ms.decide_simple(
+                        &self.physical_state,
+                        pos,
+                        observation,
+                        others,
+                        &threat_map,
+                    );
+                    let mut new_p = *p / n as f32;
+                    if new_ms.current_action == action {
+                        p_right_action += new_p;
+                        new_p *= 1.0 - self.p_wrong_action;
+                    } else {
+                        new_p *= self.p_wrong_action;
                     }
+                    next.push((new_ms, new_p));
                 }
             }
-            debug_assert!(next.len() == PARTICLE_COUNT);
-            let p_right: f32 = next.iter().map(|(_, p)| *p).sum();
-            let inv = 1.0 / p_right;
-            for (_, p) in next.iter_mut() {
-                *p *= inv;
-            }
-            next.sort_by(|(_, p0), (_, p1)| f32_cmp(p1, p0));
-            let p_right_action_given_right: f32 = p_right_action / p_right;
-            self.p_wrong_action = 0.9f32 * self.p_wrong_action
-                + 0.1f32 * (1.0f32 - p_right_action_given_right).min(0.01).max(0.4);
-            std::mem::swap(&mut self.particles, &mut next);
         }
+        debug_assert!(next.len() == PARTICLE_COUNT);
+        let p_right: f32 = next.iter().map(|(_, p)| *p).sum();
+        let inv = 1.0 / p_right;
+        for (_, p) in next.iter_mut() {
+            *p *= inv;
+        }
+        next.sort_by(|(_, p0), (_, p1)| f32_cmp(p1, p0));
+        let p_right_action_given_right: f32 = p_right_action / p_right;
+        self.p_wrong_action = 0.9f32 * self.p_wrong_action
+            + 0.1f32 * (1.0f32 - p_right_action_given_right).min(0.01).max(0.4);
+        std::mem::swap(&mut self.particles, &mut next);
     }
 
     fn update_on_events<'a>(
@@ -274,23 +317,54 @@ impl MentalStateRep for ParticleFilterRep {
         events: impl IntoIterator<Item = &'a Event> + Copy,
         world_model: Option<&'a World<Occupancy>>,
     ) {
+        use itertools::Itertools;
+        if let Some(dir) = events.into_iter().find_map(|e| match e {
+            Event {
+                actor,
+                outcome: Outcome::Moved(dir),
+            } if *actor == self.id => Some(dir),
+            _ => None,
+        }) {
+            self.last_position = self.last_position.step(*dir).unwrap_or(self.last_position);
+        }
         for (ms, _) in self.particles.iter_mut() {
             ms.update_on_events(events);
         }
     }
 
     fn update_unseen<'a>(&'a mut self, others: &impl Estimator, observation: &impl Observation) {
-        // Todo
+        // "Observation" can be a world model with suspected physical state and position, if so use those.
+        if let Some(phys) = observation.observed_physical_state(&self.id) {
+            self.physical_state = phys.clone();
+        }
+        if let Some(pos) = observation.observed_position(&self.id) {
+            self.last_position = pos;
+        }
+        let threat_map = self.particles[0].0.threat_map(observation, others);
+        for (ms, _) in self.particles.iter_mut() {
+            ms.update(
+                &self.physical_state,
+                self.last_position,
+                observation,
+                threat_map[self.last_position.idx()],
+            );
+            ms.decide_simple(
+                &self.physical_state,
+                self.last_position,
+                observation,
+                others,
+                &threat_map,
+            );
+        }
     }
 
     fn default(we: &WorldEntity) -> Self {
         let mut rng: XorShiftRng = rand::SeedableRng::seed_from_u64(we.id() as u64);
-        let distr = rand_distr::Uniform::new(0.0f32, 1.0);
         let particles = std::iter::repeat_with(|| {
             let v: Vec<_> = EntityType::iter()
                 .filter_map(|et| {
                     if we.e_type().can_eat(&et) {
-                        let pref = rng.sample(distr);
+                        let pref = rng.gen_range(0.0, 1.0);
                         Some((et, pref))
                     } else {
                         None
@@ -311,6 +385,7 @@ impl MentalStateRep for ParticleFilterRep {
                 .typical_physical_state()
                 .unwrap_or(PhysicalState::new(Health(50.0), Speed(0.2), None)),
             particles,
+            last_position: Position { x: 5, y: 5 },
             p_wrong_action: 0.2,
         }
     }
@@ -320,7 +395,6 @@ impl MentalStateRep for ParticleFilterRep {
         B: std::borrow::Borrow<Self>,
     {
         let mut rng: XorShiftRng = rand::SeedableRng::seed_from_u64(we.id() as u64);
-        let distr = rand_distr::Uniform::new(0.0f32, 1.0);
         use lazysort::{SortedBy, SortedPartial};
         let mut particles: SmallVec<_> = iter
             .flat_map(|b| {
@@ -328,11 +402,15 @@ impl MentalStateRep for ParticleFilterRep {
                 v.into_iter()
             })
             .sorted_by(|(_, p0), (_, p1)| f32_cmp(p1, p0))
+            .map(|mut t| {
+                t.0.id = *we;
+                t
+            })
             .chain(std::iter::repeat_with(|| {
                 let v: Vec<_> = EntityType::iter()
                     .filter_map(|et| {
                         if we.e_type().can_eat(&et) {
-                            let pref = rng.sample(distr);
+                            let pref = rng.gen_range(0.0, 1.0);
                             Some((et, pref))
                         } else {
                             None
@@ -349,7 +427,7 @@ impl MentalStateRep for ParticleFilterRep {
             id: *we,
             physical_state: we.e_type().typical_physical_state().unwrap(),
             particles,
-
+            last_position: Position { x: 5, y: 5 },
             p_wrong_action: 0.2,
         }
     }
