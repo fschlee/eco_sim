@@ -260,7 +260,7 @@ impl Iterator for PositionWalker {
             if current.y > self.center.y {
                 let x = self.center.x + self.radius - self.delta;
                 let y = self.center.y - self.delta;
-                if x < MAP_WIDTH as Coord && y >= 0 {
+                if y >= 0 {
                     self.current_pos = Some(Position { x, y });
                     return Some(current);
                 }
@@ -285,6 +285,8 @@ impl Iterator for PositionWalker {
                 });
                 return Some(current);
             }
+            self.current_pos = None;
+            return Some(current);
         }
         None
     }

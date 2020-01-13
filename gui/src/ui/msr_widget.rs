@@ -141,34 +141,32 @@ impl cc::Widget for MentalStateRepWidget {
         let mut behavior_ids = state.behavior_txt.iter();
         for ((behavior, indices), behavior_canvas_id) in
             self.behaviors.iter().zip(state.behavior_canvas.iter())
+        {
+            let txt = eco_sim::Behavior::fmt(behavior);
+            let mut prev = None;
+            cc::widget::Canvas::new()
+                .w_h(120.0, 20.0)
+                .align_left_of(id)
+                .down(5.0)
+                .set(*behavior_canvas_id, ui);
+            for ((s, idx), a_id) in substrings(indices.len(), &txt)
+                .zip(indices)
+                .zip(behavior_ids.by_ref())
             {
-                let txt = eco_sim::Behavior::fmt(behavior);
-                let mut prev = None;
-                cc::widget::Canvas::new()
-                    .w_h(120.0, 20.0)
-                    .align_left_of(id)
-                    .down(5.0)
-                    .set(*behavior_canvas_id, ui);
-                for ((s, idx), a_id) in substrings(indices.len(), &txt)
-                    .zip(indices)
-                    .zip(behavior_ids.by_ref())
-                    {
-                        let [r, g, b] = colors[*idx];
-                        let mut w = cc::widget::Text::new(s)
-                            .font_size(ui.theme().font_size_small)
-                            .align_left_of(*behavior_canvas_id)
-                            .color(cc::Color::Rgba(r, g, b, 1.0));
-                        //.set(*a_id, ui);
-                        if let Some(prev_id) = prev {
-                            w.right_from(prev_id, 0.0).set(*a_id, ui);
-                        } else {
-                            w.set(*a_id, ui);
-                        }
-                        prev = Some(*a_id);
-                    }
+                let [r, g, b] = colors[*idx];
+                let mut w = cc::widget::Text::new(s)
+                    .font_size(ui.theme().font_size_small)
+                    .align_left_of(*behavior_canvas_id)
+                    .color(cc::Color::Rgba(r, g, b, 1.0));
+                //.set(*a_id, ui);
+                if let Some(prev_id) = prev {
+                    w.right_from(prev_id, 0.0).set(*a_id, ui);
+                } else {
+                    w.set(*a_id, ui);
+                }
+                prev = Some(*a_id);
             }
-
-
+        }
     }
     fn default_y_dimension(&self, ui: &Ui) -> cc::position::Dimension {
         let bk = self.bars.len() as f64;
@@ -218,15 +216,14 @@ impl crate::simulation::MentalModelFn for MentalStateRepWidget {
                     actions.push((*act, vec![idx]));
                 }
 
-                    if let Some((_, indices)) = behaviors
-                        .iter_mut()
-                        .find(|(b, _): &&mut (Option<eco_sim::Behavior>, Vec<usize>)| *b == *beh)
-                    {
-                        indices.push(idx);
-                    } else {
-                        behaviors.push((beh.clone(), vec![idx]));
-                    }
-
+                if let Some((_, indices)) = behaviors
+                    .iter_mut()
+                    .find(|(b, _): &&mut (Option<eco_sim::Behavior>, Vec<usize>)| *b == *beh)
+                {
+                    indices.push(idx);
+                } else {
+                    behaviors.push((beh.clone(), vec![idx]));
+                }
             });
             let mut bars = vec![
                 ("Hunger".to_owned(), hunger),
@@ -268,7 +265,7 @@ fn yuv_to_rgb(y: f64, u: f64, v: f64) -> RGB {
 fn distinct_colors(n: usize) -> Vec<RGB> {
     SpherePacking::fit_n_in_box(n as u64, [0.2, 0.0, 0.0], [0.8, 1.0, 1.0])
         .take(n)
-        .map(|[y, u, v]| yuv_to_rgb(y, u -U_MAX, v - V_MAX))
+        .map(|[y, u, v]| yuv_to_rgb(y, u - U_MAX, v - V_MAX))
         .collect()
 }
 
@@ -282,13 +279,11 @@ fn substrings<'a>(n: usize, full_str: &'a str) -> impl Iterator<Item = &'a str> 
     } else {
         1
     };
-    (0..full_str.len())
-        .step_by(stride)
-        .map(move |i| {
-            if i + stride > full_str.len() {
-                &full_str[i..]
-            } else {
-                &full_str[i.. i+stride]
-            }
-        })
+    (0..full_str.len()).step_by(stride).map(move |i| {
+        if i + stride > full_str.len() {
+            &full_str[i..]
+        } else {
+            &full_str[i..i + stride]
+        }
+    })
 }
