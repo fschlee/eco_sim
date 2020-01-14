@@ -1,6 +1,7 @@
 pub mod emotion;
 pub mod estimate;
 pub mod estimator;
+pub mod pathing;
 
 use log::{error, info};
 use ordered_float::OrderedFloat;
@@ -19,6 +20,7 @@ use crate::Behavior::Partake;
 use crate::agent::estimator::Estimator;
 pub use emotion::{Aggression, EmotionalState, Fear, Hunger, Tiredness};
 use estimator::{EstimatorMap, MentalStateRep};
+use pathing::Pathable;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 pub enum Behavior {
@@ -486,7 +488,9 @@ impl MentalState {
                 .find_closest(own_position, |e, _w| self.id.e_type().can_eat(&e.e_type()))
                 .filter_map(|(e, p)| {
                     if let Some(rw) = self.lookup_preference(e.e_type()) {
-                        if threat_map[p.idx()] > Self::FLEE_THREAT {
+                        if threat_map[p.idx()] > Self::FLEE_THREAT
+                            || observation.known_can_pass(&self.id, p) != Some(true)
+                        {
                             None
                         } else {
                             let dist = own_position.distance(&p) as f32 * 0.05;
@@ -499,10 +503,7 @@ impl MentalState {
                 .max_by(|(rw1, _, _), (rw2, _, _)| f32_cmp(rw1, rw2))
             {
                 match observation.observed_physical_state(&food) {
-                    Some(ps)
-                        if ps.health > Health(0.0)
-                            && observation.known_can_pass(&self.id, position) == Some(true) =>
-                    {
+                    Some(ps) if !ps.is_dead() => {
                         self.current_behavior = Some(Behavior::Hunt(food));
                     }
                     _ => {
