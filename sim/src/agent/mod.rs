@@ -469,51 +469,63 @@ impl MentalState {
     }
     fn decide_behavior(
         &mut self,
-        _physical_state: &PhysicalState,
+        physical_state: &PhysicalState,
         own_position: Position,
         observation: &impl Observation,
         estimator: &impl Estimator,
         threat_map: &[f32],
     ) {
-        if threat_map[own_position.idx()] > Self::FLEE_THREAT {
+        if threat_map[own_position.idx()] * self.emotional_state.fear().0 > Self::FLEE_THREAT {
             let possible_threat =
                 max_threat(self.calculate_threat(own_position, observation, estimator));
             if let Some((predator, _threat)) = possible_threat {
                 self.current_behavior = Some(Behavior::FleeFrom(predator.clone()));
+                return;
             }
         }
-        if self.current_behavior.is_none() && self.emotional_state.hunger() > Self::HUNGER_THRESHOLD
+        let threatened = threat_map[own_position.idx()] > Self::SAFE_THREAT
+            || physical_state.move_target.and_then(|dir | own_position.step(dir)).map_or(false, |pos| {
+                threat_map[pos.idx()] > Self::SAFE_THREAT
+            });
+
+        // If we are currently threatened we need to reevaluate whether the current target is still viable
+        if (self.current_behavior.is_none() || threatened) && self.emotional_state.hunger() > Self::HUNGER_THRESHOLD
         {
-            if let Some((_reward, food, position)) = observation
-                .find_closest(own_position, |e, _w| self.id.e_type().can_eat(&e.e_type()))
-                .filter_map(|(e, p)| {
-                    if let Some(rw) = self.lookup_preference(e.e_type()) {
-                        if threat_map[p.idx()] > Self::FLEE_THREAT
-                            || observation.known_can_pass(&self.id, p) != Some(true)
-                        {
-                            None
-                        } else {
-                            let dist = own_position.distance(&p) as f32 * 0.05;
-                            Some((rw - dist, e, p))
+            match observation.iter_paths_with_as(own_position, OrderedFloat(0.0), self.id,  |pos, cost, obsv | {
+                OrderedFloat(cost.0 + threat_map[pos.idx()] * self.emotional_state.fear().0 + self.emotional_state.tiredness().0 * 10.0)
+            }, | pos, cost, obsv |
+                obsv.entities_at(pos).iter().any(|e| self.id.e_type().can_eat(&e.e_type()))).flat_map(|(path, cost)| {
+                let pos = *path.last().unwrap();
+                // Creating reference to be moved into the closure. The closure needs to be specified as move
+                // to capture pos and cost by value because they do not live long enough to be captured by reference,
+                // but we cannot capture self by move. Self lives long enough to capture by reference, but there
+                // currently is no way to selectively capture by move.
+                let this = &self;
+                observation.entities_at(pos).iter().filter_map(move|other| {
+                    if let Some(rw) = this.lookup_preference(other.e_type()) {
+                        match observation.observed_physical_state(other).or(other.e_type().typical_physical_state().as_ref()) {
+                            Some(ps) if ps.is_dead() => Some((ps.meat.0 * rw * this.emotional_state.hunger().0 - (*cost), other, pos, false)),
+                            None => Some((500.0 * rw * this.emotional_state.hunger().0 - (*cost), other, pos, false)),
+                            Some(ps) => {
+                                let effort = if let Some(attack) = ps.attack {
+                                    attack.0 * (ps.health.0 / physical_state.attack.unwrap().0)
+                                } else {
+                                    (ps.speed.0 / physical_state.speed.0) * (1.0 - ps.fatigue.0) * this.emotional_state.tiredness().0
+                                };
+                                Some((ps.meat.0 * rw * this.emotional_state.hunger().0 - (*cost) - effort, other, pos, true))
+                            }
                         }
-                    } else {
+                    }
+                    else {
                         None
                     }
                 })
-                .max_by(|(rw1, _, _), (rw2, _, _)| f32_cmp(rw1, rw2))
-            {
-                match observation.observed_physical_state(&food) {
-                    Some(ps) if !ps.is_dead() => {
-                        self.current_behavior = Some(Behavior::Hunt(food));
-                    }
-                    _ => {
-                        self.current_behavior = Some(Behavior::Partake(food));
-                    }
-                }
-            } else {
-                self.current_behavior = Some(Behavior::Search(
+            }).max_by(|(rw1, _, _, _), (rw2, _, _, _)| f32_cmp(rw1, rw2)) {
+                Some((_reward, prey, position, is_alive)) if is_alive => self.current_behavior = Some(Behavior::Hunt(*prey)),
+                Some((_reward, food, position, is_alive)) => self.current_behavior = Some(Behavior::Partake(*food)),
+                None => self.current_behavior = Some(Behavior::Search(
                     self.food_preferences().map(|(f, _r)| f.clone()).collect(),
-                ));
+                ))
             }
         }
     }

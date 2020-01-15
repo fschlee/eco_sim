@@ -3,22 +3,22 @@ use std::collections::BinaryHeap;
 
 use crate::{Cell, Dir, Observation, Position, PositionMap, RadiusObservation, World, WorldEntity};
 
-struct FindPathIter<C: Copy + Eq + PartialOrd, F, A, O> {
+pub struct FindPathIter<'a, C: Copy + Eq + PartialOrd, F, A, O> {
     seeker: WorldEntity,
     cost_acc: A,
     found: F,
-    observation: O,
+    observation: &'a O,
     came_from: PositionMap<Position>,
 
     costs: PositionMap<C>,
     queue: BinaryHeap<PathNode<C>>,
 }
-impl<C: Copy + Eq + PartialOrd, F, A, O> FindPathIter<C, F, A, O> {
+impl<'a, C: Copy + Eq + PartialOrd, F, A, O> FindPathIter<'a, C, F, A, O> {
     pub fn new(
         seeker: WorldEntity,
         start: Position,
         start_cost: C,
-        observation: O,
+        observation: & 'a O,
         cost_acc: A,
         found: F,
     ) -> Self {
@@ -44,9 +44,9 @@ impl<C: Copy + Eq + PartialOrd, F, A, O> FindPathIter<C, F, A, O> {
 impl<
         C: Copy + Eq + PartialOrd,
         F: Fn(Position, C, &O) -> bool,
-        A: Fn(Position, &C, &O) -> C,
+        A: Fn(Position, C, &O) -> C,
         O: Observation,
-    > Iterator for FindPathIter<C, F, A, O>
+    > Iterator for FindPathIter<'_, C, F, A, O>
 {
     type Item = (Vec<Position>, C);
 
@@ -57,7 +57,7 @@ impl<
                 if self.observation.known_can_pass(&self.seeker, n) == Some(false) {
                     continue;
                 }
-                let cost = (self.cost_acc)(n, &base_cost, &self.observation);
+                let cost = (self.cost_acc)(n, base_cost, &self.observation);
                 let mut insert = true;
                 if let Some(c) = self.costs.get(&n) {
                     if *c <= cost {
@@ -213,17 +213,17 @@ pub trait Pathable: Observation {
     }
     fn iter_paths_with_as<
         C: Copy + Eq + PartialOrd,
-        A: Fn(Position, &C, &Self) -> C,
-        F: Fn(Position, &C, &Self) -> bool,
+        F: Fn(Position, C, &Self) -> bool,
+        A: Fn(Position, C, &Self) -> C,
     >(
         &self,
         start: Position,
         start_cost: C,
-        entity: &WorldEntity,
+        entity: WorldEntity,
         cost_acc: A,
         found: F,
-    ) -> FindPathIter<C, F, A, Self> {
-        FindPathIter::new(*entity, start, start_cost, self, cost_acc, found)
+    ) -> FindPathIter<'_, C, F, A, Self> {
+        FindPathIter::new(entity, start, start_cost, self, cost_acc, found)
     }
 }
 
