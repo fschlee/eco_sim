@@ -73,6 +73,12 @@ pub trait Observation: Clone {
         let agent_system = AgentSystem::init(agents, &world, false, false, rng);
         (entity_manager, world, agent_system)
     }
+    fn is_for_models() -> bool {
+        false
+    }
+    fn is_model(&self) -> bool {
+        Self::is_for_models()
+    }
 }
 
 impl<'b, C: Cell> Observation for &'b World<C> {
@@ -117,6 +123,10 @@ impl<'b, C: Cell> Observation for &'b World<C> {
     }
     fn cell_at(&self, pos: Position) -> Option<&Self::CellType> {
         Some(&self[pos])
+    }
+
+    fn is_for_models() -> bool {
+        Self::CellType::is_model_cell()
     }
 }
 

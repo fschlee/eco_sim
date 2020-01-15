@@ -21,6 +21,7 @@ use crate::agent::estimator::Estimator;
 pub use emotion::{Aggression, EmotionalState, Fear, Hunger, Tiredness};
 use estimator::{EstimatorMap, MentalStateRep};
 use pathing::Pathable;
+use smallvec::SmallVec;
 
 #[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 pub enum Behavior {
@@ -67,13 +68,13 @@ impl<R: MentalStateRep> From<&R> for MentalState {
 }
 
 impl MentalState {
-    const HUNGER_THRESHOLD: Hunger = Hunger(0.2);
-    const HUNGER_INCREMENT: f32 = 0.00001;
-    const FEAR_INCREMENT: f32 = 0.0001;
+    const HUNGER_THRESHOLD: f32 = 0.2;
+    const HUNGER_INCREMENT: f32 = 0.0001;
+    const FEAR_INCREMENT: f32 = 0.003;
     const AGGRESSION_INCREMENT: f32 = 0.01;
-    const TIREDNESS_INCREMENT: f32 = 0.01;
+    const TIREDNESS_INCREMENT: f32 = 0.2;
     const FLEE_THREAT: f32 = 30.0;
-    const SAFE_THREAT: f32 = 8.0;
+    const SAFE_THREAT: f32 = 15.0;
     const UNSEEN_PROB_MULTIPLIER: f32 = 0.9;
     const PROB_REMOVAL_THRESHOLD: f32 = 0.1;
     pub fn new(
@@ -475,7 +476,7 @@ impl MentalState {
         estimator: &impl Estimator,
         threat_map: &[f32],
     ) {
-        if threat_map[own_position.idx()] * self.emotional_state.fear().0 > Self::FLEE_THREAT {
+        if self.will_flee(threat_map[own_position.idx()]) {
             let possible_threat =
                 max_threat(self.calculate_threat(own_position, observation, estimator));
             if let Some((predator, _threat)) = possible_threat {
@@ -484,48 +485,124 @@ impl MentalState {
             }
         }
         let threatened = threat_map[own_position.idx()] > Self::SAFE_THREAT
-            || physical_state.move_target.and_then(|dir | own_position.step(dir)).map_or(false, |pos| {
-                threat_map[pos.idx()] > Self::SAFE_THREAT
-            });
+            || physical_state
+                .move_target
+                .and_then(|dir| own_position.step(dir))
+                .map_or(false, |pos| threat_map[pos.idx()] > Self::SAFE_THREAT);
 
         // If we are currently threatened we need to reevaluate whether the current target is still viable
-        if (self.current_behavior.is_none() || threatened) && self.emotional_state.hunger() > Self::HUNGER_THRESHOLD
+        if (self.current_behavior.is_none() || threatened)
+            && (self.emotional_state.hunger().0 - self.emotional_state.tiredness().0)
+                > Self::HUNGER_THRESHOLD
         {
-            match observation.iter_paths_with_as(own_position, OrderedFloat(0.0), self.id,  |pos, cost, obsv | {
-                OrderedFloat(cost.0 + threat_map[pos.idx()] * self.emotional_state.fear().0 + self.emotional_state.tiredness().0 * 10.0)
-            }, | pos, cost, obsv |
-                obsv.entities_at(pos).iter().any(|e| self.id.e_type().can_eat(&e.e_type()))).flat_map(|(path, cost)| {
-                let pos = *path.last().unwrap();
-                // Creating reference to be moved into the closure. The closure needs to be specified as move
-                // to capture pos and cost by value because they do not live long enough to be captured by reference,
-                // but we cannot capture self by move. Self lives long enough to capture by reference, but there
-                // currently is no way to selectively capture by move.
-                let this = &self;
-                observation.entities_at(pos).iter().filter_map(move|other| {
-                    if let Some(rw) = this.lookup_preference(other.e_type()) {
-                        match observation.observed_physical_state(other).or(other.e_type().typical_physical_state().as_ref()) {
-                            Some(ps) if ps.is_dead() => Some((ps.meat.0 * rw * this.emotional_state.hunger().0 - (*cost), other, pos, false)),
-                            None => Some((500.0 * rw * this.emotional_state.hunger().0 - (*cost), other, pos, false)),
-                            Some(ps) => {
-                                let effort = if let Some(attack) = ps.attack {
-                                    attack.0 * (ps.health.0 / physical_state.attack.unwrap().0)
-                                } else {
-                                    (ps.speed.0 / physical_state.speed.0) * (1.0 - ps.fatigue.0) * this.emotional_state.tiredness().0
-                                };
-                                Some((ps.meat.0 * rw * this.emotional_state.hunger().0 - (*cost) - effort, other, pos, true))
-                            }
-                        }
-                    }
-                    else {
-                        None
-                    }
-                })
-            }).max_by(|(rw1, _, _, _), (rw2, _, _, _)| f32_cmp(rw1, rw2)) {
-                Some((_reward, prey, position, is_alive)) if is_alive => self.current_behavior = Some(Behavior::Hunt(*prey)),
-                Some((_reward, food, position, is_alive)) => self.current_behavior = Some(Behavior::Partake(*food)),
-                None => self.current_behavior = Some(Behavior::Search(
-                    self.food_preferences().map(|(f, _r)| f.clone()).collect(),
+            let mut start: SmallVec<[_; 2]> = smallvec::SmallVec::new();
+            start.push((own_position, OrderedFloat(0.0), None));
+            if let Some(pos) = physical_state
+                .move_target
+                .and_then(|d| own_position.step(d))
+            {
+                start.push((
+                    pos,
+                    OrderedFloat(
+                        (threat_map[pos.idx()] * self.emotional_state.fear().0
+                            + self.emotional_state.tiredness().0 * 10.0)
+                            * (1.0 - physical_state.move_progress.0),
+                    ),
+                    Some(own_position),
                 ))
+            }
+            match observation
+                .iter_paths_with_as(
+                    start,
+                    self.id,
+                    |pos, cost, obsv| {
+                        OrderedFloat(
+                            cost.0
+                                + threat_map[pos.idx()] * self.emotional_state.fear().0
+                                + self.emotional_state.tiredness().0 * 10.0,
+                        )
+                    },
+                    |pos, cost, obsv| {
+                        obsv.entities_at(pos)
+                            .iter()
+                            .any(|e| self.id.e_type().can_eat(&e.e_type()))
+                    },
+                )
+                .flat_map(|(path, cost)| {
+                    let pos = *path.last().unwrap();
+                    // Creating reference to be moved into the closure. The closure needs to be specified as move
+                    // to capture pos and cost by value because they do not live long enough to be captured by reference,
+                    // but we cannot capture self by move. Self lives long enough to capture by reference, but there
+                    // currently is no way to selectively capture by move.
+                    let this = &self;
+                    observation
+                        .entities_at(pos)
+                        .iter()
+                        .filter_map(move |other| {
+                            if let Some(rw) = this.lookup_preference(other.e_type()) {
+                                match observation
+                                    .observed_physical_state(other)
+                                    .or(other.e_type().typical_physical_state().as_ref())
+                                {
+                                    Some(ps) if ps.is_dead() => Some((
+                                        ps.meat.0 * rw * this.emotional_state.hunger().0 - (*cost),
+                                        other,
+                                        pos,
+                                        false,
+                                    )),
+                                    None => Some((
+                                        500.0 * rw * this.emotional_state.hunger().0 - (*cost),
+                                        other,
+                                        pos,
+                                        false,
+                                    )),
+                                    Some(ps) => {
+                                        let effort = if let Some(attack) = ps.attack {
+                                            attack.0
+                                                * (ps.health.0 / physical_state.attack.unwrap().0)
+                                        } else {
+                                            (ps.speed.0 / physical_state.speed.0)
+                                                * (1.0 - ps.fatigue.0)
+                                                * this.emotional_state.tiredness().0
+                                        };
+                                        Some((
+                                            ps.meat.0 * rw * this.emotional_state.hunger().0
+                                                - (*cost)
+                                                - effort,
+                                            other,
+                                            pos,
+                                            true,
+                                        ))
+                                    }
+                                }
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .max_by(|(rw1, _, _, _), (rw2, _, _, _)| f32_cmp(rw1, rw2))
+            {
+                Some((_reward, prey, position, is_alive)) if is_alive => {
+                    self.current_behavior = Some(Behavior::Hunt(*prey))
+                }
+                Some((_reward, food, position, is_alive)) => {
+                    self.current_behavior = Some(Behavior::Partake(*food))
+                }
+                None => {
+                    self.current_behavior = Some(Behavior::Search(
+                        self.food_preferences().map(|(f, _r)| f.clone()).collect(),
+                    ))
+                }
+            }
+        } else if self.emotional_state.tiredness().0 > self.emotional_state.hunger().0
+            && !threatened
+        {
+            self.current_behavior = None;
+        } else if threatened {
+            if let Some((threat, _)) =
+                max_threat(self.calculate_threat(own_position, observation, estimator))
+            {
+                self.current_behavior = Some(Behavior::FleeFrom(threat))
             }
         }
     }
@@ -546,7 +623,7 @@ impl MentalState {
                 {
                     escaped = true;
                 } else {
-                    if let Some(_) = observation.observed_position(&predator) {
+                    if let Some(pred_pos) = observation.observed_position(&predator) {
                         let mut safe_enough = Self::SAFE_THREAT;
                         for _ in 0..2 {
                             let start_cost = OrderedFloat(threat_map[own_position.idx()]);
@@ -559,7 +636,12 @@ impl MentalState {
                             ) {
                                 debug_assert!(path[0].is_neighbour(&own_position));
                                 self.current_action = Action::Move(own_position.dir(&path[0]));
+                                break;
                             } else {
+                                if own_position.distance(&pred_pos) > self.sight_radius {
+                                    escaped = true;
+                                    break;
+                                }
                                 if let Some(pos) = Position::iter()
                                     .filter(|p| observation.can_pass_prob(&self.id, *p) > 0.5)
                                     .min_by(|p0, p1| {
@@ -578,6 +660,7 @@ impl MentalState {
                 }
                 if escaped {
                     self.current_behavior = None;
+                    self.current_action = Action::Idle;
                 }
             }
             Some(Behavior::Hunt(prey)) => match observation.observed_position(&prey) {
@@ -628,7 +711,7 @@ impl MentalState {
                     if let Some(path) = observation
                         .iter()
                         .filter_map(|(p, opt_c)| {
-                            if threat_map[p.idx()] > Self::FLEE_THREAT {
+                            if self.will_flee(threat_map[p.idx()]) {
                                 return None;
                             }
                             match opt_c {
@@ -646,7 +729,7 @@ impl MentalState {
                                 for dir in &path {
                                     if let Some(step) = current.step(*dir) {
                                         current = step;
-                                        if threat_map[current.idx()] >= Self::FLEE_THREAT {
+                                        if self.will_flee(threat_map[current.idx()]) {
                                             return None;
                                         }
                                     } else {
@@ -682,7 +765,7 @@ impl MentalState {
                 if let Some(Behavior::FleeFrom(_)) = self.current_behavior {
                 } else {
                     match own_position.step(dir) {
-                        Some(pos) if threat_map[pos.idx()] > Self::FLEE_THREAT => {
+                        Some(pos) if self.will_flee(threat_map[pos.idx()]) => {
                             self.current_action = Action::Idle;
                             self.current_behavior = None;
                         }
@@ -902,6 +985,7 @@ impl MentalState {
                 observation.can_pass_prob(&self.id, pos)
             });
         }
+        let s: f32 = threat.iter().sum();
         threat
     }
     pub fn path(
@@ -956,6 +1040,9 @@ impl MentalState {
                     None
                 }
             })
+    }
+    pub fn will_flee(&self, threat: f32) -> bool {
+        self.emotional_state.fear().0 * threat > Self::FLEE_THREAT
     }
     pub fn shallow_copy(&self) -> Self {
         Self {

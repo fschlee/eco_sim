@@ -279,11 +279,14 @@ fn substrings<'a>(n: usize, full_str: &'a str) -> impl Iterator<Item = &'a str> 
     } else {
         1
     };
-    (0..full_str.len()).step_by(stride).map(move |i| {
-        if i + stride > full_str.len() {
-            &full_str[i..]
-        } else {
-            &full_str[i..i + stride]
-        }
-    })
+    (0..full_str.len())
+        .step_by(stride)
+        .enumerate()
+        .map(move |(i, s)| {
+            if s + stride >= full_str.len() || i == n - 1 {
+                &full_str[s..]
+            } else {
+                &full_str[s..s + stride]
+            }
+        })
 }

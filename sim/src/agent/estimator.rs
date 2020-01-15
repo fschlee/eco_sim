@@ -148,9 +148,9 @@ impl<E: MentalStateRep + 'static> LearningEstimator<E> {
         }
         if let Some((es, sc)) = self.estimators.split_out_mut(other) {
             if dist <= sight {
-                es.update_seen(action, &sc, &observation);
+                es.update_seen(action, &&sc, &observation);
             } else {
-                es.update_unseen(&sc, &observation);
+                es.update_unseen(&&sc, &observation);
             }
         }
     }
@@ -212,20 +212,21 @@ impl<E: MentalStateRep + 'static> Estimator for LearningEstimator<E> {
     }
 }
 
-impl<'c, T: MentalStateRep + Sized + 'static> Estimator for StorageSlice<'c, T> {
+impl<'c, T: MentalStateRep + Sized + 'static> Estimator for &'c StorageSlice<'c, T> {
     type Rep = T;
     fn invoke(&self, entity: WorldEntity) -> Option<MentalState> {
         self.get(entity.into()).map(MentalStateRep::into_ms)
     }
 
-    fn invoke_sampled<'b, R: rand::Rng + Sized>(
-        &'b self,
+    fn invoke_sampled<'a, R: rand::Rng + Sized>(
+        &'a self,
         we: WorldEntity,
-        rng: &'b mut R,
+        rng: &'a mut R,
         n: usize,
-    ) -> InvokeIter<'b, Self::Rep, R> {
-        InvokeIter::Empty
-        // self.get(we).iter().flat_map(|e: &T| e.sample(1.0, rng)).fuse()
+    ) -> InvokeIter<'a, T, R> {
+        self.get(we.into())
+            .map(move |rep| InvokeIter::Rep { rng, count: n, rep })
+            .unwrap_or(InvokeIter::Empty)
     }
     fn learn<'a, C: Cell>(
         &mut self,

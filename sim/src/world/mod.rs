@@ -83,8 +83,8 @@ pub struct World<C: Cell> {
 impl<C: Cell> World<C> {
     pub const EATING_DECREMENT: f32 = 5.0;
     pub const ATTACK_FATIGUE_INCREMENT: Fatigue = Fatigue(0.05);
-    pub const MOVE_FATIGUE_INCREMENT: Fatigue = Fatigue(0.03);
-    pub const REST_FATIGUE_DECREMENT: Fatigue = Fatigue(-0.02);
+    pub const MOVE_FATIGUE_INCREMENT: Fatigue = Fatigue(0.01);
+    pub const REST_FATIGUE_DECREMENT: Fatigue = Fatigue(-0.007);
     pub const HEALING_FACTOR: f32 = 0.01;
     pub const HEALING_THRESHOLD: Satiation = Satiation(0.2);
     pub fn init(mut rng: impl Rng, entity_manager: &mut EntityManager) -> (Self, Vec<WorldEntity>) {

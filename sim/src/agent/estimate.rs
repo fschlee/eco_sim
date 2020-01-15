@@ -10,7 +10,7 @@ use crate::entity_type::EntityType;
 use crate::position::Coord;
 use crate::util::f32_cmp;
 use crate::world::{Action, Event, Health, Observation, Occupancy, PhysicalState, Speed, World};
-use crate::{EmotionalState, Outcome, Position, Prob};
+use crate::{Aggression, EmotionalState, Fear, Outcome, Position, Prob, Tiredness};
 use lazysort::{SortedBy, SortedPartial};
 use rand_xorshift::XorShiftRng;
 use smallvec::SmallVec;
@@ -309,7 +309,7 @@ impl MentalStateRep for ParticleFilterRep {
         let p_right_action_given_right: f32 = p_right_action / p_right;
         self.p_wrong_action = 0.9f32 * self.p_wrong_action
             + 0.1f32 * (1.0f32 - p_right_action_given_right).min(0.01).max(0.4);
-        std::mem::swap(&mut self.particles, &mut next);
+        self.particles = next;
     }
 
     fn update_on_events<'a>(
@@ -448,6 +448,12 @@ fn normalize<T, F: Fn(&mut T) -> &mut f32>(probs: &mut [T], accessor: F) {
 fn sample_ms<R: Rng + ?Sized>(sample: &mut MentalState, scale: f32, rng: &mut R) {
     let hunger_sample: f32 = StandardNormal.sample(rng);
     sample.emotional_state += Hunger(hunger_sample * scale);
+    let fear_sample: f32 = StandardNormal.sample(rng);
+    sample.emotional_state += Fear(fear_sample * scale);
+    let aggression_sample: f32 = StandardNormal.sample(rng);
+    sample.emotional_state += Aggression(aggression_sample * scale);
+    let tiredness_sample: f32 = StandardNormal.sample(rng);
+    sample.emotional_state += Tiredness(tiredness_sample * scale);
     for et in EntityType::iter() {
         if sample.id.e_type().can_eat(&et) {
             let pref_sample: f32 = StandardNormal.sample(rng);

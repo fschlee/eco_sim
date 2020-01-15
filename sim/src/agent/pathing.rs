@@ -16,20 +16,23 @@ pub struct FindPathIter<'a, C: Copy + Eq + PartialOrd, F, A, O> {
 impl<'a, C: Copy + Eq + PartialOrd, F, A, O> FindPathIter<'a, C, F, A, O> {
     pub fn new(
         seeker: WorldEntity,
-        start: Position,
-        start_cost: C,
-        observation: & 'a O,
+        start: impl IntoIterator<Item = (Position, C, Option<Position>)>,
+        observation: &'a O,
         cost_acc: A,
         found: F,
     ) -> Self {
-        let came_from: PositionMap<Position> = PositionMap::new();
+        let mut came_from: PositionMap<Position> = PositionMap::new();
         let mut costs = PositionMap::new();
         let mut queue = BinaryHeap::new();
-        costs.insert(start, start_cost);
-        queue.push(PathNode {
-            pos: start,
-            exp_cost: start_cost,
-        });
+        for (start, start_cost, opt_from) in start {
+            costs.insert(start, start_cost);
+            queue.push(PathNode {
+                pos: start,
+                exp_cost: start_cost,
+            });
+            opt_from.map(|from| came_from.insert(start, from));
+        }
+
         Self {
             seeker,
             cost_acc,
@@ -217,13 +220,12 @@ pub trait Pathable: Observation {
         A: Fn(Position, C, &Self) -> C,
     >(
         &self,
-        start: Position,
-        start_cost: C,
+        start: impl IntoIterator<Item = (Position, C, Option<Position>)>,
         entity: WorldEntity,
         cost_acc: A,
         found: F,
     ) -> FindPathIter<'_, C, F, A, Self> {
-        FindPathIter::new(entity, start, start_cost, self, cost_acc, found)
+        FindPathIter::new(entity, start, self, cost_acc, found)
     }
 }
 

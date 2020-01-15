@@ -276,8 +276,9 @@ impl<T> Storage<T> {
             generations,
         } = self;
         let (con0, con_) = content.as_mut_slice().split_at_mut(idx);
-        let (gen0, gen1) = generations.as_mut_slice().split_at_mut(idx);
+        let (gen0, gen) = generations.as_mut_slice().split_at_mut(idx);
         let (e, con1) = con_.split_at_mut(1);
+        let (_, gen1) = gen.split_at_mut(1);
         if let Some(Some(elem)) = e.get_mut(0) {
             return Some((
                 elem,
@@ -367,7 +368,7 @@ impl<'a, T> Iterator for StorageSliceIter<'a, T> {
         while self.idx + 1 - self.slice.idx < self.slice.con1.len() {
             self.idx += 1;
 
-            if let Some(t) = &self.slice.con1[self.idx] {
+            if let Some(t) = &self.slice.con1[self.idx - self.slice.idx] {
                 return Some(t);
             }
         }
@@ -419,9 +420,9 @@ where
                 }
             }
         } else if idx > self.idx {
-            if let Some(stored_gen) = self.gen1.get(idx) {
+            if let Some(stored_gen) = self.gen1.get(idx - self.idx - 1) {
                 if *stored_gen == entity.gen {
-                    if let Some(opt) = self.con1.get(idx) {
+                    if let Some(opt) = self.con1.get(idx - self.idx - 1) {
                         return opt.as_ref().map(Into::into);
                     }
                 }
@@ -480,5 +481,64 @@ impl<'a, T: 'a, U: 'a, F: 'a + Fn(&U) -> Option<&T> + Sync + Send> Source<'a, &'
         self.storage
             .iter()
             .flat_map(move |u| (self.fun)(u).into_iter())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_storage_slice() {
+        let mut manager = EntityManager::default();
+        let mut odds: Storage<u32> = Storage::new();
+        let mut evens: Storage<u32> = Storage::new();
+        let mut even_ents = Vec::new();
+        let mut odd_ents = Vec::new();
+        let mut even_sum = 0;
+        let mut odd_sum = 0;
+        for i in 0..100 {
+            let id = manager.fresh();
+            if i % 2 == 0 {
+                evens.insert(id, i);
+                even_ents.push(id);
+                even_sum += i;
+            } else {
+                odds.insert(id, i);
+                odd_ents.push(id);
+                odd_sum += i;
+            }
+        }
+        for e in &manager {
+            if odds.get(e).is_some() {
+                assert!(evens.split_out_mut(e).is_none());
+                if let Some((ref i, ref others)) = odds.split_out_mut(e) {
+                    let mut sum = **i;
+                    let ot = &others;
+                    assert!((&others).into_iter().count() == 49);
+                    for oe in &manager {
+                        let o = others.get(oe).clone();
+                        if oe == e {
+                            assert!(o.is_none());
+                        } else {
+                            assert_eq!(
+                                o.is_some(),
+                                odd_ents.contains(&oe),
+                                "{:?} {:?} {:?}  {:?}",
+                                e,
+                                oe,
+                                o,
+                                odd_ents.contains(&oe)
+                            );
+                            o.map(|j: &u32| sum += *j);
+                        }
+                    }
+                } else {
+                    assert!(false, "if a storage contains an item it needs to be possible to split it out mutably")
+                }
+            } else {
+                assert!(evens.get(e).is_some());
+            }
+        }
     }
 }

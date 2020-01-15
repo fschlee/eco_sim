@@ -29,6 +29,9 @@ pub trait Cell: Deref<Target = [WorldEntity]> + Sized + Clone + Sync + std::fmt:
             0.0
         }
     }
+    fn is_model_cell() -> bool {
+        false
+    }
 }
 
 pub type DefCell = SmallVec<[WorldEntity; 3]>;
@@ -240,6 +243,10 @@ impl Cell for Occupancy {
             Unknown => true,
             Empty | Filled(_) | ExpectedFilled(_, _) => false,
         }
+    }
+
+    fn is_model_cell() -> bool {
+        true
     }
 }
 
