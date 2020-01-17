@@ -4,8 +4,8 @@ import torch
 import torch.nn.functional as fun
 import numpy
 import random
-import threading
 import time
+import math
 
 device=torch.device("cpu")
 if torch.cuda.is_available():
@@ -80,7 +80,8 @@ class ActionValues(torch.nn.Module):
         self.old_ment = None
 
         # Head for translating to action values
-        self.act = torch.nn.Linear(hsz, action_space_size)
+        self.act_hidden = torch.nn.Linear(hsz, 128)
+        self.act = torch.nn.Linear(128, action_space_size)
 
         # Head for anticipating mental states after a sim step
         self.infer_mental = torch.nn.Linear(hsz, max_other_agents * mental_size)
@@ -118,8 +119,11 @@ class ActionValues(torch.nn.Module):
             ), 2), self.state)
         self.state = s
         x = fun.relu(x.view(k, -1))
-        act = self.act(x)
         self.old_ment = self.infer_mental(x).view(k, self.max_other_agents, -1)
+
+        x = fun.relu(self.act_hidden(x))
+        act = self.act(x)
+
         return act, self.old_ment
 
     def reset_state(self):
@@ -177,8 +181,8 @@ class QLearner:
         running_mental_loss = 0.0
         total_count = 0
         action_space = Environment.action_space_size()
-        for epoch in range(0, epochs):
-           # choose_suggested = 1.0 / (epochs + 1)
+        for epoch in range(1, epochs):
+
             self.policy.reset_state()
             self.value.reset_state()
             current_count = 0
@@ -196,9 +200,26 @@ class QLearner:
             men = torch.from_numpy(mental).to(device)
             phys = torch.from_numpy(physical).to(device)
             death_count = 0
+
+            # Weight of real mental states of other agents relative to previously estimated mental states in input
+            # for next estimate.
+
+            mix_ratio = math.exp(epoch / -10.0)
+
+            # Probability of choosing the action suggested by the hardcoded behavior, choosing randomly,
+            # or choosing the action with maximal expected value.
+
+            p_choose_suggested = 0.5 * math.exp(epoch / -200.0)
+            p_choose_random = 0.5 * math.exp(epoch / -10.0)
+            p_choose_max = 1.0 - p_choose_random - p_choose_suggested
+
+            # Each agent sticks with one decision procedure for a while so that mid term dependencies,
+            # particularly in the suggested actions, can be better observed.
+
+            choose = rand.choices([0, 1, 2], weights=[p_choose_max, p_choose_suggested, p_choose_random], k=k)
             while not done and in_epoch_count < 1000:
                 if death_count > 0:
-
+                    choose = rand.choices([0, 1, 2], weights=[p_choose_max, p_choose_suggested, p_choose_random], k=k)
                     reg = self.env.register_agents(death_count)
                     k = len(reg)
                     registered = reg
@@ -209,15 +230,16 @@ class QLearner:
                 total_count += 1
                 in_epoch_count += 1
                 current_count += 1
-                pol, ment_inf = self.policy.forward(inp, phys, men, vis)
-                actions = [
-                    rand.choices(
-                        (rand.choice(range(0, action_space)),
-                         suggested_actions[i],
-                         torch.argmax(pol[i])),
-                        weights=(0.1, 0.3, 0.6),
-                        k=1)[0]
-                    for i in range(0, k)]
+                pol, ment_inf = self.policy.forward(inp, phys, men, vis, mix_ratio=mix_ratio)
+                actions = []
+                for i in range(0, k):
+                    choice = choose[i]
+                    if choice == 0:
+                        actions.append(torch.argmax(pol[i]))
+                    elif choice == 1:
+                        actions.append(suggested_actions[i])
+                    elif choice == 2:
+                        actions.append(rand.choice(range(0, action_space)))
                 obsv, new_rewards, new_suggested_actions, physical, mental, visibility, remappings, complete = self.env.step(actions)
                 vis = torch.tensor(visibility)
                 done = complete
@@ -228,7 +250,7 @@ class QLearner:
                 expected_rewards = new_rewards - rewards
                 death_count = 0
                 with torch.no_grad():
-                    m,_ = self.value.forward(inp, phys, men, vis)[0].max(1, keepdim=True)
+                    m,_ = self.value.forward(inp, phys, men, vis, mix_ratio=mix_ratio)[0].max(1, keepdim=True)
                     for (i, target) in remappings:
                         if target is None:
                             death_count += 1
@@ -255,6 +277,7 @@ class QLearner:
                     running_action_loss = 0.0
                     running_mental_loss = 0.0
                     self.policy.detach_state()
+                    choose = rand.choices([0, 1, 2], weights=[p_choose_max, p_choose_suggested, p_choose_random], k=k)
                 else:
                     loss.backward(retain_graph=True)
             torch.save(self.policy, "qlearner.bak")
@@ -264,4 +287,4 @@ class QLearner:
 
 if __name__ == '__main__':
     # start_gui=True, pretrained=torch.load("qlearner.bak")
-    QLearner(0, ).run()
+    QLearner(0, start_gui=True).run()
