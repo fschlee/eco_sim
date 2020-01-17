@@ -9,7 +9,7 @@ use enum_macros::EnumIter;
 use log::{error, info};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use strum_macros::{Display, EnumString};
 use winit::dpi::LogicalSize;
 use winit::{
@@ -25,6 +25,7 @@ pub mod simulation;
 pub mod ui;
 
 use crate::renderer::Renderer;
+pub use crate::simulation::TimeControl;
 use error::LogError;
 use renderer::init::{init_device, DeviceInit, InstSurface};
 use ui::AppState;
@@ -76,7 +77,7 @@ pub enum BackendSelection {
 fn main() {
     start(None)
 }
-pub fn start(sim: Option<Arc<RwLock<eco_sim::SimState>>>) {
+pub fn start(sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl>>)>) {
     env_logger::init();
     let mut event_loop;
     #[cfg(not(feature = "dependent"))]
@@ -178,14 +179,14 @@ fn init_all<IS: InstSurface + 'static>(
     mut event_loop: EventLoop<()>,
     window: Window,
     device_init: DeviceInit<IS>,
-    sim: Option<Arc<RwLock<eco_sim::SimState>>>,
+    sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl>>)>,
 ) {
     let window_client_area = window.inner_size().to_physical(window.hidpi_factor());
     let mut renderer = renderer::Renderer::new(window_client_area, device_init);
 
     let mut ui_state = ui::UIState::new(window, renderer::init::adapter_list());
-    let mut game_state = sim.map_or_else(simulation::GameState::new, |s| {
-        simulation::GameState::with_shared(s)
+    let mut game_state = sim.map_or_else(simulation::GameState::new, |(s, tc)| {
+        simulation::GameState::with_shared(s, Some(tc))
     });
 
     let glyph_cache = conrod_core::text::GlyphCache::builder()

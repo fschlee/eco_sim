@@ -10,6 +10,7 @@ use itertools::Itertools;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use winit::dpi::LogicalPosition;
 
 pub struct BaseData {
@@ -54,8 +55,18 @@ enum MapMode {
     MapKnowledge,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum TimeControl {
+    Wait(Duration),
+    Go,
+    Gone,
+}
+
 pub struct GameState {
     eco_sim: Arc<RwLock<eco_sim::SimState>>,
+    time_control: Option<Arc<RwLock<TimeControl>>>,
+    time_acc: f32,
+    sim_step: f32,
     base_data: BaseData,
     re_register: bool,
     models: [Model; EntityType::COUNT + Self::NON_ENTITY_MODELS],
@@ -77,12 +88,18 @@ impl GameState {
     const SQUARE: usize = EntityType::COUNT;
     pub fn new() -> GameState {
         let eco_sim = Arc::new(RwLock::new(SimState::new(SIM_STEP)));
-        Self::with_shared(eco_sim)
+        Self::with_shared(eco_sim, None)
     }
-    pub fn with_shared(eco_sim: Arc<RwLock<eco_sim::SimState>>) -> Self {
+    pub fn with_shared(
+        eco_sim: Arc<RwLock<eco_sim::SimState>>,
+        time_control: Option<Arc<RwLock<TimeControl>>>,
+    ) -> Self {
         let (base_data, models) = Self::init_models();
         GameState {
             eco_sim,
+            time_control,
+            time_acc: 0.0,
+            sim_step: SIM_STEP,
             base_data,
             re_register: true,
             models,
@@ -155,8 +172,23 @@ impl GameState {
     pub fn update(&mut self, actions: impl Iterator<Item = Action>, time_step: f32) {
         for a in actions {
             match a {
-                Action::Pause => self.paused = true,
-                Action::Unpause => self.paused = false,
+                Action::Pause => {
+                    self.paused = true;
+                    self.time_control
+                        .as_mut()
+                        .map(|tc| *tc.write().unwrap() = TimeControl::Gone);
+                }
+                Action::Unpause => {
+                    self.paused = false;
+                    self.time_control
+                        .as_mut()
+                        .map(|tc| *tc.write().unwrap() = TimeControl::Go);
+                }
+                Action::SetSpeed(speed) => {
+                    debug_assert!(speed > 0.0 && speed.is_finite());
+                    self.sim_step = SIM_STEP / speed;
+                    self.time_acc = self.time_acc.min(self.sim_step);
+                }
                 Action::Reset(pause_state) => {
                     self.paused = pause_state;
                     *self.eco_sim.write().unwrap() = SimState::new(SIM_STEP);
@@ -211,8 +243,31 @@ impl GameState {
                 }
             }
         }
-        if !self.paused {
-            self.eco_sim.write().unwrap().advance(time_step, None);
+        if self.paused {
+            self.time_acc = 0.0;
+        } else {
+            if let Some(tc) = &self.time_control {
+                self.time_acc += time_step;
+                let tc = &mut *tc.write().unwrap();
+                match *tc {
+                    TimeControl::Go => (),
+                    TimeControl::Wait(_) | TimeControl::Gone => {
+                        if self.time_acc >= self.sim_step {
+                            self.time_acc = (self.time_acc - self.sim_step).min(self.sim_step);
+                            *tc = TimeControl::Go;
+                        } else {
+                            *tc = TimeControl::Wait(Duration::from_secs_f32(
+                                self.sim_step - self.time_acc,
+                            ));
+                        }
+                    }
+                }
+            } else {
+                self.eco_sim
+                    .write()
+                    .unwrap()
+                    .advance(time_step * SIM_STEP / self.sim_step, None);
+            }
         }
     }
     pub fn get_render_data(&mut self) -> RenderData {

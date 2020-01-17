@@ -31,6 +31,7 @@ widget_ids! {
     pub struct WidgetIds {
         canvas,
         title,
+        speed_dialer,
         dialer_title,
         hunger_dialer,
         aggression_dialer,
@@ -126,9 +127,13 @@ enum UiStatus {
     Menu,
 }
 
+const MAX_SPEED: f32 = 100.0;
+const MIN_SPEED: f32 = 0.001;
+
 pub enum Action {
     Pause,
     Unpause,
+    SetSpeed(f32),
     Reset(bool),
     UpdateMentalState(
         eco_sim::WorldEntity,
@@ -166,6 +171,7 @@ pub struct UIState {
     tooltip_active: bool,
     receiving_text: bool,
     paused: bool,
+    speed: f32,
     edit_ent: Option<eco_sim::WorldEntity>,
     mental_model: Option<eco_sim::WorldEntity>,
 
@@ -200,6 +206,7 @@ impl UIState {
             ids,
             window,
             paused: true,
+            speed: 1.0,
             edit_ent: None,
             mental_model: None,
             hover_pos: None,
@@ -400,10 +407,19 @@ impl UIState {
                 .scroll_kids_vertically()
                 .w_h(self.size.width, self.size.height)
                 .set(self.ids.canvas, ui);
+            for new_speed in cc::widget::NumberDialer::new(self.speed, MIN_SPEED, MAX_SPEED, 3)
+                .w_h(170.0, 40.0)
+                .label("Speed")
+                .mid_top_of(self.ids.canvas)
+                .set(self.ids.speed_dialer, ui)
+            {
+                self.speed = new_speed;
+                self.actions.push_back(Action::SetSpeed(new_speed));
+            }
             if self.paused {
                 cc::widget::Text::new("Paused")
                     .font_size(32)
-                    .mid_top_of(self.ids.canvas)
+                    .left_from(self.ids.speed_dialer, 20.0)
                     .set(self.ids.title, ui);
             }
             cc::widget::Canvas::new()
@@ -700,6 +716,20 @@ impl UIState {
                 } else {
                     self.paused = true;
                     self.actions.push_back(Action::Pause);
+                }
+            }
+            Add => {
+                let new_speed = (self.speed * 1.5).min(MAX_SPEED);
+                if new_speed > self.speed {
+                    self.speed = new_speed;
+                    self.actions.push_back(Action::SetSpeed(new_speed));
+                }
+            }
+            Subtract => {
+                let new_speed = (self.speed / 1.5).min(MAX_SPEED);
+                if new_speed < self.speed {
+                    self.speed = new_speed;
+                    self.actions.push_back(Action::SetSpeed(new_speed));
                 }
             }
             Tab => {

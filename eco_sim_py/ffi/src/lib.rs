@@ -11,21 +11,28 @@ use eco_sim::{
     },
     Action, Cell, Coord, MentalState, SimState, World, WorldEntity, MAP_HEIGHT, MAP_WIDTH,
 };
+use eco_sim_gui::{start, TimeControl};
 use itertools::Itertools;
 use ndarray::{Array4, ArrayBase};
 
 use std::ops::Deref;
 use std::sync::{Arc, RwLock};
+use std::thread::sleep;
+use std::time::Duration;
 
 type EnvObservation = PyArray4<f32>;
 
 type EnvAction = usize;
 type Reward = f32;
 
+const MIN_SLEEP: Duration = Duration::from_millis(10);
+const MAX_SLEEP: Duration = Duration::from_millis(100);
+
 #[pyclass]
 struct Environment {
     sim: Arc<RwLock<SimState>>,
     agents: Vec<(WorldEntity, Coord)>,
+    time_control: Option<Arc<RwLock<TimeControl>>>,
 }
 /*
 #[pyfunction]
@@ -60,10 +67,13 @@ impl Environment {
         obj.init(Environment {
             sim,
             agents: Vec::new(),
+            time_control: None,
         });
     }
-    fn start_gui<'py>(&self, py: Python<'py>) {
-        let sim = Some(self.sim.clone());
+    fn start_gui<'py>(&mut self, py: Python<'py>) {
+        let tc = Arc::new(RwLock::new(TimeControl::Gone));
+        let sim = Some((self.sim.clone(), tc.clone()));
+        self.time_control = Some(tc);
         py.allow_threads(move || std::thread::spawn(move || eco_sim_gui::start(sim)));
     }
     fn reset(&mut self, seed: u64) {
@@ -75,6 +85,7 @@ impl Environment {
         let Self {
             ref mut agents,
             ref mut sim,
+            ..
         } = self;
         let sim = sim.write().unwrap();
         let mut old = Vec::new();
@@ -219,6 +230,21 @@ impl Environment {
         Vec<(usize, Option<usize>)>,
         bool,
     )> {
+        while let Some(dur) = {
+            self.time_control.as_mut().and_then(|tc| {
+                let tc = &mut *tc.write().unwrap();
+                match *tc {
+                    TimeControl::Go => {
+                        *tc = TimeControl::Gone;
+                        None
+                    }
+                    TimeControl::Gone => Some(MIN_SLEEP),
+                    TimeControl::Wait(dur) => Some(dur.min(MAX_SLEEP).max(MIN_SLEEP)),
+                }
+            })
+        } {
+            sleep(dur)
+        }
         let actions_to_take: Vec<_> = {
             let sim = self.sim.read().unwrap();
             let world = &sim.world;
@@ -233,7 +259,7 @@ impl Environment {
                 .map(|((we, _c), a)| (*we, obsv_writer.decode_action(*we, *a)))
                 .collect()
         };
-        py.allow_threads(|| self.sim.write().unwrap().advance(1.0, actions_to_take));
+        py.allow_threads(|| self.sim.write().unwrap().step(actions_to_take));
         self.state(py)
     }
     #[staticmethod]

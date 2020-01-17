@@ -50,24 +50,32 @@ impl SimState {
         self.time_acc += time_step;
         if self.time_acc >= self.sim_step {
             self.time_acc -= self.sim_step;
+            self.step(overridden);
+        } else {
             self.agent_system.override_actions(overridden);
-            self.agent_system.infer(&self.world);
-            self.world.events.clear();
-
-            #[cfg(feature = "torch")]
-            {
-                let ms: &MentalState = self.agent_system.mental_states.iter().next().unwrap();
-                let w = rl_env_helper::ObsvWriter::new(&self.world, &[]);
-                let mut arr = ndarray::Array4::zeros((MAP_HEIGHT, MAP_WIDTH, 8, 9));
-                w.encode_observation(&mut arr);
-            }
-            self.world.act(&self.agent_system.actions);
-            self.world.advance();
-            self.agent_system.process_feedback(&self.world.events);
-            self.respawn_killed();
-            self.agent_system.decide(&self.world);
-            self.next_step_count += 1;
         }
+    }
+    pub fn step(
+        &mut self,
+        overridden: impl IntoIterator<Item = (WorldEntity, Result<Action, FailReason>)>,
+    ) {
+        self.agent_system.override_actions(overridden);
+        self.agent_system.infer(&self.world);
+        self.world.events.clear();
+
+        #[cfg(feature = "torch")]
+        {
+            let ms: &MentalState = self.agent_system.mental_states.iter().next().unwrap();
+            let w = rl_env_helper::ObsvWriter::new(&self.world, &[]);
+            let mut arr = ndarray::Array4::zeros((MAP_HEIGHT, MAP_WIDTH, 8, 9));
+            w.encode_observation(&mut arr);
+        }
+        self.world.act(&self.agent_system.actions);
+        self.world.advance();
+        self.agent_system.process_feedback(&self.world.events);
+        self.respawn_killed();
+        self.agent_system.decide(&self.world);
+        self.next_step_count += 1;
     }
     fn respawn_killed(&mut self) {
         let Self {
