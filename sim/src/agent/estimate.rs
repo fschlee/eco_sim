@@ -268,7 +268,7 @@ impl MentalStateRep for ParticleFilterRep {
         let mut p_right_action = 0.0;
         for (ms, p) in self.particles.iter() {
             acc += *p;
-            if acc > target {
+            if acc >= target {
                 let n = (((acc - target) / inc).ceil() as usize).max(PARTICLE_COUNT - next.len());
                 target += n as f32 * inc;
                 for i in 0..n {
@@ -299,7 +299,6 @@ impl MentalStateRep for ParticleFilterRep {
                 }
             }
         }
-        debug_assert!(next.len() == PARTICLE_COUNT);
         let p_right: f32 = next.iter().map(|(_, p)| *p).sum();
         let inv = 1.0 / p_right;
         for (_, p) in next.iter_mut() {

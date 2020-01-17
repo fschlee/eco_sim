@@ -4,7 +4,6 @@ use pyo3::types::{PyDict, PyType};
 use pyo3::wrap_pyfunction;
 
 use eco_sim::{
-    entity::Source,
     entity_type::Count,
     rl_env_helper::{
         ObsvWriter, ENTITY_REP_SIZE, MAX_REP_PER_CELL, MENTAL_REP_SIZE, PHYS_REP_SIZE,
@@ -12,10 +11,8 @@ use eco_sim::{
     Action, Cell, Coord, MentalState, SimState, World, WorldEntity, MAP_HEIGHT, MAP_WIDTH,
 };
 use eco_sim_gui::{start, TimeControl};
-use itertools::Itertools;
 use ndarray::{Array4, ArrayBase};
 
-use std::ops::Deref;
 use std::sync::{Arc, RwLock};
 use std::thread::sleep;
 use std::time::Duration;
@@ -145,12 +142,11 @@ impl Environment {
         let mut remappings = Vec::new();
         let mut shifted = 0;
         for (i, (agent, _c)) in self.agents.iter().enumerate() {
-            let mut pyarr = PyArray4::zeros(
+            let pyarr = PyArray4::zeros(
                 py,
                 (MAP_HEIGHT, MAP_WIDTH, MAX_REP_PER_CELL, ENTITY_REP_SIZE),
                 false,
             );
-            let killed = false;
             observations.push(pyarr);
 
             let (reward, act, killed) = match (
@@ -178,7 +174,7 @@ impl Environment {
             .agents
             .iter()
             .enumerate()
-            .map(|(i, (a, s))| {
+            .map(|(i, (_a, s))| {
                 let v: Vec<bool> = positions
                     .iter()
                     .map(|op| match (op, positions[i]) {
@@ -259,6 +255,7 @@ impl Environment {
                 .map(|((we, _c), a)| (*we, obsv_writer.decode_action(*we, *a)))
                 .collect()
         };
+        // println!("valid: {}", actions_to_take.iter().filter(|(_, r)|r.is_ok()).count());
         py.allow_threads(|| self.sim.write().unwrap().step(actions_to_take));
         self.state(py)
     }
@@ -293,7 +290,7 @@ impl Environment {
 }
 
 #[pymodule]
-fn eco_sim(py: Python, m: &PyModule) -> PyResult<()> {
+fn eco_sim(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Environment>()?;
     // m.add_wrapped(wrap_pyfunction!(start_with_gui))?;
     Ok(())

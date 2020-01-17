@@ -275,3 +275,45 @@ impl<'a> ObsvWriter<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_encode_decode_action() {
+        let mut sim = crate::SimState::new_with_seed(1.0, 1977);
+        sim.step(None);
+        let test = |sim: &crate::SimState| {
+            let mut actions = Vec::new();
+            let views: Vec<_> = sim
+                .agent_system
+                .mental_states
+                .iter()
+                .map(|ms: &MentalState| {
+                    actions.push(ms.current_action);
+                    (ms.id, ms.sight_radius)
+                })
+                .collect();
+            let obsv = ObsvWriter {
+                views: &views,
+                world: &sim.world,
+                #[cfg(feature = "torch")]
+                device: Device::Cpu,
+            };
+            for (e, ra) in &sim.agent_system.actions {
+                if let Ok(a) = ra {
+                    let enc_a = obsv.encode_action(*e, *a);
+                    assert!(enc_a.is_ok());
+                    let dec_a = obsv.decode_action(*e, enc_a.unwrap());
+                    assert!(dec_a.is_err() || *ra == dec_a);
+                }
+            }
+        };
+        test(&sim);
+        for _ in 0..20 {
+            sim.step(None);
+            test(&sim);
+        }
+    }
+}

@@ -209,9 +209,10 @@ class QLearner:
             # Probability of choosing the action suggested by the hardcoded behavior, choosing randomly,
             # or choosing the action with maximal expected value.
 
-            p_choose_suggested = 0.5 * math.exp(epoch / -200.0)
-            p_choose_random = 0.5 * math.exp(epoch / -10.0)
+            p_choose_suggested = 0.9 * math.exp(epoch / -50.0)
+            p_choose_random =  0.1 * math.exp(epoch / -50.0)
             p_choose_max = 1.0 - p_choose_random - p_choose_suggested
+            print(p_choose_max, p_choose_suggested, p_choose_random)
 
             # Each agent sticks with one decision procedure for a while so that mid term dependencies,
             # particularly in the suggested actions, can be better observed.
@@ -219,7 +220,6 @@ class QLearner:
             choose = rand.choices([0, 1, 2], weights=[p_choose_max, p_choose_suggested, p_choose_random], k=k)
             while not done and in_epoch_count < 1000:
                 if death_count > 0:
-                    choose = rand.choices([0, 1, 2], weights=[p_choose_max, p_choose_suggested, p_choose_random], k=k)
                     reg = self.env.register_agents(death_count)
                     k = len(reg)
                     registered = reg
@@ -227,6 +227,7 @@ class QLearner:
                     self.value.remap(remappings, k)
                     tup = self.env.state()
                     rewards = torch.tensor(tup[1]).view(-1, 1)
+                    choose = rand.choices([0, 1, 2], weights=[p_choose_max, p_choose_suggested, p_choose_random], k=k)
                 total_count += 1
                 in_epoch_count += 1
                 current_count += 1
@@ -241,6 +242,7 @@ class QLearner:
                     elif choice == 2:
                         actions.append(rand.choice(range(0, action_space)))
                 obsv, new_rewards, new_suggested_actions, physical, mental, visibility, remappings, complete = self.env.step(actions)
+                suggested_actions = new_suggested_actions
                 vis = torch.tensor(visibility)
                 done = complete
                 inp = torch.stack([transposed_tensor(np) for np in obsv])
@@ -249,6 +251,7 @@ class QLearner:
                 new_rewards = torch.tensor(new_rewards).view(-1, 1)
                 expected_rewards = new_rewards - rewards
                 death_count = 0
+
                 with torch.no_grad():
                     m,_ = self.value.forward(inp, phys, men, vis, mix_ratio=mix_ratio)[0].max(1, keepdim=True)
                     for (i, target) in remappings:
