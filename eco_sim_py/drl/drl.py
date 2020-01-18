@@ -173,7 +173,7 @@ class QLearner:
         self.optimizer = torch.optim.RMSprop(self.policy.parameters())
         self.optimizer
 
-    def run(self, epochs=400, wait=0):
+    def run(self, start_epoch=0, epochs=400, wait=0):
         time.sleep(wait)
         action_losses = []
         mental_losses = []
@@ -181,7 +181,8 @@ class QLearner:
         running_mental_loss = 0.0
         total_count = 0
         action_space = Environment.action_space_size()
-        for epoch in range(1, epochs):
+        gamma = 0.99
+        for epoch in range(start_epoch, epochs):
 
             self.policy.reset_state()
             self.value.reset_state()
@@ -258,7 +259,7 @@ class QLearner:
                         if target is None:
                             death_count += 1
                             m[i, 0] = 0.0
-                    expected_rewards += m
+                    expected_rewards += gamma * m
                 rewards = new_rewards
                 action_loss = fun.smooth_l1_loss(pol.gather(1, torch.tensor(actions).view(k, 1)), expected_rewards)
                 ment_loss = fun.smooth_l1_loss(ment_inf[:, :k, :], men.expand(k, -1, -1))
@@ -290,4 +291,4 @@ class QLearner:
 
 if __name__ == '__main__':
     # start_gui=True, pretrained=torch.load("qlearner.bak")
-    QLearner(0, start_gui=True).run()
+    QLearner(0, start_gui=True, pretrained=torch.load("qlearner.bak")).run()
