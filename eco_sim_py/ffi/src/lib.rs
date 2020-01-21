@@ -161,7 +161,7 @@ impl Environment {
                 _ => (-1000.0, Action::Idle, true),
             };
             positions.push(world.positions.get(agent));
-            suggested.push(obsv_writer.encode_action(*agent, act).unwrap());
+            suggested.push(obsv_writer.encode_action(*agent, act).unwrap_or(0));
             rewards.push(reward);
             if killed {
                 remappings.push((i, None));

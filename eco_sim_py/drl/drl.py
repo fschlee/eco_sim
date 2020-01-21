@@ -171,9 +171,8 @@ class QLearner:
             self.policy = ActionValues()
         self.value = ActionValues().eval()
         self.optimizer = torch.optim.RMSprop(self.policy.parameters())
-        self.optimizer
 
-    def run(self, start_epoch=0, epochs=400, wait=0):
+    def run(self, start_epoch=0, epochs=20000, wait=0):
         time.sleep(wait)
         action_losses = []
         mental_losses = []
@@ -181,7 +180,7 @@ class QLearner:
         running_mental_loss = 0.0
         total_count = 0
         action_space = Environment.action_space_size()
-        gamma = 0.99
+        interval = 20
         for epoch in range(start_epoch, epochs):
 
             self.policy.reset_state()
@@ -201,6 +200,8 @@ class QLearner:
             men = torch.from_numpy(mental).to(device)
             phys = torch.from_numpy(physical).to(device)
             death_count = 0
+            epoch_length = interval * math.ceil(math.log(epoch + 1.0))
+            gamma = 0.999 - 0.99 * math.exp(epoch / -10.0)
 
             # Weight of real mental states of other agents relative to previously estimated mental states in input
             # for next estimate.
@@ -210,8 +211,8 @@ class QLearner:
             # Probability of choosing the action suggested by the hardcoded behavior, choosing randomly,
             # or choosing the action with maximal expected value.
 
-            p_choose_suggested = 0.9 * math.exp(epoch / -50.0)
-            p_choose_random =  0.1 * math.exp(epoch / -50.0)
+            p_choose_suggested = 0.7 * math.exp(epoch / -200.0)
+            p_choose_random =  0.3 * math.exp(epoch / -50.0)
             p_choose_max = 1.0 - p_choose_random - p_choose_suggested
             print(p_choose_max, p_choose_suggested, p_choose_random)
 
@@ -219,7 +220,7 @@ class QLearner:
             # particularly in the suggested actions, can be better observed.
 
             choose = rand.choices([0, 1, 2], weights=[p_choose_max, p_choose_suggested, p_choose_random], k=k)
-            while not done and in_epoch_count < 1000:
+            while not done and in_epoch_count < epoch_length:
                 if death_count > 0:
                     reg = self.env.register_agents(death_count)
                     k = len(reg)
@@ -266,7 +267,7 @@ class QLearner:
                 loss = action_loss + ment_loss
                 running_action_loss += action_loss.item()
                 running_mental_loss += ment_loss.item()
-                if done or current_count > 20:
+                if done or current_count >= interval:
                     self.value.load_state_dict(self.policy.state_dict())
                     loss.backward()
                     self.optimizer.step()
@@ -286,9 +287,35 @@ class QLearner:
                     loss.backward(retain_graph=True)
             torch.save(self.policy, "qlearner.bak")
 
+    def act(self):
+        self.policy.reset_state()
+        registered = self.env.register_agents(self.agent_count)
+        k = len(registered)
+        obsv, rewards, suggested_actions, physical, mental, visibility, remappings, complete  = self.env.state()
+        vis = torch.tensor(visibility)
+        inp = torch.stack([transposed_tensor(np) for np in obsv])
+        men = torch.from_numpy(mental).to(device)
+        phys = torch.from_numpy(physical).to(device)
+        death_count = 0
+        while True:
+            if death_count > 0:
+                reg = self.env.register_agents(death_count)
+                k = len(reg)
+                self.policy.remap(remappings, k)
+            with torch.no_grad():
+                pol, ment_inf = self.policy.forward(inp, phys, men, vis, mix_ratio=0.0)
+            actions = [torch.argmax(pol[i]) for i in range(0, k)]
+            obsv, new_rewards, new_suggested_actions, physical, mental, visibility, remappings, complete = self.env.step(actions)
 
+            inp = torch.stack([transposed_tensor(np) for np in obsv])
+            men = torch.from_numpy(mental).to(device)
+            phys = torch.from_numpy(physical).to(device)
+            death_count = 0
+            for (i, target) in remappings:
+                if target is None:
+                    death_count += 1
 
 
 if __name__ == '__main__':
     # start_gui=True, pretrained=torch.load("qlearner.bak")
-    QLearner(0, start_gui=True, pretrained=torch.load("qlearner.bak")).run()
+    QLearner(0, pretrained=torch.load("qlearner.bak"), start_gui=True).act()
