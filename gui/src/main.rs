@@ -4,6 +4,7 @@
 #![feature(const_loop)]
 #![feature(const_if_match)]
 #![feature(const_in_array_repeat_expressions)]
+#![feature(str_strip)]
 
 use enum_macros::EnumIter;
 use log::{error, info};
@@ -116,6 +117,9 @@ pub fn start(sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl
             .next()
             .expect("No backend available"),
     };
+    let seed = args.iter()
+        .find_map(|arg| arg.strip_prefix("--seed="))
+        .and_then(|s| u64::from_str(s).ok());
     let adapter_selection = args.get(2).and_then(|s| usize::from_str(s).ok());
     use BackendSelection::*;
     match back {
@@ -124,7 +128,7 @@ pub fn start(sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl
             let (di, window) =
                 renderer::init::init_gl(window_builder, &event_loop, adapter_selection)
                     .expect("could not initialize device");
-            init_all(event_loop, window, di, sim)
+            init_all(event_loop, window, di, sim, seed)
         }
         back => {
             let window = window_builder
@@ -138,7 +142,7 @@ pub fn start(sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl
                         <gfx_backend_vulkan::Backend as gfx_hal::Backend>::Surface,
                     )>(&window, adapter_selection)
                     .expect("could not initialize device");
-                    init_all(event_loop, window, di, sim)
+                    init_all(event_loop, window, di, sim, seed)
                 }
                 #[cfg(all(feature = "dx12", not(macos)))]
                 Dx12 => {
@@ -147,7 +151,7 @@ pub fn start(sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl
                         <gfx_backend_dx12::Backend as gfx_hal::Backend>::Surface,
                     )>(&window, adapter_selection)
                     .expect("could not initialize device");
-                    init_all(event_loop, window, di, sim)
+                    init_all(event_loop, window, di, sim, seed)
                 }
                 #[cfg(all(feature = "dx11", not(macos)))]
                 Dx11 => {
@@ -157,7 +161,7 @@ pub fn start(sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl
                         <gfx_backend_dx11::Backend as gfx_hal::Backend>::Surface,
                     )>(&window, adapter_selection)
                     .expect("could not initialize device");
-                    init_all(event_loop, window, di, sim)
+                    init_all(event_loop, window, di, sim, seed)
                 }
                 #[cfg(all(macos, feature = "metal"))]
                 Metal => {
@@ -166,7 +170,7 @@ pub fn start(sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl
                         <gfx_backend_metal::Backend as gfx_hal::Backend>::Surface,
                     )>(&window, adapter_selection)
                     .expect("could not initialize device");
-                    init_all(event_loop, window, di, sim)
+                    init_all(event_loop, window, di, sim, seed)
                 }
                 #[cfg(feature = "gl")]
                 OpenGl => unreachable!(),
@@ -180,12 +184,19 @@ fn init_all<IS: InstSurface + 'static>(
     window: Window,
     device_init: DeviceInit<IS>,
     sim: Option<(Arc<RwLock<eco_sim::SimState>>, Arc<RwLock<TimeControl>>)>,
+    seed : Option<u64>,
 ) {
     let window_client_area = window.inner_size().to_physical(window.hidpi_factor());
     let mut renderer = renderer::Renderer::new(window_client_area, device_init);
 
     let mut ui_state = ui::UIState::new(window, renderer::init::adapter_list());
-    let mut game_state = sim.map_or_else(simulation::GameState::new, |(s, tc)| {
+    let mut game_state = sim.map_or_else(|| {
+        if let Some(s) = seed {
+            simulation::GameState::new_with_seed(s)
+        } else {
+            simulation::GameState::new()
+        }
+    }, |(s, tc)| {
         simulation::GameState::with_shared(s, Some(tc))
     });
 

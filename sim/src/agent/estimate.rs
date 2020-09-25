@@ -216,6 +216,12 @@ pub struct ParticleFilterRep {
     p_wrong_action: Prob,
 }
 
+impl ParticleFilterRep {
+    pub fn iter_particles(&self) -> impl Iterator<Item=&(MentalState, Prob)> {
+        self.particles.iter()
+    }
+}
+
 impl MentalStateRep for ParticleFilterRep {
     type Iter<'a> =
         impl ExactSizeIterator<Item = (&'a EmotionalState, &'a Action, &'a Option<Behavior>)> + 'a;

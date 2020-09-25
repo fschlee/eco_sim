@@ -90,6 +90,10 @@ impl GameState {
         let eco_sim = Arc::new(RwLock::new(SimState::new(SIM_STEP)));
         Self::with_shared(eco_sim, None)
     }
+    pub fn new_with_seed(seed: u64) -> GameState {
+        let eco_sim = Arc::new(RwLock::new(SimState::new_with_seed(SIM_STEP, seed)));
+        Self::with_shared(eco_sim, None)
+    }
     pub fn with_shared(
         eco_sim: Arc<RwLock<eco_sim::SimState>>,
         time_control: Option<Arc<RwLock<TimeControl>>>,

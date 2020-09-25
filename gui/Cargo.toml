@@ -43,7 +43,7 @@ conrod_winit = "^0.68"
 
 #graphics data etc
 smallvec = "^0.6"
-image = "*"
+image = "0.22"
 shaderc = "0.6"
 lazy_static = "^1"
 nalgebra = "^0.19.*"

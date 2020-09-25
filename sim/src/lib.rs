@@ -60,7 +60,6 @@ impl SimState {
         overridden: impl IntoIterator<Item = (WorldEntity, Result<Action, FailReason>)>,
     ) {
         self.agent_system.override_actions(overridden);
-        self.agent_system.infer(&self.world);
         self.world.events.clear();
 
         #[cfg(feature = "torch")]
@@ -75,6 +74,7 @@ impl SimState {
         self.agent_system.process_feedback(&self.world.events);
         self.respawn_killed();
         self.agent_system.decide(&self.world);
+        self.agent_system.infer(&self.world);
         self.next_step_count += 1;
     }
     fn respawn_killed(&mut self) {
